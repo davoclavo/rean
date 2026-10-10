@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.18.0/.schema/devbox.schema.json",
+  "packages": [
+    "rustc@latest",
+    "cargo@latest",
+    "rustfmt@latest",
+    "clippy@latest",
+    "rust-analyzer@latest"
+  ],
+  "env": {
+    "RUST_BACKTRACE": "1"
+  },
+  "shell": {
+    "init_hook": [
+      "echo \"rean: rustc $(rustc --version | cut -d' ' -f2)\""
+    ],
+    "scripts": {
+      "build": ["cargo build --workspace"],
+      "test": ["cargo test --workspace"],
+      "lint": ["cargo clippy --workspace --all-targets -- -D warnings"],
+      "fmt": ["cargo fmt --all"],
+      "check": [
+        "cargo fmt --all --check",
+        "cargo clippy --workspace --all-targets -- -D warnings",
+        "cargo test --workspace"
+      ]
+    }
+  }
+}

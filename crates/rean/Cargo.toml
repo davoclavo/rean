@@ -1,0 +1,19 @@
+[package]
+name = "rean"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rean"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+rean_core.workspace = true
+rean_lexer.workspace = true
+rean_syntax.workspace = true
+rean_kernel.workspace = true

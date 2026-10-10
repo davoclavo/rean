@@ -1,0 +1,203 @@
+# rean
+
+A Lean compiler in Rust. This repository holds the foundations of the frontend.
+
+## Start
+
+```sh
+devbox shell          # enter the toolchain
+devbox run build      # cargo build --workspace
+devbox run test       # cargo test --workspace
+devbox run check      # fmt, clippy, and test
+```
+
+Two commands show the code at work:
+
+```sh
+cargo run -p rean -- lex examples/twice.lean    # print every token
+cargo run -p rean -- demo                       # walk the four stages
+```
+
+## How Lean compiles a file
+
+Lean does not use the pipeline of a C compiler. The order below is the one that
+matters, and it explains why the crates split the way they do.
+
+1. **Lex.** Text becomes tokens. The set of tokens is not fixed. A `notation`
+   command adds a token while the compiler reads the file.
+2. **Parse.** Tokens become a `Syntax` tree. The parser is a Pratt parser, and
+   it reads its grammar from a table that user commands extend.
+3. **Elaborate.** The `Syntax` tree becomes an `Expr`. This stage expands
+   macros, resolves names, infers implicit arguments, and runs tactics. It is
+   the largest stage and it holds every rule about meaning.
+4. **Check.** The kernel checks the `Expr`. The kernel is small, and it is the
+   only part that you must trust.
+5. **Compile.** The kernel term becomes LCNF, then C code or an interpreter
+   call. This repository does not reach stage 5 yet.
+
+Stage 3 is where Lean differs most from other languages. In Rust the compiler
+owns the grammar and the type rules. In Lean a file can extend both. The
+compiler therefore reads the grammar and the elaboration rules out of an
+environment that grows as it works.
+
+## The crates
+
+| Crate | Job |
+|---|---|
+| `rean_core` | `Name`, `Span`, `SourceMap`, `Diagnostic`. Every crate uses these. |
+| `rean_lexer` | `TokenTable`, `Lexer`, `Token`. Stage 1. |
+| `rean_syntax` | `Syntax`, the lossless tree. The result of stage 2. |
+| `rean_kernel` | `Expr`, `Level`, and the three variable operations. Stage 4. |
+| `rean` | The driver. It owns the order of the stages and all input and output. |
+
+No library crate reads a file or prints a line. Only `rean` does. A test can
+therefore call any stage directly.
+
+## Chapters
+
+| Chapter | Topic |
+|---|---|
+| [0 — Introduction to the kernel](docs/00-introduction-to-the-kernel.md) | What a proof checker is. `Sort`, `Prop`, `Type`, de Bruijn indices, definitional equality, and the ultimate primitives. |
+
+Every claim in chapter 0 has a test:
+
+```sh
+devbox run -- cargo test -p rean_kernel --test universes
+```
+
+## The building blocks
+
+### 1. `Name`: a hierarchical identifier
+
+See `crates/rean_core/src/name.rs`.
+
+`Nat.succ` is not a string. It is a list of parts that grows at the front.
+
+```rust
+Name::from_dotted("Nat.succ")   // Str(Str(Anonymous, "Nat"), "succ")
+```
+
+Three reasons explain the design:
+
+- A `namespace` command only adds a prefix. A list makes that cheap.
+- The elaborator invents fresh names, such as `_uniq.17`. A numeric part needs
+  no string.
+- A `Syntax` node kind is also a `Name`. One type serves both jobs.
+
+### 2. `Span`: a byte range
+
+See `crates/rean_core/src/source.rs`.
+
+A position is one `u32` byte offset. A `Span` is therefore 8 bytes, and every
+syntax node can hold one. The compiler computes a line and a column only when it
+prints a message. `SourceFile` keeps a table of line starts for that job.
+
+### 3. `Diagnostic`: many errors in one run
+
+See `crates/rean_core/src/diag.rs`.
+
+A stage never stops at the first error. It puts a `Diagnostic` into a
+`DiagnosticBag`, repairs the hole, and continues. This rule is the reason that
+the syntax tree needs a `Missing` node.
+
+### 4. `TokenTable`: the lexer has no keyword list
+
+See `crates/rean_lexer/src/table.rs`.
+
+This block is the first real surprise of a Lean frontend. A C lexer holds its
+keywords in a `match`. A Lean lexer cannot, because this line adds a token:
+
+```lean
+infixl:65 " ⊹ " => HAdd.hAdd
+```
+
+Before that line, `⊹` is an unknown character. After it, `⊹` is a token. The
+lexer therefore asks a table on every token, and the table can grow. The table
+answers one question: what is the longest token in the table that starts this
+text? The longest match matters. Without it, `:=` would lex as `:` and then `=`.
+
+```rust
+let mut table = TokenTable::builtin();
+table.insert("⊹");        // what a notation command does
+```
+
+### 5. `Syntax`: one lossless tree for every construct
+
+See `crates/rean_syntax/src/lib.rs`.
+
+Most compilers give each construct its own struct. Lean has one tree type with
+four cases, and the node kind is a `Name` such as `Rean.Parser.Term.app`.
+
+The macro system forces this design. A `syntax` command declares a new node kind
+at run time. A fixed set of Rust enum variants could not hold it. A `Name` can.
+
+The tree keeps every keyword and every bracket, so the tree is lossless. A
+pretty printer and a language server both need that.
+
+The price is that a later stage cannot trust the shape of a node. The elaborator
+must check the shape itself.
+
+### 6. `Expr`: the kernel term
+
+See `crates/rean_kernel/src/expr.rs`.
+
+`Expr` has ten variants and a user cannot add one. It is the input of the type
+checker.
+
+A bound variable has no name. It has a de Bruijn index, which is the count of
+binders between the use and the binder that owns it.
+
+```text
+fun x => fun y => x        becomes   Lam (Lam (BVar 1))
+fun x => fun y => y        becomes   Lam (Lam (BVar 0))
+```
+
+Two terms that differ only in binder names become the same `Expr`. A type
+checker compares types on every step, so this property removes a whole class of
+bugs.
+
+The cost is that substitution must renumber. Three operations do that work:
+
+- `lift` adds to every loose index. A term that moves under a new binder needs
+  it.
+- `instantiate` replaces index 0 with a term. A beta step is one `instantiate`.
+- `abstract_fvar` is the reverse. The elaborator opens a binder, works with a
+  free variable that never changes number, and then closes the binder again.
+
+### 7. `Level`: universes
+
+See `crates/rean_kernel/src/level.rs`.
+
+`Type` cannot hold itself, so `Sort` takes a level. A level is not only a
+number, because a polymorphic definition needs a level variable. `IMax` exists
+for `Prop`: a function into `Prop` is a proposition, whatever the level of its
+argument is.
+
+## What is not here yet
+
+The order below is the order to build.
+
+1. **Trivia on a token.** Lean keeps the whitespace before and after each atom
+   in the `Syntax` tree. A `do` block needs the column, and a pretty printer
+   needs the text. The lexer now drops whitespace.
+2. **A Pratt parser.** It reads a precedence table, so a `notation` command can
+   extend the grammar. It writes `Syntax` and `Missing`.
+3. **An `Environment`.** A map from `Name` to a declaration, plus the token
+   table and the grammar table. Every stage reads it, and a command extends it.
+4. **A local context and metavariables.** The elaborator needs `FVarId` to point
+   at a binder and `MVarId` to hold a hole.
+5. **The elaborator.** `Syntax` becomes `Expr`. Macro expansion, name
+   resolution, unification, and implicit arguments live here.
+6. **`whnf` and `isDefEq`.** Weak head normal form and definitional equality.
+   They need delta, zeta, iota, and eta, not only the beta step that exists now.
+7. **`inferType` and the kernel checker.** The part that you must trust.
+8. **Inductive types.** The recursor, the iota rule, and the positivity test.
+9. **LCNF and a backend.** Stage 5.
+
+## References
+
+- *The Lean 4 Theorem Prover and Programming Language*, de Moura and Ullrich.
+- *Beyond Notations: Hygienic Macro Expansion for Theorem Proving Languages*,
+  Ullrich and de Moura.
+- The Lean 4 source. `src/Lean/Parser`, `src/Lean/Elab`, and
+  `src/kernel` match stages 2, 3, and 4.
