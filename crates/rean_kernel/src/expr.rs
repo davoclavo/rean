@@ -312,6 +312,96 @@ impl Expr {
         }
     }
 
+    // --- comparison ------------------------------------------------------
+
+    /// Returns `true` if `self` and `other` are the same term up to binder
+    /// names.
+    ///
+    /// `Expr` keeps `binder_name` for the printer only. The de Bruijn index
+    /// already carries the meaning, so a comparison must skip that field.
+    /// The derived `==` does not skip it:
+    ///
+    /// ```
+    /// use rean_kernel::Expr;
+    /// let nat = Expr::const_("Nat", vec![]);
+    /// let with_x = Expr::lam("x", nat.clone(), Expr::bvar(0));
+    /// let with_y = Expr::lam("y", nat.clone(), Expr::bvar(0));
+    /// assert!(with_x != with_y);
+    /// assert!(with_x.alpha_eq(&with_y));
+    /// ```
+    ///
+    /// This method still compares [`BinderInfo`]. Whether the kernel should
+    /// ignore that field as well is a separate question, and chapter 2 revisits
+    /// it.
+    pub fn alpha_eq(&self, other: &Expr) -> bool {
+        match (self, other) {
+            (Expr::BVar(a), Expr::BVar(b)) => a == b,
+            (Expr::FVar(a), Expr::FVar(b)) => a == b,
+            (Expr::MVar(a), Expr::MVar(b)) => a == b,
+            (Expr::Sort(a), Expr::Sort(b)) => a.is_equiv(b),
+            (
+                Expr::Const {
+                    name: n1,
+                    levels: l1,
+                },
+                Expr::Const {
+                    name: n2,
+                    levels: l2,
+                },
+            ) => n1 == n2 && l1.len() == l2.len() && l1.iter().zip(l2).all(|(a, b)| a.is_equiv(b)),
+            (Expr::App { fun: f1, arg: a1 }, Expr::App { fun: f2, arg: a2 }) => {
+                f1.alpha_eq(f2) && a1.alpha_eq(a2)
+            }
+            (
+                Expr::Lam {
+                    binder_type: t1,
+                    body: b1,
+                    info: i1,
+                    ..
+                },
+                Expr::Lam {
+                    binder_type: t2,
+                    body: b2,
+                    info: i2,
+                    ..
+                },
+            )
+            | (
+                Expr::Forall {
+                    binder_type: t1,
+                    body: b1,
+                    info: i1,
+                    ..
+                },
+                Expr::Forall {
+                    binder_type: t2,
+                    body: b2,
+                    info: i2,
+                    ..
+                },
+            ) => i1 == i2 && t1.alpha_eq(t2) && b1.alpha_eq(b2),
+            (
+                Expr::Let {
+                    binder_type: t1,
+                    value: v1,
+                    body: b1,
+                    ..
+                },
+                Expr::Let {
+                    binder_type: t2,
+                    value: v2,
+                    body: b2,
+                    ..
+                },
+            ) => t1.alpha_eq(t2) && v1.alpha_eq(v2) && b1.alpha_eq(b2),
+            (Expr::Lit(a), Expr::Lit(b)) => a == b,
+            (Expr::Proj(a), Expr::Proj(b)) => {
+                a.structure == b.structure && a.index == b.index && a.value.alpha_eq(&b.value)
+            }
+            _ => false,
+        }
+    }
+
     // --- the three variable operations -----------------------------------
 
     /// Adds `amount` to every bound variable whose index is at least `cutoff`.
@@ -524,15 +614,31 @@ impl Expr {
     /// Renders `self` with names instead of indices.
     ///
     /// The printer gives each binder a fresh name, so that no inner binder
-    /// hides an outer one.
+    /// hides an outer one. A free variable prints as `_f<id>`, because this
+    /// method has no local context to read. Use
+    /// [`LocalContext::pretty`][crate::LocalContext::pretty] when you have one.
     pub fn pretty(&self) -> String {
+        self.pretty_with(&|_| None)
+    }
+
+    /// Renders `self`, and asks `fvar_name` for the name of a free variable.
+    ///
+    /// An error message must say `a → a`, not `_f0 → _f0`. The caller holds the
+    /// names, so the caller supplies them.
+    pub fn pretty_with(&self, fvar_name: &dyn Fn(FVarId) -> Option<String>) -> String {
         let mut out = String::new();
         let mut names = Vec::new();
-        self.write_pretty(&mut out, &mut names, 0);
+        self.write_pretty(&mut out, &mut names, 0, fvar_name);
         out
     }
 
-    fn write_pretty(&self, out: &mut String, names: &mut Vec<String>, prec: u8) {
+    fn write_pretty(
+        &self,
+        out: &mut String,
+        names: &mut Vec<String>,
+        prec: u8,
+        fvar: &dyn Fn(FVarId) -> Option<String>,
+    ) {
         // The precedence levels are: 0 for a binder body, 1 for an argument of
         // an arrow, and 2 for an argument of an application.
         match self {
@@ -543,7 +649,10 @@ impl Expr {
                     None => out.push_str(&format!("#{index}")),
                 }
             }
-            Expr::FVar(id) => out.push_str(&format!("_f{}", id.0)),
+            Expr::FVar(id) => match fvar(*id) {
+                Some(name) => out.push_str(&name),
+                None => out.push_str(&format!("_f{}", id.0)),
+            },
             Expr::MVar(id) => out.push_str(&format!("?m{}", id.0)),
             Expr::Sort(level) => match level.to_nat() {
                 Some(0) => out.push_str("Prop"),
@@ -561,7 +670,7 @@ impl Expr {
             Expr::Lit(Literal::Nat(digits)) => out.push_str(digits),
             Expr::Lit(Literal::Str(value)) => out.push_str(&format!("{value:?}")),
             Expr::Proj(proj) => {
-                proj.value.write_pretty(out, names, 2);
+                proj.value.write_pretty(out, names, 2, fvar);
                 out.push_str(&format!(".{}", proj.index + 1));
             }
             Expr::App { .. } => {
@@ -570,10 +679,10 @@ impl Expr {
                 if wrap {
                     out.push('(');
                 }
-                head.write_pretty(out, names, 2);
+                head.write_pretty(out, names, 2, fvar);
                 for arg in args {
                     out.push(' ');
-                    arg.write_pretty(out, names, 2);
+                    arg.write_pretty(out, names, 2, fvar);
                 }
                 if wrap {
                     out.push(')');
@@ -594,11 +703,11 @@ impl Expr {
                 out.push_str("fun ");
                 out.push_str(open);
                 out.push_str(&format!("{name} : "));
-                binder_type.write_pretty(out, names, 0);
+                binder_type.write_pretty(out, names, 0, fvar);
                 out.push_str(close);
                 out.push_str(" => ");
                 names.push(name);
-                body.write_pretty(out, names, 0);
+                body.write_pretty(out, names, 0, fvar);
                 names.pop();
                 if wrap {
                     out.push(')');
@@ -617,20 +726,20 @@ impl Expr {
                 let name = fresh(binder_name, names);
                 // A body that ignores the binder prints as a plain arrow.
                 if !body.has_loose_bvar(0) && *info == BinderInfo::Default {
-                    binder_type.write_pretty(out, names, 1);
+                    binder_type.write_pretty(out, names, 1, fvar);
                     out.push_str(" → ");
                     names.push(name);
-                    body.write_pretty(out, names, 0);
+                    body.write_pretty(out, names, 0, fvar);
                     names.pop();
                 } else {
                     let (open, close) = info.brackets();
                     out.push_str(open);
                     out.push_str(&format!("{name} : "));
-                    binder_type.write_pretty(out, names, 0);
+                    binder_type.write_pretty(out, names, 0, fvar);
                     out.push_str(close);
                     out.push_str(" → ");
                     names.push(name);
-                    body.write_pretty(out, names, 0);
+                    body.write_pretty(out, names, 0, fvar);
                     names.pop();
                 }
                 if wrap {
@@ -649,12 +758,12 @@ impl Expr {
                 }
                 let name = fresh(binder_name, names);
                 out.push_str(&format!("let {name} : "));
-                binder_type.write_pretty(out, names, 0);
+                binder_type.write_pretty(out, names, 0, fvar);
                 out.push_str(" := ");
-                value.write_pretty(out, names, 0);
+                value.write_pretty(out, names, 0, fvar);
                 out.push_str("; ");
                 names.push(name);
-                body.write_pretty(out, names, 0);
+                body.write_pretty(out, names, 0, fvar);
                 names.pop();
                 if wrap {
                     out.push(')');

@@ -4,7 +4,7 @@
 //! stays free of input and output, so a test can call it directly.
 
 use rean_core::{DiagnosticBag, SourceMap};
-use rean_kernel::{Expr, Level};
+use rean_kernel::{Expr, Level, LocalContext, check, infer_type};
 use rean_lexer::{TokenKind, TokenTable, tokenize};
 use rean_syntax::{Syntax, kind};
 use std::process::ExitCode;
@@ -15,6 +15,7 @@ rean - a Lean compiler in Rust
 usage:
   rean lex <file.lean>   print every token with its position
   rean demo              walk the stages over a small example
+  rean prove             check a proof with the kernel
   rean help              print this text
 ";
 
@@ -29,6 +30,7 @@ fn main() -> ExitCode {
             demo();
             ExitCode::SUCCESS
         }
+        Some("prove") => prove(),
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -207,4 +209,84 @@ fn demo() {
             .app(Expr::const_("Nat", vec![]))
             .pretty()
     );
+}
+
+/// Checks one proof, then shows what a failed proof looks like.
+///
+/// This command is chapter 1. See `docs/01-the-type-checker.md`.
+fn prove() -> ExitCode {
+    let mut ctx = LocalContext::new();
+
+    // `fun (α : Prop) (h : α) => h`
+    let proof = Expr::lam(
+        "α",
+        Expr::prop(),
+        Expr::lam("h", Expr::bvar(0), Expr::bvar(0)),
+    );
+    // `(α : Prop) → α → α`
+    let proposition = Expr::forall("α", Expr::prop(), Expr::arrow(Expr::bvar(0), Expr::bvar(0)));
+
+    println!("== the proof ==");
+    println!("de Bruijn : {proof:?}");
+    println!("readable  : {}", proof.pretty());
+
+    println!("\n== the proposition ==");
+    println!("readable  : {}", proposition.pretty());
+
+    println!("\n== infer_type ==");
+    match infer_type(&mut ctx, &proof) {
+        Ok(ty) => println!("the proof has type : {}", ctx.pretty(&ty)),
+        Err(err) => {
+            eprintln!("error: {}", err.render(&ctx));
+            return ExitCode::FAILURE;
+        }
+    }
+
+    println!("\n== check ==");
+    match check(&mut ctx, &proof, &proposition) {
+        Ok(()) => println!("accepted. The proposition holds."),
+        Err(err) => {
+            eprintln!("error: {}", err.render(&ctx));
+            return ExitCode::FAILURE;
+        }
+    }
+
+    // The level of the proposition. `imax 1 0 = 0`, so it is a `Prop`.
+    match infer_type(&mut ctx, &proposition) {
+        Ok(ty) => println!("the proposition lives in : {}", ctx.pretty(&ty)),
+        Err(err) => eprintln!("error: {}", err.render(&ctx)),
+    }
+
+    println!("\n== a proof that does not check ==");
+    // The term proves `α → α`, and the proposition asks for `α → β`.
+    let bad_proof = Expr::lam(
+        "α",
+        Expr::prop(),
+        Expr::lam(
+            "β",
+            Expr::prop(),
+            Expr::lam("h", Expr::bvar(1), Expr::bvar(0)),
+        ),
+    );
+    let wanted = Expr::forall(
+        "α",
+        Expr::prop(),
+        Expr::forall("β", Expr::prop(), Expr::arrow(Expr::bvar(1), Expr::bvar(0))),
+    );
+    println!("the proof  : {}", bad_proof.pretty());
+    println!("the claim  : {}", wanted.pretty());
+    match check(&mut ctx, &bad_proof, &wanted) {
+        Ok(()) => println!("accepted, and that is a bug"),
+        Err(err) => println!("rejected:\n  {}", err.render(&ctx).replace('\n', "\n  ")),
+    }
+
+    println!("\n== what still needs chapter 2 ==");
+    for term in [Expr::const_("Nat", vec![]), Expr::nat("3")] {
+        match infer_type(&mut ctx, &term) {
+            Ok(ty) => println!("{} : {}", term.pretty(), ctx.pretty(&ty)),
+            Err(err) => println!("{} -> {}", term.pretty(), err.render(&ctx)),
+        }
+    }
+    let _ = Level::Zero;
+    ExitCode::SUCCESS
 }

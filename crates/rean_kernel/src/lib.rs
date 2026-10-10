@@ -17,6 +17,12 @@
 
 pub mod expr;
 pub mod level;
+pub mod local;
+pub mod typeck;
 
 pub use expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj};
 pub use level::Level;
+pub use local::{LocalContext, LocalDecl};
+pub use typeck::{
+    TypeError, TypeResult, check, check_closed, infer_sort, infer_type, is_def_eq, whnf,
+};

@@ -16,6 +16,7 @@ Two commands show the code at work:
 ```sh
 cargo run -p rean -- lex examples/twice.lean    # print every token
 cargo run -p rean -- demo                       # walk the four stages
+cargo run -p rean -- prove                      # check a proof with the kernel
 ```
 
 ## Examples
@@ -71,11 +72,13 @@ therefore call any stage directly.
 | Chapter | Topic |
 |---|---|
 | [0 — Introduction to the kernel](docs/00-introduction-to-the-kernel.md) | What a proof checker is. `Sort`, `Prop`, `Type`, de Bruijn indices, definitional equality, and the ultimate primitives. |
+| [1 — The type checker](docs/01-the-type-checker.md) | `alpha_eq`, `LocalContext`, `whnf`, `is_def_eq`, and `infer_type`. The first real proof. |
 
-Every claim in chapter 0 has a test:
+Every claim in a chapter has a test:
 
 ```sh
-devbox run -- cargo test -p rean_kernel --test universes
+devbox run -- cargo test -p rean_kernel --test universes   # chapter 0
+devbox run -- cargo test -p rean_kernel --test typeck      # chapter 1
 ```
 
 ## The building blocks

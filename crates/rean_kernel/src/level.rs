@@ -88,6 +88,20 @@ impl Level {
     pub fn is_closed(&self) -> bool {
         self.to_nat().is_some()
     }
+
+    /// Returns `true` if `self` and `other` mean the same level.
+    ///
+    /// Two closed levels compare by value, so `max 1 4` equals `4`.
+    ///
+    /// Two open levels compare by shape only. So `max u 0` and `u` mean the
+    /// same level and this method still returns `false`. A real kernel
+    /// normalizes a level expression first. Chapter 2 adds that step.
+    pub fn is_equiv(&self, other: &Level) -> bool {
+        match (self.to_nat(), other.to_nat()) {
+            (Some(a), Some(b)) => a == b,
+            _ => self == other,
+        }
+    }
 }
 
 impl fmt::Display for Level {

@@ -983,30 +983,37 @@ criterion, and it is the reason the design splits the way it does.
 |---|---|
 | 0, levels | done. All five formers, with tests. |
 | 1, term formers | done. All eleven, with tests. |
-| 2, rules | only β. The type rules do not exist yet. |
+| 2, the type rules | done in chapter 1. See `infer_type`. |
+| 2, the equations | β and ζ only. No δ, no ι, no η, no proof irrelevance. |
 | 3, declarations | none. There is no `Environment`. |
 | 4, axioms | none |
 
-So the tower of universes is real in the code, and the rules that use it are not.
-`Level::IMax` exists and nothing calls it yet. The first thing that will call it
-is `infer_type` on a `Forall`.
+`Level::IMax` is live now. `infer_type` calls it on every `Forall`, so the
+impredicativity of section 0.10 is a running computation and not only a claim.
 
-### Chapter 1 will add
+### Chapter 1 added
 
 1. `alpha_eq`, which is `==` but which skips `binder_name`.
-2. `LocalContext`, a map from `FVarId` to a type.
-3. `infer_type` for the six rules of section 0.6.
-4. `is_def_eq` with β only, and `whnf` with β only.
+2. `LocalContext`, which holds `Γ` and opens a binder into an `FVar`.
+3. `infer_type` for the rules of section 0.6.
+4. `is_def_eq` and `whnf`, with the β and ζ equations.
 
-That is about 250 lines. It is enough to check this proof:
+See [chapter 1](01-the-type-checker.md). Run it:
+
+```sh
+devbox run -- cargo run -p rean -- prove
+```
+
+It checks this proof:
 
 ```
 fun (α : Prop) (h : α) => h    against    (α : Prop) → α → α
 ```
 
-Stop there and you can prove every theorem of implicational logic. You cannot yet
-say anything about `Nat`, `=`, `∧`, or `∨`. Those need the environment and
-inductive types.
+So the kernel now proves every theorem of implicational logic: the identity, the
+K combinator, the S combinator, and transitivity of implication. It still says
+nothing about `Nat`, `=`, `∧`, or `∨`. Those need the environment and inductive
+types, and chapter 2 adds both.
 
 ---
 
