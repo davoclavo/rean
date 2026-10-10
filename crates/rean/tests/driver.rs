@@ -45,6 +45,7 @@ fn check_passes_the_whole_fixture() {
     );
     assert_eq!(report.outcomes.len(), 32);
     assert_eq!(report.failed(), 0, "{:#?}", first_failure(&report));
+    assert_eq!(report.blocked(), 0);
     assert_eq!(report.passed(), 32);
     assert_eq!(report.score(), "level 1: checked 32 of 32 declarations");
 }
@@ -77,8 +78,8 @@ fn first_failure(report: &rean::CheckReport) -> Option<String> {
     report
         .outcomes
         .iter()
-        .find(|o| o.error.is_some())
-        .map(|o| format!("{}: {}", o.name, o.error.clone().unwrap()))
+        .find(|o| o.verdict != rean::Verdict::Ok)
+        .map(|o| format!("{}: {:?}", o.name, o.verdict))
 }
 
 // --- prove -----------------------------------------------------------------

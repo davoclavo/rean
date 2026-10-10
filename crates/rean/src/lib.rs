@@ -5,7 +5,7 @@
 //! holds its own logic cannot be tested at all.
 
 use rean_core::{DiagnosticBag, SourceMap};
-use rean_kernel::{Environment, Expr, Level, TypeChecker};
+use rean_kernel::{Declaration, Environment, Expr, Level, TypeChecker};
 use rean_lexer::{TokenKind, TokenTable, tokenize};
 use rean_syntax::{Syntax, kind};
 
@@ -62,13 +62,29 @@ pub fn lex_file(path: &str) -> Result<LexReport, String> {
     })
 }
 
+/// What our kernel said about one declaration.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Verdict {
+    /// The kernel accepted it.
+    Ok,
+    /// The kernel refused it.
+    Failed(String),
+    /// It was not checked, because it rests on a declaration that failed.
+    ///
+    /// A failed declaration must **not** go into the environment. A bogus
+    /// declaration in the environment proves anything that uses it. So one
+    /// failure makes every later declaration that names it unproven, and
+    /// calling that "blocked" rather than "failed" keeps the report readable
+    /// without softening the verdict.
+    Blocked(String),
+}
+
 /// One declaration of a `lean4export` file, and what our kernel said about it.
 #[derive(Debug)]
 pub struct DeclOutcome {
     pub name: String,
     pub kind: &'static str,
-    /// `None` when the declaration checks.
-    pub error: Option<String>,
+    pub verdict: Verdict,
 }
 
 /// What `check` found.
@@ -79,23 +95,40 @@ pub struct CheckReport {
 }
 
 impl CheckReport {
-    /// Returns the number of declarations that checked.
+    /// Returns the number of declarations that the kernel accepted.
     pub fn passed(&self) -> usize {
-        self.outcomes.iter().filter(|o| o.error.is_none()).count()
+        self.count(|v| matches!(v, Verdict::Ok))
     }
 
-    /// Returns the number that did not.
+    /// Returns the number that the kernel refused.
     pub fn failed(&self) -> usize {
-        self.outcomes.len() - self.passed()
+        self.count(|v| matches!(v, Verdict::Failed(_)))
+    }
+
+    /// Returns the number that rest on a failure and were not checked.
+    pub fn blocked(&self) -> usize {
+        self.count(|v| matches!(v, Verdict::Blocked(_)))
+    }
+
+    fn count(&self, pick: impl Fn(&Verdict) -> bool) -> usize {
+        self.outcomes.iter().filter(|o| pick(&o.verdict)).count()
     }
 
     /// Returns the score line of the level 1 checkpoint.
     pub fn score(&self) -> String {
-        format!(
+        let mut line = format!(
             "level 1: checked {} of {} declarations",
             self.passed(),
             self.outcomes.len()
-        )
+        );
+        if self.failed() > 0 || self.blocked() > 0 {
+            line.push_str(&format!(
+                " ({} failed, {} blocked)",
+                self.failed(),
+                self.blocked()
+            ));
+        }
+        line
     }
 }
 
@@ -108,29 +141,51 @@ pub fn check_export(path: &str) -> Result<CheckReport, String> {
         rean_export::read_module(path).map_err(|err| format!("cannot read {path}: {err}"))?;
 
     let mut known = Environment::new();
+    let mut rejected: Vec<rean_core::Name> = Vec::new();
     let mut outcomes = Vec::new();
+
     for name in &module.order {
         let Some(decl) = module.env.get(name) else {
             outcomes.push(DeclOutcome {
                 name: name.to_string(),
                 kind: "missing",
-                error: Some("the reader lost this declaration".to_string()),
+                verdict: Verdict::Failed("the reader lost this declaration".to_string()),
             });
             continue;
         };
-        let error = {
-            let mut tc = TypeChecker::new(&known);
-            tc.check_declaration(decl)
-                .err()
-                .map(|err| err.render(tc.lctx()))
+
+        // Does it rest on something that already failed?
+        let mut uses = Vec::new();
+        decl.ty().collect_constants(&mut uses);
+        if let Some(value) = declaration_value(decl) {
+            value.collect_constants(&mut uses);
+        }
+        let blocker = uses.iter().find(|used| rejected.contains(used));
+
+        let verdict = match blocker {
+            Some(blocker) => Verdict::Blocked(format!("`{blocker}` did not check")),
+            None => {
+                let mut tc = TypeChecker::new(&known);
+                match tc.check_declaration(decl) {
+                    Ok(()) => {
+                        // Only a declaration that checks goes into the
+                        // environment. A bogus one would prove anything that
+                        // uses it.
+                        known.add(decl.clone());
+                        Verdict::Ok
+                    }
+                    Err(err) => Verdict::Failed(err.render(tc.lctx())),
+                }
+            }
         };
+        if !matches!(verdict, Verdict::Ok) {
+            rejected.push(name.clone());
+        }
         outcomes.push(DeclOutcome {
             name: name.to_string(),
             kind: decl.kind_label(),
-            error,
+            verdict,
         });
-        // Add it either way, so one failure does not cascade.
-        known.add(decl.clone());
     }
 
     Ok(CheckReport {
@@ -337,4 +392,14 @@ pub fn demo() -> String {
         Expr::sort(Level::param("u").succ()).pretty()
     );
     out
+}
+
+/// Returns the value that a declaration must be checked against, if it has one.
+fn declaration_value(decl: &Declaration) -> Option<&Expr> {
+    match decl {
+        Declaration::Definition(d) => Some(&d.value),
+        Declaration::Theorem(d) => Some(&d.value),
+        Declaration::Opaque(d) => Some(&d.value),
+        _ => None,
+    }
 }

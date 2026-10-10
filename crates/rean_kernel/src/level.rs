@@ -84,6 +84,23 @@ impl Level {
         }
     }
 
+    /// Adds every parameter name in `self` to `out`, with no repeats.
+    pub fn collect_params(&self, out: &mut Vec<Name>) {
+        match self {
+            Level::Zero => {}
+            Level::Succ(inner) => inner.collect_params(out),
+            Level::Max(a, b) | Level::IMax(a, b) => {
+                a.collect_params(out);
+                b.collect_params(out);
+            }
+            Level::Param(name) => {
+                if !out.contains(name) {
+                    out.push(name.clone());
+                }
+            }
+        }
+    }
+
     /// Returns `true` if `self` holds no level variable.
     pub fn is_closed(&self) -> bool {
         self.to_nat().is_some()

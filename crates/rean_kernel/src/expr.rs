@@ -374,6 +374,91 @@ impl Expr {
         }
     }
 
+    /// Adds every constant name in `self` to `out`.
+    ///
+    /// A driver uses this to see what a declaration depends on, so that it can
+    /// tell a real failure from one that only rests on an earlier failure.
+    pub fn collect_constants(&self, out: &mut Vec<Name>) {
+        match self {
+            Expr::Const { name, .. } => {
+                if !out.contains(name) {
+                    out.push(name.clone());
+                }
+            }
+            Expr::App { fun, arg } => {
+                fun.collect_constants(out);
+                arg.collect_constants(out);
+            }
+            Expr::Lam {
+                binder_type, body, ..
+            }
+            | Expr::Forall {
+                binder_type, body, ..
+            } => {
+                binder_type.collect_constants(out);
+                body.collect_constants(out);
+            }
+            Expr::Let {
+                binder_type,
+                value,
+                body,
+                ..
+            } => {
+                binder_type.collect_constants(out);
+                value.collect_constants(out);
+                body.collect_constants(out);
+            }
+            Expr::Proj(proj) => {
+                if !out.contains(&proj.structure) {
+                    out.push(proj.structure.clone());
+                }
+                proj.value.collect_constants(out);
+            }
+            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Lit(_) => {}
+        }
+    }
+
+    /// Adds every universe parameter name in `self` to `out`.
+    ///
+    /// A declaration must list every parameter that its type and its value
+    /// use. Anything else is a free universe variable, and a free universe
+    /// variable has no meaning.
+    pub fn collect_level_params(&self, out: &mut Vec<Name>) {
+        match self {
+            Expr::Sort(level) => level.collect_params(out),
+            Expr::Const { levels, .. } => {
+                for level in levels {
+                    level.collect_params(out);
+                }
+            }
+            Expr::App { fun, arg } => {
+                fun.collect_level_params(out);
+                arg.collect_level_params(out);
+            }
+            Expr::Lam {
+                binder_type, body, ..
+            }
+            | Expr::Forall {
+                binder_type, body, ..
+            } => {
+                binder_type.collect_level_params(out);
+                body.collect_level_params(out);
+            }
+            Expr::Let {
+                binder_type,
+                value,
+                body,
+                ..
+            } => {
+                binder_type.collect_level_params(out);
+                value.collect_level_params(out);
+                body.collect_level_params(out);
+            }
+            Expr::Proj(proj) => proj.value.collect_level_params(out),
+            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
+        }
+    }
+
     // --- comparison ------------------------------------------------------
 
     /// Returns `true` if `self` and `other` are the same term up to binder

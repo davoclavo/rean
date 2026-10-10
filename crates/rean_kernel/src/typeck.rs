@@ -31,7 +31,7 @@
 //! | a full level normal form | a hard pair of open levels can fail to match |
 //! | big number arithmetic | a literal past `u128` stays stuck rather than compute |
 
-use crate::environment::{Declaration, Environment, QuotKind, RecursorVal};
+use crate::environment::{Declaration, Environment, QuotKind, RecursorRule, RecursorVal};
 use crate::expr::{Expr, FVarId, Literal, MVarId, Proj};
 use crate::level::Level;
 use crate::local::LocalContext;
@@ -92,6 +92,16 @@ pub enum TypeError {
         inductive: Name,
         reason: PositivityError,
     },
+    /// A recursor does not match the inductive type that it claims to
+    /// eliminate. Without this check, a file can smuggle in an arbitrary
+    /// axiom disguised as a recursor, and prove `False`.
+    BadRecursor { recursor: Name, reason: String },
+    /// A declaration uses a universe parameter that it does not declare.
+    UndeclaredUniverse { declaration: Name, param: Name },
+    /// A declaration lists one universe parameter twice.
+    RepeatedUniverse { declaration: Name, param: Name },
+    /// The environment already holds this name.
+    DuplicateDeclaration(Name),
 }
 
 impl TypeError {
@@ -198,6 +208,18 @@ impl TypeError {
                 };
                 format!("the constructor `{ctor}` is not acceptable: {detail}")
             }
+            TypeError::BadRecursor { recursor, reason } => {
+                format!("the recursor `{recursor}` is not acceptable: {reason}")
+            }
+            TypeError::UndeclaredUniverse { declaration, param } => format!(
+                "`{declaration}` uses the universe parameter `{param}` and does not declare it"
+            ),
+            TypeError::RepeatedUniverse { declaration, param } => {
+                format!("`{declaration}` lists the universe parameter `{param}` twice")
+            }
+            TypeError::DuplicateDeclaration(name) => {
+                format!("the environment already holds `{name}`")
+            }
         }
     }
 }
@@ -217,6 +239,14 @@ pub type TypeResult<T> = Result<T, TypeError>;
 pub struct TypeChecker<'e> {
     env: &'e Environment,
     lctx: LocalContext,
+    /// The declaration under check, if it refers to itself.
+    ///
+    /// A recursor needs this. The ι rule for `Nat.succ` rewrites to a term
+    /// that calls `Nat.rec` again, so checking `Nat.rec` needs the type of
+    /// `Nat.rec`, and the environment does not hold it yet. Putting the
+    /// declaration here lets the check ask "are these rules consistent with
+    /// the type that this declaration claims?", which is the right question.
+    pending: Option<Declaration>,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -225,7 +255,18 @@ impl<'e> TypeChecker<'e> {
         TypeChecker {
             env,
             lctx: LocalContext::new(),
+            pending: None,
         }
+    }
+
+    /// Looks up a declaration, and sees the one under check as well.
+    fn lookup(&self, name: &Name) -> Option<&Declaration> {
+        if let Some(pending) = &self.pending
+            && pending.name() == name
+        {
+            return Some(pending);
+        }
+        self.env.get(name)
     }
 
     /// Returns the environment.
@@ -297,7 +338,7 @@ impl<'e> TypeChecker<'e> {
                 return Ok(Some(next));
             }
             // δ: a definition unfolds to its value.
-            if let Some(decl) = self.env.get(name)
+            if let Some(decl) = self.lookup(name)
                 && let Some(value) = decl.unfoldable_value()
             {
                 let value = value.instantiate_levels(decl.level_params(), levels);
@@ -342,7 +383,7 @@ impl<'e> TypeChecker<'e> {
     /// `Quot` is a kernel primitive. You cannot build it from an inductive
     /// declaration, so it needs its own rule. See chapter 0, section 0.14.
     fn quot_step(&mut self, name: &Name, args: &[Expr]) -> TypeResult<Option<Expr>> {
-        let Some(Declaration::Quot(quot)) = self.env.get(name) else {
+        let Some(Declaration::Quot(quot)) = self.lookup(name) else {
             return Ok(None);
         };
         // `lift` takes the function at 3 and the quotient at 5.
@@ -360,7 +401,7 @@ impl<'e> TypeChecker<'e> {
         let Expr::Const { name: mk, .. } = head else {
             return Ok(None);
         };
-        let Some(Declaration::Quot(mk_decl)) = self.env.get(mk) else {
+        let Some(Declaration::Quot(mk_decl)) = self.lookup(mk) else {
             return Ok(None);
         };
         if mk_decl.kind != QuotKind::Ctor || mk_args.len() < 3 {
@@ -382,7 +423,7 @@ impl<'e> TypeChecker<'e> {
         let Expr::Const { name, .. } = head else {
             return Ok(None);
         };
-        let Some(Declaration::Constructor(ctor)) = self.env.get(name) else {
+        let Some(Declaration::Constructor(ctor)) = self.lookup(name) else {
             return Ok(None);
         };
         // The fields come after the parameters.
@@ -404,7 +445,7 @@ impl<'e> TypeChecker<'e> {
         levels: &[Level],
         args: &[Expr],
     ) -> TypeResult<Option<Expr>> {
-        let Some(Declaration::Recursor(rec)) = self.env.get(name) else {
+        let Some(Declaration::Recursor(rec)) = self.lookup(name) else {
             return Ok(None);
         };
         let rec = rec.clone();
@@ -466,7 +507,7 @@ impl<'e> TypeChecker<'e> {
         }
         // Already a constructor application, so there is nothing to do.
         if let (Expr::Const { name, .. }, _) = major.unfold_apps()
-            && matches!(self.env.get(name), Some(Declaration::Constructor(_)))
+            && matches!(self.lookup(name), Some(Declaration::Constructor(_)))
         {
             return Ok(None);
         }
@@ -543,6 +584,10 @@ impl<'e> TypeChecker<'e> {
         }
         // η: `fun x => f x` is the same function as `f`.
         if self.eta_eq(&a, &b)? || self.eta_eq(&b, &a)? {
+            return Ok(true);
+        }
+        // η for a structure: `S.mk p.1 p.2` is the same term as `p`.
+        if self.struct_eta_eq(&a, &b)? || self.struct_eta_eq(&b, &a)? {
             return Ok(true);
         }
         // Proof irrelevance: all proofs of one proposition are equal.
@@ -692,6 +737,52 @@ impl<'e> TypeChecker<'e> {
         self.is_def_eq(body, &applied)
     }
 
+    /// Returns `true` if `built` rebuilds `whole` field by field.
+    ///
+    /// A structure has one constructor and no index, so a term of that type is
+    /// fully determined by its fields. `S.mk p.1 p.2` and `p` are therefore the
+    /// same term. Lean calls this eta for structures.
+    fn struct_eta_eq(&mut self, built: &Expr, whole: &Expr) -> TypeResult<bool> {
+        let (head, args) = built.unfold_apps();
+        let Expr::Const { name, .. } = head else {
+            return Ok(false);
+        };
+        let Some(Declaration::Constructor(ctor)) = self.lookup(name) else {
+            return Ok(false);
+        };
+        let ctor = ctor.clone();
+        if ctor.num_fields == 0 || args.len() != (ctor.num_params + ctor.num_fields) as usize {
+            return Ok(false);
+        }
+        // The rule needs a structure: one constructor and no index.
+        match self.lookup(&ctor.induct) {
+            Some(Declaration::Inductive(ind)) if ind.ctors.len() == 1 && ind.num_indices == 0 => {}
+            _ => return Ok(false),
+        }
+        // The other side must belong to the same structure, else a projection
+        // of it has no meaning.
+        let whole_type = self.infer_type(whole)?;
+        let whole_type = self.whnf(&whole_type)?;
+        let (whole_head, _) = whole_type.unfold_apps();
+        match whole_head {
+            Expr::Const { name, .. } if *name == ctor.induct => {}
+            _ => return Ok(false),
+        }
+        let args: Vec<Expr> = args.into_iter().cloned().collect();
+        for index in 0..ctor.num_fields {
+            let field = &args[(ctor.num_params + index) as usize];
+            let projected = Expr::Proj(Proj {
+                structure: ctor.induct.clone(),
+                index,
+                value: Arc::new(whole.clone()),
+            });
+            if !self.is_def_eq(field, &projected)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// Returns `true` if `a` and `b` are two proofs of one proposition.
     ///
     /// The test needs the type of each side, so it needs both sides to be
@@ -734,8 +825,7 @@ impl<'e> TypeChecker<'e> {
             // The environment gives the type, after the universe arguments go in.
             Expr::Const { name, levels } => {
                 let decl = self
-                    .env
-                    .get(name)
+                    .lookup(name)
                     .ok_or_else(|| TypeError::UnknownConstant(name.clone()))?;
                 let params = decl.level_params();
                 if params.len() != levels.len() {
@@ -910,7 +1000,7 @@ impl<'e> TypeChecker<'e> {
     /// A nested inductive type is skipped, not rejected. See
     /// [`crate::positivity`].
     pub fn check_positivity(&mut self, ctor: &crate::ConstructorVal) -> TypeResult<()> {
-        let Some(Declaration::Inductive(inductive)) = self.env.get(&ctor.induct) else {
+        let Some(Declaration::Inductive(inductive)) = self.lookup(&ctor.induct) else {
             // Without the inductive type there is nothing to check against.
             // `infer_sort` on the constructor type already reported the
             // unknown constant.
@@ -933,28 +1023,413 @@ impl<'e> TypeChecker<'e> {
         )
     }
 
+    /// Removes every local variable added after `len`.
+    fn truncate_locals(&mut self, len: usize) {
+        while self.lctx.len() > len {
+            self.lctx.pop();
+        }
+    }
+
+    /// Checks that every universe parameter a declaration uses is declared,
+    /// and that it declares none twice.
+    ///
+    /// A parameter that is used and not declared is a free universe variable,
+    /// and a free universe variable has no meaning.
+    pub fn check_universes(&mut self, decl: &Declaration) -> TypeResult<()> {
+        let declared = decl.level_params();
+        for (index, param) in declared.iter().enumerate() {
+            if declared[..index].contains(param) {
+                return Err(TypeError::RepeatedUniverse {
+                    declaration: decl.name().clone(),
+                    param: param.clone(),
+                });
+            }
+        }
+        let mut used = Vec::new();
+        decl.ty().collect_level_params(&mut used);
+        if let Some(value) = declaration_value(decl) {
+            value.collect_level_params(&mut used);
+        }
+        for param in used {
+            if !declared.contains(&param) {
+                return Err(TypeError::UndeclaredUniverse {
+                    declaration: decl.name().clone(),
+                    param,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks a recursor against the inductive type that it claims to
+    /// eliminate.
+    ///
+    /// Without this check a file can declare a recursor with any type at all,
+    /// and the kernel will believe it. That turns a recursor into an untracked
+    /// axiom, and an untracked axiom proves `False`.
+    ///
+    /// The check has two halves:
+    ///
+    /// 1. **Shape.** There is one rule per constructor and no more, there is at
+    ///    least one motive, and the declared type has enough binders.
+    /// 2. **Each ι rule is type correct.** For every constructor, build the
+    ///    term that the ι rule rewrites, work out the type that the recursor
+    ///    promises for it, and check that the right hand side of the rule
+    ///    delivers that type.
+    ///
+    /// Half 2 is the property that makes ι sound. A rule that delivers a
+    /// different type lets you transport a term into a type it does not
+    /// inhabit.
+    ///
+    /// A mutual recursor, with more than one motive, is **skipped**. The
+    /// fixture has none, and a wrong check is worse than a missing one.
+    pub fn check_recursor(&mut self, rec: &RecursorVal) -> TypeResult<()> {
+        let bad = |reason: String| TypeError::BadRecursor {
+            recursor: rec.name.clone(),
+            reason,
+        };
+
+        if rec.num_motives == 0 {
+            return Err(bad("a recursor needs at least one motive".to_string()));
+        }
+        let [only] = rec.all.as_slice() else {
+            return Ok(());
+        };
+        let Some(Declaration::Inductive(ind)) = self.lookup(only) else {
+            // Without the inductive type there is nothing to check against.
+            return Ok(());
+        };
+        let ind = ind.clone();
+        if rec.num_motives != 1 {
+            return Ok(());
+        }
+        if rec.num_params != ind.num_params || rec.num_indices != ind.num_indices {
+            return Err(bad(format!(
+                "it claims {} parameters and {} indices, and `{}` has {} and {}",
+                rec.num_params, rec.num_indices, ind.name, ind.num_params, ind.num_indices
+            )));
+        }
+        if rec.rules.len() != ind.ctors.len() {
+            return Err(bad(format!(
+                "it has {} rules and `{}` has {} constructors",
+                rec.rules.len(),
+                ind.name,
+                ind.ctors.len()
+            )));
+        }
+        for ctor in &ind.ctors {
+            if rec.rule_for(ctor).is_none() {
+                return Err(bad(format!("it has no rule for `{ctor}`")));
+            }
+        }
+
+        let mark = self.lctx.len();
+        // The rules call the recursor again, so the check needs its type.
+        let previous = self.pending.replace(Declaration::Recursor(rec.clone()));
+        let outcome = self.check_recursor_rules(rec, &ind, &bad);
+        self.pending = previous;
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    /// The second half of [`TypeChecker::check_recursor`].
+    fn check_recursor_rules(
+        &mut self,
+        rec: &RecursorVal,
+        ind: &crate::InductiveVal,
+        bad: &dyn Fn(String) -> TypeError,
+    ) -> TypeResult<()> {
+        // Open the parameters, the motive and the minor premises.
+        let mut residual = rec.ty.clone();
+        let mut prefix = Vec::new();
+        for _ in 0..rec.num_prefix() {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&residual)?
+            else {
+                return Err(bad("its type has too few binders".to_string()));
+            };
+            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            prefix.push(Expr::FVar(id));
+            residual = body.instantiate(&Expr::FVar(id));
+        }
+
+        self.check_elimination_universe(rec, ind, &prefix, bad)?;
+
+        for rule in &rec.rules {
+            let Some(Declaration::Constructor(ctor)) = self.lookup(&rule.ctor) else {
+                continue;
+            };
+            let ctor = ctor.clone();
+            if ctor.num_fields != rule.num_fields {
+                return Err(bad(format!(
+                    "the rule for `{}` says {} fields and the constructor has {}",
+                    rule.ctor, rule.num_fields, ctor.num_fields
+                )));
+            }
+            let mark = self.lctx.len();
+            let outcome = self.check_one_rule(rec, &ctor, rule, &prefix, &residual, bad);
+            self.truncate_locals(mark);
+            outcome?;
+        }
+        Ok(())
+    }
+
+    /// Checks that one ι rule delivers the type that the recursor promises.
+    fn check_one_rule(
+        &mut self,
+        rec: &RecursorVal,
+        ctor: &crate::ConstructorVal,
+        rule: &RecursorRule,
+        prefix: &[Expr],
+        residual: &Expr,
+        bad: &dyn Fn(String) -> TypeError,
+    ) -> TypeResult<()> {
+        // Build the constructor application. Its parameters come from the
+        // recursor's own parameter binders, and its fields get fresh variables.
+        let mut ctor_type = ctor.ty.clone();
+        let mut ctor_args: Vec<Expr> = Vec::new();
+        for index in 0..ctor.num_params as usize {
+            let Expr::Forall { body, .. } = self.whnf(&ctor_type)? else {
+                return Err(bad(format!(
+                    "the type of `{}` has too few binders",
+                    ctor.name
+                )));
+            };
+            let arg = prefix
+                .get(index)
+                .cloned()
+                .ok_or_else(|| bad("its type has too few parameters".to_string()))?;
+            ctor_args.push(arg.clone());
+            ctor_type = body.instantiate(&arg);
+        }
+        for _ in 0..ctor.num_fields {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ctor_type)?
+            else {
+                return Err(bad(format!(
+                    "the type of `{}` has too few binders",
+                    ctor.name
+                )));
+            };
+            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            ctor_args.push(Expr::FVar(id));
+            ctor_type = body.instantiate(&Expr::FVar(id));
+        }
+
+        // `ctor_type` is now the inductive type applied to parameters and
+        // indices. The indices come after the parameters.
+        let (_, applied) = ctor_type.unfold_apps();
+        let indices: Vec<Expr> = applied
+            .into_iter()
+            .skip(ctor.num_params as usize)
+            .cloned()
+            .collect();
+        if indices.len() != rec.num_indices as usize {
+            return Err(bad(format!(
+                "`{}` gives {} indices and the recursor expects {}",
+                ctor.name,
+                indices.len(),
+                rec.num_indices
+            )));
+        }
+
+        let major = Expr::Const {
+            name: ctor.name.clone(),
+            levels: ctor
+                .level_params
+                .iter()
+                .map(|name| Level::Param(name.clone()))
+                .collect(),
+        }
+        .apps(ctor_args.iter().cloned());
+
+        // Work out the type that the recursor promises for that term.
+        let mut promised = residual.clone();
+        for index in &indices {
+            let Expr::Forall { body, .. } = self.whnf(&promised)? else {
+                return Err(bad("its type has too few index binders".to_string()));
+            };
+            promised = body.instantiate(index);
+        }
+        let Expr::Forall { body, .. } = self.whnf(&promised)? else {
+            return Err(bad(
+                "its type has no binder for the major premise".to_string()
+            ));
+        };
+        let promised = body.instantiate(&major);
+
+        // And what the rule actually delivers.
+        let delivered = rule
+            .rhs
+            .clone()
+            .apps(prefix.iter().cloned())
+            .apps(ctor_args[ctor.num_params as usize..].iter().cloned());
+        let got = self.infer_type(&delivered)?;
+        if !self.is_def_eq(&got, &promised)? {
+            return Err(bad(format!(
+                "the rule for `{}` delivers `{}` and the type promises `{}`",
+                ctor.name,
+                self.lctx.pretty(&got),
+                self.lctx.pretty(&promised)
+            )));
+        }
+        Ok(())
+    }
+
+    /// Checks that a `Prop` valued inductive type does not eliminate into a
+    /// larger universe.
+    ///
+    /// `Prop` carries no information beyond the fact that it holds, so you must
+    /// not extract data from a proof. Two shapes are the exception, and Lean
+    /// permits both:
+    ///
+    /// - no constructor at all, as in `False`
+    /// - one constructor whose every field is itself a proof, as in `Eq` and
+    ///   `And`
+    ///
+    /// Those are the subsingletons. They have at most one element, so nothing
+    /// can leak.
+    fn check_elimination_universe(
+        &mut self,
+        rec: &RecursorVal,
+        ind: &crate::InductiveVal,
+        prefix: &[Expr],
+        bad: &dyn Fn(String) -> TypeError,
+    ) -> TypeResult<()> {
+        // Is the inductive type a `Prop`?
+        let mut ind_type = ind.ty.clone();
+        while let Expr::Forall { body, .. } = self.whnf(&ind_type)? {
+            ind_type = (*body).clone();
+        }
+        let Expr::Sort(level) = ind_type else {
+            return Ok(());
+        };
+        if !level.normalize().is_zero() {
+            return Ok(());
+        }
+        if self.is_subsingleton(ind)? {
+            return Ok(());
+        }
+
+        // Where does the motive land?
+        let Some(Expr::FVar(motive)) = prefix.get(rec.num_params as usize) else {
+            return Ok(());
+        };
+        let Some(motive_type) = self.lctx.type_of(*motive).cloned() else {
+            return Ok(());
+        };
+        let mut result = motive_type;
+        while let Expr::Forall { body, .. } = self.whnf(&result)? {
+            result = (*body).clone();
+        }
+        if let Expr::Sort(motive_level) = result
+            && !motive_level.normalize().is_zero()
+        {
+            return Err(bad(format!(
+                "`{}` is a Prop with more than one element, so it must not \
+                 eliminate into `Sort {motive_level}`",
+                ind.name
+            )));
+        }
+        Ok(())
+    }
+
+    /// Returns `true` if the inductive type has at most one element.
+    fn is_subsingleton(&mut self, ind: &crate::InductiveVal) -> TypeResult<bool> {
+        let [only] = ind.ctors.as_slice() else {
+            // No constructor at all, as in `False`.
+            return Ok(ind.ctors.is_empty());
+        };
+        let Some(Declaration::Constructor(ctor)) = self.lookup(only) else {
+            return Ok(false);
+        };
+        let ctor = ctor.clone();
+        let mark = self.lctx.len();
+        let outcome = self.every_field_is_a_proof(&ctor);
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    /// Returns `true` if every field of the constructor is itself a proof.
+    fn every_field_is_a_proof(&mut self, ctor: &crate::ConstructorVal) -> TypeResult<bool> {
+        let mut ty = ctor.ty.clone();
+        for _ in 0..ctor.num_params {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ty)?
+            else {
+                return Ok(false);
+            };
+            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+        for _ in 0..ctor.num_fields {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ty)?
+            else {
+                return Ok(false);
+            };
+            // The field type must itself live in `Prop`.
+            let level = self.infer_sort(&binder_type)?;
+            if !level.normalize().is_zero() {
+                return Ok(false);
+            }
+            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+        Ok(true)
+    }
+
     /// Checks one declaration: its type is a type, and its value has that type.
     ///
     /// This is the entry point of the level 1 checkpoint in `docs/ROADMAP.md`.
     pub fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
-        self.infer_sort(decl.ty())?;
-        // A constructor is where a user hands the kernel a new rule, so it is
-        // where the kernel must push back.
-        if let Declaration::Constructor(ctor) = decl {
-            self.check_positivity(ctor)?;
+        if self.env.contains(decl.name()) {
+            return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }
-        let value = match decl {
-            Declaration::Definition(d) => Some(&d.value),
-            Declaration::Theorem(d) => Some(&d.value),
-            Declaration::Opaque(d) => Some(&d.value),
-            _ => None,
-        };
-        if let Some(value) = value {
+        self.check_universes(decl)?;
+        self.infer_sort(decl.ty())?;
+        // A constructor and a recursor are where a user hands the kernel a new
+        // rule, so they are where the kernel must push back.
+        match decl {
+            Declaration::Constructor(ctor) => self.check_positivity(ctor)?,
+            Declaration::Recursor(rec) => self.check_recursor(rec)?,
+            _ => {}
+        }
+        if let Some(value) = declaration_value(decl) {
             let got = self.infer_type(value)?;
             if !self.is_def_eq(&got, decl.ty())? {
                 return Err(TypeError::mismatch(value, decl.ty().clone(), got));
             }
         }
         Ok(())
+    }
+}
+
+/// Returns the value that a declaration must be checked against, if it has one.
+///
+/// An `Opaque` value is included. Opacity hides a value from the δ rule. It does
+/// not excuse the value from being correct.
+fn declaration_value(decl: &Declaration) -> Option<&Expr> {
+    match decl {
+        Declaration::Definition(d) => Some(&d.value),
+        Declaration::Theorem(d) => Some(&d.value),
+        Declaration::Opaque(d) => Some(&d.value),
+        _ => None,
     }
 }

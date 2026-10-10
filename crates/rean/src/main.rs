@@ -3,7 +3,7 @@
 //! This file does the printing and nothing else. Every decision lives in the
 //! library, so a test can reach it.
 
-use rean::{USAGE, check_export, demo, lex_file, prove};
+use rean::{USAGE, Verdict, check_export, demo, lex_file, prove};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -61,18 +61,20 @@ fn run_check(path: &str) -> ExitCode {
     println!("  {}", report.meta);
     println!("  {} declarations\n", report.outcomes.len());
     for outcome in &report.outcomes {
-        match &outcome.error {
-            None => println!("  ok    {:10} {}", outcome.kind, outcome.name),
-            Some(message) => {
-                println!("  FAIL  {:10} {}", outcome.kind, outcome.name);
-                for line in message.lines() {
-                    println!("          {line}");
-                }
+        let (label, message) = match &outcome.verdict {
+            Verdict::Ok => ("ok   ", None),
+            Verdict::Failed(message) => ("FAIL ", Some(message)),
+            Verdict::Blocked(message) => ("block", Some(message)),
+        };
+        println!("  {label} {:10} {}", outcome.kind, outcome.name);
+        if let Some(message) = message {
+            for line in message.lines() {
+                println!("          {line}");
             }
         }
     }
     println!("\n{}", report.score());
-    if report.failed() == 0 {
+    if report.failed() == 0 && report.blocked() == 0 {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE

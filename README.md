@@ -85,6 +85,7 @@ must meet.
 | [2 — The environment](docs/02-the-environment.md) | declarations, δ, ι, η, proof irrelevance, projections, level normalization. |
 | [3 — The ground truth](docs/03-the-ground-truth.md) | reading a real `lean4export` file and checking it. |
 | [4 — Making it work](docs/04-making-it-work.md) | `Nat` literals, K-like ι, the quotient rules, strict positivity, and coverage. |
+| [5 — What a checker must check](docs/05-what-a-checker-must-check.md) | red team. It accepted a proof of `False`. Recursor checking, large elimination, universe hygiene. |
 
 Every claim in a chapter has a test:
 
@@ -101,8 +102,9 @@ devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 | level 1 | **32 of 32** | our kernel checks the declarations that Lean wrote |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **337** | `devbox run test` |
-| coverage | **96.2% of regions, 98.6% of lines** | `devbox run coverage` |
+| tests | **353** | `devbox run test` |
+| coverage | **95.3% of regions, 97.1% of lines** | `devbox run coverage` |
+| red team | **16 lies refused** | `cargo test -p rean_kernel --test soundness` |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
