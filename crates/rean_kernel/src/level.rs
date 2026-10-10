@@ -147,6 +147,14 @@ impl Level {
                 let a = a.normalize();
                 let b = b.normalize();
                 // `imax u 0` is `0`.
+                //
+                // The branch below is unreachable today, and the coverage
+                // report shows it. If `b` normalizes to zero then `b` is
+                // semantically zero, so `b.to_nat()` gives `Some(0)`, so the
+                // whole `imax` gives `Some(0)`, and the fast path at the top
+                // of this method already returned. It stays because the rule
+                // is part of the definition of `imax`, and because removing
+                // the fast path must not silently change the answer.
                 if b.is_zero() {
                     return Level::Zero;
                 }
@@ -184,6 +192,8 @@ impl fmt::Display for Level {
             return write!(f, "{n}");
         }
         match self {
+            // Unreachable, for the same reason: a closed level took the fast
+            // path above. The arm exists because the `match` must be complete.
             Level::Zero => f.write_str("0"),
             Level::Succ(inner) => write!(f, "{inner}+1"),
             Level::Max(a, b) => write!(f, "max {a} {b}"),

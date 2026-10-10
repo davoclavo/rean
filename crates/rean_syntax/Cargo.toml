@@ -11,3 +11,7 @@ workspace = true
 [dependencies]
 rean_core.workspace = true
 rean_lexer.workspace = true
+
+[dev-dependencies]
+rean_core.workspace = true
+rean_lexer.workspace = true

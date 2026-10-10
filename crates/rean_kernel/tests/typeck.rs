@@ -1,9 +1,10 @@
 //! Executable examples for `docs/01-the-type-checker.md` and chapter 2.
 
 use rean_core::Name;
+use rean_kernel::positivity::PositivityError;
 use rean_kernel::{
     ConstructorVal, Declaration, DefinitionSafety, DefinitionVal, Environment, Expr, InductiveVal,
-    Level, RecursorRule, RecursorVal, TypeChecker, TypeError,
+    Level, QuotKind, QuotVal, RecursorRule, RecursorVal, TypeChecker, TypeError,
 };
 
 fn prop() -> Expr {
@@ -598,4 +599,200 @@ fn check_declaration_rejects_a_bad_definition() {
     let mut tc = TypeChecker::new(&env);
     let bad = a_def("Bad", id_prop(), prop());
     assert!(tc.check_declaration(&bad).is_err());
+}
+
+// --- chapter 4: the quotient rules ----------------------------------------
+
+/// Builds the four `Quot` constants.
+///
+/// The types are placeholders. [`TypeChecker::whnf`] matches on the declaration
+/// kind and the argument count, not on the types, so this environment is enough
+/// to exercise the two quotient reduction rules.
+fn quot_env() -> Environment {
+    let mut env = Environment::new();
+    let u = Name::from_dotted("u");
+    for (name, kind) in [
+        ("Quot", QuotKind::Type),
+        ("Quot.mk", QuotKind::Ctor),
+        ("Quot.lift", QuotKind::Lift),
+        ("Quot.ind", QuotKind::Ind),
+    ] {
+        env.add(Declaration::Quot(QuotVal {
+            name: Name::from_dotted(name),
+            level_params: vec![u.clone()],
+            ty: Expr::type_(0),
+            kind,
+        }));
+    }
+    env
+}
+
+#[test]
+fn quot_lift_applies_the_function_to_the_value() {
+    // `Quot.lift α r β f h (Quot.mk α r a)  ~>  f a`
+    let env = quot_env();
+    let mut tc = TypeChecker::new(&env);
+    let one = vec![Level::of_nat(1)];
+    let hole = |n: &str| Expr::const_(n, vec![]);
+    let mk = Expr::const_("Quot.mk", one.clone()).apps([hole("A"), hole("r"), hole("a")]);
+    let f = Expr::lam("x", Expr::type_(0), Expr::bvar(0));
+    let term =
+        Expr::const_("Quot.lift", one).apps([hole("A"), hole("r"), hole("B"), f, hole("h"), mk]);
+    // `f` is the identity, so the result is the value `a`.
+    assert_eq!(tc.whnf(&term).unwrap().pretty(), "a");
+}
+
+#[test]
+fn quot_ind_applies_the_proof_to_the_value() {
+    // `Quot.ind α r β h (Quot.mk α r a)  ~>  h a`
+    let env = quot_env();
+    let mut tc = TypeChecker::new(&env);
+    let one = vec![Level::of_nat(1)];
+    let hole = |n: &str| Expr::const_(n, vec![]);
+    let mk = Expr::const_("Quot.mk", one.clone()).apps([hole("A"), hole("r"), hole("a")]);
+    let term = Expr::const_("Quot.ind", one).apps([hole("A"), hole("r"), hole("B"), hole("h"), mk]);
+    assert_eq!(tc.whnf(&term).unwrap().pretty(), "h a");
+}
+
+#[test]
+fn a_quotient_rule_waits_for_quot_mk() {
+    // With a variable in place of `Quot.mk`, nothing reduces.
+    let env = quot_env();
+    let mut tc = TypeChecker::new(&env);
+    let one = vec![Level::of_nat(1)];
+    let hole = |n: &str| Expr::const_(n, vec![]);
+    let term =
+        Expr::const_("Quot.ind", one).apps([hole("A"), hole("r"), hole("B"), hole("h"), hole("q")]);
+    assert!(tc.whnf(&term).unwrap().alpha_eq(&term));
+}
+
+// --- chapter 4: a bad inductive declaration is refused --------------------
+
+#[test]
+fn an_inductive_that_could_prove_false_is_refused() {
+    // `inductive Bad | mk : (Bad -> False) -> Bad`
+    //
+    // Accept this and a user proves `False` with no axiom and no other
+    // mistake. The kernel must push back at the constructor.
+    let mut env = Environment::new();
+    let bad = || Expr::const_("Bad", vec![]);
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("Bad"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("Bad")],
+        ctors: vec![Name::from_dotted("Bad.mk")],
+        num_nested: 0,
+        is_rec: true,
+        is_unsafe: false,
+        is_reflexive: false,
+    }));
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("False"),
+        level_params: Vec::new(),
+        ty: Expr::prop(),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("False")],
+        ctors: Vec::new(),
+        num_nested: 0,
+        is_rec: false,
+        is_unsafe: false,
+        is_reflexive: false,
+    }));
+
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("Bad.mk"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::arrow(bad(), Expr::const_("False", vec![])), bad()),
+        induct: Name::from_dotted("Bad"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    let decl = Declaration::Constructor(ctor);
+
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&decl).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            TypeError::BadConstructor {
+                reason: PositivityError::NotStrictlyPositive { field: 0 },
+                ..
+            }
+        ),
+        "{err}"
+    );
+    assert!(err.to_string().contains("strictly positive"));
+    assert!(err.to_string().contains("prove `False`"));
+}
+
+#[test]
+fn a_reflexive_inductive_is_still_accepted() {
+    // `inductive Good | mk : (Nat -> Good) -> Good` is sound, and the check
+    // must not reject it. A check that refuses correct code is worse than none.
+    let mut env = Environment::new();
+    let good = || Expr::const_("Good", vec![]);
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("Good"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("Good")],
+        ctors: vec![Name::from_dotted("Good.mk")],
+        num_nested: 0,
+        is_rec: true,
+        is_unsafe: false,
+        is_reflexive: true,
+    }));
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("Good.mk"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::arrow(Expr::type_(0), good()), good()),
+        induct: Name::from_dotted("Good"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    let mut tc = TypeChecker::new(&env);
+    assert!(tc.check_positivity(&ctor).is_ok());
+}
+
+#[test]
+fn a_nested_inductive_is_skipped_and_not_rejected() {
+    // Our check does not understand a nested inductive, so it must step aside
+    // rather than refuse a correct program.
+    let mut env = Environment::new();
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("Tree"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("Tree")],
+        ctors: vec![Name::from_dotted("Tree.node")],
+        num_nested: 1,
+        is_rec: true,
+        is_unsafe: false,
+        is_reflexive: false,
+    }));
+    let tree = || Expr::const_("Tree", vec![]);
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("Tree.node"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::const_("List", vec![]).app(tree()), tree()),
+        induct: Name::from_dotted("Tree"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    let mut tc = TypeChecker::new(&env);
+    assert!(tc.check_positivity(&ctor).is_ok());
 }

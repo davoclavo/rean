@@ -19,6 +19,8 @@ pub mod environment;
 pub mod expr;
 pub mod level;
 pub mod local;
+pub mod nat_lit;
+pub mod positivity;
 pub mod typeck;
 
 pub use environment::{

@@ -1,6 +1,44 @@
 {
   "lockfile_version": "1",
   "packages": {
+    "cargo-llvm-cov@latest": {
+      "last_modified": "2026-08-27T07:16:00Z",
+      "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#cargo-llvm-cov",
+      "source": "devbox-search",
+      "version": "0.9.0",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/j4067v7fl9sgcy117n2gd13frk7akx6j-cargo-llvm-cov-0.9.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/j4067v7fl9sgcy117n2gd13frk7akx6j-cargo-llvm-cov-0.9.0"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/b708hhad1m4h4n181i2ix95zpnr3qvxl-cargo-llvm-cov-0.9.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/b708hhad1m4h4n181i2ix95zpnr3qvxl-cargo-llvm-cov-0.9.0"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/9am82q0lk0xkc9967aphvvj554az1mhy-cargo-llvm-cov-0.9.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/9am82q0lk0xkc9967aphvvj554az1mhy-cargo-llvm-cov-0.9.0"
+        }
+      }
+    },
     "cargo@latest": {
       "last_modified": "2026-08-27T07:16:00Z",
       "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#cargo",
@@ -134,6 +172,58 @@
             }
           ],
           "store_path": "/nix/store/09s0cg95jsi5vwd5a747w2xdsvn05a98-lean4-4.30.0"
+        }
+      }
+    },
+    "llvm_21@latest": {
+      "last_modified": "2026-06-22T09:00:13Z",
+      "resolved": "github:NixOS/nixpkgs/b3c092d3c36d91e2f61f3dfb39a159f180a56659#llvm_21",
+      "source": "devbox-search",
+      "version": "21.1.8",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/swmlaimgs6h7pl0gg7nicsxfdj2fprfn-llvm-21.1.8",
+              "default": true
+            },
+            {
+              "name": "python",
+              "path": "/nix/store/5z131n457f7rni2k93gmkjkxfv8n180w-llvm-21.1.8-python"
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/blphx91aqbmd5gxpva3x9n1rpfs8n6jk-llvm-21.1.8-dev"
+            },
+            {
+              "name": "lib",
+              "path": "/nix/store/yz6cgjlmhh4gc8hxzcxb66xwb1n2vyq5-llvm-21.1.8-lib"
+            }
+          ],
+          "store_path": "/nix/store/swmlaimgs6h7pl0gg7nicsxfdj2fprfn-llvm-21.1.8"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/amxhlzj6pbk8mcrszda4mbjd0rk1gl55-llvm-21.1.8",
+              "default": true
+            },
+            {
+              "name": "python",
+              "path": "/nix/store/qxvzsra4585ddnlrddb7r8wiiivbdfzv-llvm-21.1.8-python"
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/a3g9adap1lz4yraqflns5ndd6bpaaxqi-llvm-21.1.8-dev"
+            },
+            {
+              "name": "lib",
+              "path": "/nix/store/afpq2qqh7s90x8p18hykamdj02n5j4zl-llvm-21.1.8-lib"
+            }
+          ],
+          "store_path": "/nix/store/amxhlzj6pbk8mcrszda4mbjd0rk1gl55-llvm-21.1.8"
         }
       }
     },

@@ -9,6 +9,7 @@ devbox shell          # enter the toolchain
 devbox run build      # cargo build --workspace
 devbox run test       # cargo test --workspace
 devbox run check      # fmt, clippy, and test
+devbox run coverage   # line and region coverage
 ```
 
 Two commands show the code at work:
@@ -64,7 +65,7 @@ environment that grows as it works.
 | `rean_syntax` | `Syntax`, the lossless tree. The result of stage 2. |
 | `rean_kernel` | `Expr`, `Level`, the variable operations, the `Environment`, and the checker. Stage 4. |
 | `rean_export` | reads a `lean4export` NDJSON file into an `Environment`. |
-| `rean` | The driver. It owns the order of the stages and all input and output. |
+| `rean` | The driver. Each command returns a value, and the binary prints it. |
 
 No library crate reads a file or prints a line. Only `rean` does. A test can
 therefore call any stage directly.
@@ -83,13 +84,14 @@ must meet.
 | [1 — The type checker](docs/01-the-type-checker.md) | `alpha_eq`, `LocalContext`, `whnf`, `is_def_eq`, and `infer_type`. The first real proof. |
 | [2 — The environment](docs/02-the-environment.md) | declarations, δ, ι, η, proof irrelevance, projections, level normalization. |
 | [3 — The ground truth](docs/03-the-ground-truth.md) | reading a real `lean4export` file and checking it. |
+| [4 — Making it work](docs/04-making-it-work.md) | `Nat` literals, K-like ι, the quotient rules, strict positivity, and coverage. |
 
 Every claim in a chapter has a test:
 
 ```sh
 devbox run -- cargo test -p rean_kernel --test universes   # chapter 0
 devbox run -- cargo test -p rean_kernel --test typeck      # chapters 1 and 2
-devbox run -- cargo test -p rean_export                    # chapter 3
+devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 ```
 
 ## The scoreboard
@@ -99,6 +101,8 @@ devbox run -- cargo test -p rean_export                    # chapter 3
 | level 1 | **32 of 32** | our kernel checks the declarations that Lean wrote |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
+| tests | **337** | `devbox run test` |
+| coverage | **96.2% of regions, 98.6% of lines** | `devbox run coverage` |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson

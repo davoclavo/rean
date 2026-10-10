@@ -6,7 +6,9 @@
     "rustfmt@latest",
     "clippy@latest",
     "rust-analyzer@latest",
-    "lean4@latest"
+    "lean4@latest",
+    "cargo-llvm-cov@latest",
+    "llvm_21@latest"
   ],
   "env": {
     "RUST_BACKTRACE": "1"
@@ -16,14 +18,29 @@
       "echo \"rean: rustc $(rustc --version | cut -d' ' -f2)\""
     ],
     "scripts": {
-      "build": ["cargo build --workspace"],
-      "test":  ["cargo test --workspace"],
-      "lint":  ["cargo clippy --workspace --all-targets -- -D warnings"],
-      "fmt":   ["cargo fmt --all"],
+      "build": [
+        "cargo build --workspace"
+      ],
+      "test": [
+        "cargo test --workspace"
+      ],
+      "lint": [
+        "cargo clippy --workspace --all-targets -- -D warnings"
+      ],
+      "fmt": [
+        "cargo fmt --all"
+      ],
       "check": [
         "cargo fmt --all --check",
         "cargo clippy --workspace --all-targets -- -D warnings",
         "cargo test --workspace"
+      ],
+      "coverage": [
+        "LLVM_COV=$(which llvm-cov) LLVM_PROFDATA=$(which llvm-profdata) cargo llvm-cov --workspace --summary-only"
+      ],
+      "coverage-html": [
+        "LLVM_COV=$(which llvm-cov) LLVM_PROFDATA=$(which llvm-profdata) cargo llvm-cov --workspace --html",
+        "echo 'open target/llvm-cov/html/index.html'"
       ]
     }
   }

@@ -29,7 +29,7 @@ Lean's kernel.
 | **A** the lexer | `.lean` text | `Vec<Token>` | works |
 | — the parser | `Vec<Token>` | `Syntax` | missing |
 | — the elaborator | `Syntax` | `Expr` | missing |
-| **B** the kernel | `Expr` | yes or no | works. β ζ δ ι η, proof irrelevance, projections. |
+| **B** the kernel | `Expr` | yes or no | works. Every reduction rule, plus strict positivity. |
 | **B** the importer | `.ndjson` | `Environment` | works |
 
 The two islands still do not touch. Nothing in a `.lean` file reaches the
@@ -113,7 +113,8 @@ ours. Only the library comes from outside.
 | 1 | the type checker. **Done.** | implicational logic |
 | 2 | `Environment`, declarations, δ, ι, η, proof irrelevance, projections, level normalization. **Done.** | a name has a type |
 | 3 | the importer and the Level 1 harness. **Done.** | **32 of 32 on the fixture** |
-| 4 | strict positivity, recursor re-derivation, K-like ι, the quotient rules | a checker you can **trust** |
+| 4 | `Nat` literals, K-like ι, the quotient rules, strict positivity, coverage. **Done.** | a checker that handles what a beginner writes |
+| 4b | recursor re-derivation, nested positivity, big numbers | a checker you can **trust** |
 | 5 | the Pratt parser, with the extensible precedence table | `Vec<Token>` becomes `Syntax` |
 | 6 | the elaborator: name resolution, implicit arguments, unification | **Level 2 opens** |
 | 7 | metavariables, instance search, tactics | real proofs from real text |
@@ -180,7 +181,27 @@ Each level reports one number. Put all three in the README and move them up.
 level 1   our kernel checks        32 of 32 declarations   <- as of 2026-10-10
 level 2   our elaborator inhabits   0 of 32 types          <- needs a parser
 level 3   our term matches Lean's    0 of 32 terms
+
+tests     337
+coverage  96.2% of regions, 98.6% of lines   (devbox run coverage)
 ```
+
+## Coverage is part of the oracle
+
+Chapter 3 said the ground truth beats a hand written test. Chapter 4 found the
+other half of that: **one real module exercises only the paths that one module
+needs.** The chapter 3 fixture left the NDJSON reader at 72%, because it has no
+`letE`, no `mdata`, no literal, no `axiom`, no `opaque`, and no `quot`.
+
+So the two are complementary, not substitutes:
+
+- **Ground truth** proves the paths that real data takes, and finds shapes
+  nobody would write by hand. It found a projection at the head of a spine.
+- **Coverage** finds the paths that no data took. It found a driver that could
+  not be tested, and two dead branches in `level.rs`.
+
+Target every branch that an input can reach, not a round number. See chapter 4,
+section 4.6, for the 51 lines that stay and why.
 
 That beats a hand written test as a correctness oracle, and it is how the other
 independent checkers were built.

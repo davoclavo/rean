@@ -19,21 +19,24 @@
 //! | ι iota | done | a recursor applied to a constructor |
 //! | η eta | done | in [`TypeChecker::is_def_eq`] |
 //!
-//! Plus proof irrelevance, and projection of a constructor.
+//! Plus proof irrelevance, projection of a constructor, K-like ι reduction for
+//! `Eq.rec`, the two quotient rules, and direct computation on a `Nat` literal.
 //!
 //! # What is still missing
 //!
 //! | Missing | Effect |
 //! |---|---|
-//! | K-like ι reduction | `Eq.rec` does not reduce unless its major premise is already `Eq.refl` |
-//! | the strict positivity check | a bad `inductive` is trusted, not rejected |
 //! | recursor re-derivation | the recursor and its ι rules are trusted as given |
+//! | positivity for a nested inductive | skipped, not checked. See [`crate::positivity`]. |
 //! | a full level normal form | a hard pair of open levels can fail to match |
+//! | big number arithmetic | a literal past `u128` stays stuck rather than compute |
 
-use crate::environment::{Declaration, Environment};
+use crate::environment::{Declaration, Environment, QuotKind, RecursorVal};
 use crate::expr::{Expr, FVarId, Literal, MVarId, Proj};
 use crate::level::Level;
 use crate::local::LocalContext;
+use crate::nat_lit::{self, NatShape};
+use crate::positivity::{self, PositivityError};
 use rean_core::Name;
 use std::fmt;
 use std::sync::Arc;
@@ -82,6 +85,13 @@ pub enum TypeError {
     },
     /// Reduction did not stop. The input is probably corrupt.
     ReductionLimit,
+    /// A constructor type is not acceptable, so the inductive declaration is
+    /// not sound. This is the check that stops a user from proving `False`.
+    BadConstructor {
+        ctor: Name,
+        inductive: Name,
+        reason: PositivityError,
+    },
 }
 
 impl TypeError {
@@ -169,6 +179,25 @@ impl TypeError {
             TypeError::ReductionLimit => {
                 format!("reduction did not stop after {REDUCTION_LIMIT} steps")
             }
+            TypeError::BadConstructor {
+                ctor,
+                inductive,
+                reason,
+            } => {
+                let detail = match reason {
+                    PositivityError::NotStrictlyPositive { field } => format!(
+                        "field {field} uses `{inductive}` in a position that is not \
+                         strictly positive. Such a declaration can prove `False`."
+                    ),
+                    PositivityError::TooFewBinders { expected } => {
+                        format!("the type needs {expected} binders and has fewer")
+                    }
+                    PositivityError::WrongResult => {
+                        format!("it does not return `{inductive}`")
+                    }
+                };
+                format!("the constructor `{ctor}` is not acceptable: {detail}")
+            }
         }
     }
 }
@@ -255,8 +284,16 @@ impl<'e> TypeChecker<'e> {
         }
 
         if let Expr::Const { name, levels } = head {
+            // The kernel computes on a `Nat` literal directly.
+            if let Some(next) = self.nat_step(name, &args)? {
+                return Ok(Some(next));
+            }
             // ι: a recursor applied to a constructor rewrites to its rule.
             if let Some(next) = self.iota_step(name, levels, &args)? {
+                return Ok(Some(next));
+            }
+            // The quotient rules, for `Quot.lift` and `Quot.ind`.
+            if let Some(next) = self.quot_step(name, &args)? {
                 return Ok(Some(next));
             }
             // δ: a definition unfolds to its value.
@@ -271,9 +308,76 @@ impl<'e> TypeChecker<'e> {
         Ok(None)
     }
 
+    /// Computes a function on two `Nat` literals.
+    ///
+    /// Without this step, `2 + 3` would unfold through `Nat.rec` once per unit,
+    /// so a real program would exhaust the reduction budget.
+    fn nat_step(&mut self, name: &Name, args: &[Expr]) -> TypeResult<Option<Expr>> {
+        if !nat_lit::is_binop(name) || args.len() < 2 {
+            return Ok(None);
+        }
+        // A `Bool` result needs the constructors to exist.
+        if nat_lit::returns_bool(name) && !self.env.contains(&Name::from_dotted("Bool.true")) {
+            return Ok(None);
+        }
+        let left = self.whnf(&args[0])?;
+        let right = self.whnf(&args[1])?;
+        let (Some(a), Some(b)) = (nat_lit::value(&left), nat_lit::value(&right)) else {
+            return Ok(None);
+        };
+        let Some(out) = nat_lit::binop(name, a, b) else {
+            // The answer does not fit in a `u128`. Stay stuck rather than lie.
+            return Ok(None);
+        };
+        Ok(Some(out.apps(args[2..].iter().cloned())))
+    }
+
+    /// Applies a quotient rule.
+    ///
+    /// ```text
+    /// Quot.lift α r β f h (Quot.mk α r a)  ~>  f a
+    /// Quot.ind  α r β h   (Quot.mk α r a)  ~>  h a
+    /// ```
+    ///
+    /// `Quot` is a kernel primitive. You cannot build it from an inductive
+    /// declaration, so it needs its own rule. See chapter 0, section 0.14.
+    fn quot_step(&mut self, name: &Name, args: &[Expr]) -> TypeResult<Option<Expr>> {
+        let Some(Declaration::Quot(quot)) = self.env.get(name) else {
+            return Ok(None);
+        };
+        // `lift` takes the function at 3 and the quotient at 5.
+        // `ind` takes the proof at 3 and the quotient at 4.
+        let (function_index, major_index) = match quot.kind {
+            QuotKind::Lift => (3usize, 5usize),
+            QuotKind::Ind => (3usize, 4usize),
+            QuotKind::Type | QuotKind::Ctor => return Ok(None),
+        };
+        if args.len() <= major_index {
+            return Ok(None);
+        }
+        let major = self.whnf(&args[major_index])?;
+        let (head, mk_args) = major.unfold_apps();
+        let Expr::Const { name: mk, .. } = head else {
+            return Ok(None);
+        };
+        let Some(Declaration::Quot(mk_decl)) = self.env.get(mk) else {
+            return Ok(None);
+        };
+        if mk_decl.kind != QuotKind::Ctor || mk_args.len() < 3 {
+            return Ok(None);
+        }
+        // `Quot.mk α r a` carries the value in its third argument.
+        let value = mk_args[2].clone();
+        let out = args[function_index].clone().app(value);
+        Ok(Some(out.apps(args[major_index + 1..].iter().cloned())))
+    }
+
     /// Reduces a projection whose target is a constructor application.
     fn proj_step(&mut self, proj: &Proj) -> TypeResult<Option<Expr>> {
-        let value = self.whnf(&proj.value)?;
+        let mut value = self.whnf(&proj.value)?;
+        if let Some(as_ctor) = nat_lit::to_ctor_if_lit(&value) {
+            value = as_ctor;
+        }
         let (head, args) = value.unfold_apps();
         let Expr::Const { name, .. } = head else {
             return Ok(None);
@@ -309,10 +413,18 @@ impl<'e> TypeChecker<'e> {
             return Ok(None);
         }
 
-        let major = self.whnf(&args[major_index])?;
+        let mut major = self.whnf(&args[major_index])?;
+        // A `Nat` literal must behave like a constructor application here.
+        // `3` becomes `Nat.succ 2`, so the `Nat.succ` rule can fire.
+        if let Some(as_ctor) = nat_lit::to_ctor_if_lit(&major) {
+            major = as_ctor;
+        }
+        // A K-like recursor reduces even when the major premise is a variable.
+        if let Some(as_ctor) = self.ctor_when_k(&rec, &major)? {
+            major = as_ctor;
+        }
         let (major_head, major_args) = major.unfold_apps();
         let Expr::Const { name: ctor, .. } = major_head else {
-            // A K-like recursor reduces even here. That case is not written yet.
             return Ok(None);
         };
         let Some(rule) = rec.rule_for(ctor) else {
@@ -337,6 +449,64 @@ impl<'e> TypeChecker<'e> {
         Ok(Some(out))
     }
 
+    /// Builds the constructor application for a K-like recursor.
+    ///
+    /// `Eq.rec` is the example. `Eq` has one constructor, `Eq.refl`, and that
+    /// constructor has no field. So a proof of `a = b` carries no information
+    /// beyond its own existence, and the recursor may reduce even when the
+    /// proof is an opaque variable.
+    ///
+    /// The method reads the **type** of the major premise, takes the inductive
+    /// and its parameters from that type, and builds the sole constructor from
+    /// them. It then checks that the result has the same type, so that an index
+    /// mismatch cannot slip through.
+    fn ctor_when_k(&mut self, rec: &RecursorVal, major: &Expr) -> TypeResult<Option<Expr>> {
+        if !rec.k {
+            return Ok(None);
+        }
+        // Already a constructor application, so there is nothing to do.
+        if let (Expr::Const { name, .. }, _) = major.unfold_apps()
+            && matches!(self.env.get(name), Some(Declaration::Constructor(_)))
+        {
+            return Ok(None);
+        }
+        let major_type = self.infer_type(major)?;
+        let major_type = self.whnf(&major_type)?;
+        let (head, type_args) = major_type.unfold_apps();
+        let Expr::Const {
+            name: inductive,
+            levels,
+        } = head
+        else {
+            return Ok(None);
+        };
+        if !rec.all.contains(inductive) {
+            return Ok(None);
+        }
+        let Some(ctor) = self.env.sole_ctor(inductive) else {
+            return Ok(None);
+        };
+        // K-like reduction only makes sense when the constructor has no field.
+        if ctor.num_fields != 0 {
+            return Ok(None);
+        }
+        let ctor_app = Expr::Const {
+            name: ctor.name.clone(),
+            levels: levels.clone(),
+        }
+        .apps(
+            type_args
+                .iter()
+                .take(ctor.num_params as usize)
+                .map(|a| (*a).clone()),
+        );
+        let ctor_type = self.infer_type(&ctor_app)?;
+        if self.is_def_eq(&ctor_type, &major_type)? {
+            return Ok(Some(ctor_app));
+        }
+        Ok(None)
+    }
+
     // --- definitional equality ------------------------------------------
 
     /// Returns `true` if `a` and `b` are the same term by computation.
@@ -357,6 +527,10 @@ impl<'e> TypeChecker<'e> {
             _ => {}
         }
 
+        // A `Nat` literal against the matching constructor chain.
+        if self.nat_lit_eq(&a, &b)? {
+            return Ok(true);
+        }
         // Two lambdas, or two function types.
         if self.binders_eq(&a, &b)? {
             return Ok(true);
@@ -373,6 +547,30 @@ impl<'e> TypeChecker<'e> {
         }
         // Proof irrelevance: all proofs of one proposition are equal.
         self.proof_irrelevant(&a, &b)
+    }
+
+    /// Compares a `Nat` literal with a constructor chain.
+    ///
+    /// `1` and `Nat.succ Nat.zero` are the same number, so the kernel must say
+    /// so. The literal shrinks by one on each step, so the recursion ends.
+    fn nat_lit_eq(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
+        let (number, other) = match (nat_lit::value(a), nat_lit::value(b)) {
+            (Some(n), None) => (n, b),
+            (None, Some(n)) => (n, a),
+            // Two literals already compared by value, and two non literals are
+            // not this method's business.
+            _ => return Ok(false),
+        };
+        match nat_lit::shape(other) {
+            Some(NatShape::Zero) => Ok(number == 0),
+            Some(NatShape::Succ(inner)) => {
+                if number == 0 {
+                    return Ok(false);
+                }
+                self.is_def_eq(&nat_lit::lit(number - 1), inner)
+            }
+            None => Ok(false),
+        }
     }
 
     /// Compares two lambdas, or two function types.
@@ -703,11 +901,48 @@ impl<'e> TypeChecker<'e> {
         Err(TypeError::mismatch(e, expected.clone(), got))
     }
 
+    /// Runs the strict positivity check for one constructor.
+    ///
+    /// The inductive type that owns the constructor must already be in the
+    /// environment. The export format lists it first, so a harness that walks
+    /// the file in order satisfies that.
+    ///
+    /// A nested inductive type is skipped, not rejected. See
+    /// [`crate::positivity`].
+    pub fn check_positivity(&mut self, ctor: &crate::ConstructorVal) -> TypeResult<()> {
+        let Some(Declaration::Inductive(inductive)) = self.env.get(&ctor.induct) else {
+            // Without the inductive type there is nothing to check against.
+            // `infer_sort` on the constructor type already reported the
+            // unknown constant.
+            return Ok(());
+        };
+        if inductive.num_nested > 0 {
+            return Ok(());
+        }
+        let names = if inductive.all.is_empty() {
+            vec![inductive.name.clone()]
+        } else {
+            inductive.all.clone()
+        };
+        positivity::check_constructor(&ctor.ty, ctor.num_params, ctor.num_fields, &names).map_err(
+            |reason| TypeError::BadConstructor {
+                ctor: ctor.name.clone(),
+                inductive: ctor.induct.clone(),
+                reason,
+            },
+        )
+    }
+
     /// Checks one declaration: its type is a type, and its value has that type.
     ///
     /// This is the entry point of the level 1 checkpoint in `docs/ROADMAP.md`.
     pub fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
         self.infer_sort(decl.ty())?;
+        // A constructor is where a user hands the kernel a new rule, so it is
+        // where the kernel must push back.
+        if let Declaration::Constructor(ctor) = decl {
+            self.check_positivity(ctor)?;
+        }
         let value = match decl {
             Declaration::Definition(d) => Some(&d.value),
             Declaration::Theorem(d) => Some(&d.value),
