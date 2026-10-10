@@ -18,6 +18,19 @@ cargo run -p rean -- lex examples/twice.lean    # print every token
 cargo run -p rean -- demo                       # walk the four stages
 ```
 
+## Examples
+
+| File | Shows |
+|---|---|
+| `examples/twice.lean` | a small, ordinary Lean file |
+| `examples/tokens.lean` | every token kind that the lexer knows |
+| `examples/universes.lean` | `Sort`, `Prop`, and `Type`, next to chapter 0 |
+| `examples/notation.lean` | three symbols that the table does not hold yet |
+
+`notation.lean` reports three errors on purpose. It records the gap that the
+parser must close. `crates/rean_lexer/tests/examples.rs` locks each count in
+place, and it also shows that one `TokenTable::insert` per symbol clears them.
+
 ## How Lean compiles a file
 
 Lean does not use the pipeline of a C compiler. The order below is the one that
