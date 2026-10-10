@@ -312,6 +312,68 @@ impl Expr {
         }
     }
 
+    /// Replaces each universe parameter of `self` with the level at the same
+    /// position in `args`.
+    ///
+    /// The δ rule needs this method. A call site writes `List.{0}`, and the
+    /// stored value of `List` speaks about `u`, so the value must take the `0`
+    /// before the checker uses it.
+    pub fn instantiate_levels(&self, params: &[Name], args: &[Level]) -> Expr {
+        if params.is_empty() {
+            return self.clone();
+        }
+        match self {
+            Expr::Sort(level) => Expr::Sort(level.substitute(params, args)),
+            Expr::Const { name, levels } => Expr::Const {
+                name: name.clone(),
+                levels: levels.iter().map(|l| l.substitute(params, args)).collect(),
+            },
+            Expr::App { fun, arg } => Expr::App {
+                fun: Arc::new(fun.instantiate_levels(params, args)),
+                arg: Arc::new(arg.instantiate_levels(params, args)),
+            },
+            Expr::Lam {
+                binder_name,
+                binder_type,
+                body,
+                info,
+            } => Expr::Lam {
+                binder_name: binder_name.clone(),
+                binder_type: Arc::new(binder_type.instantiate_levels(params, args)),
+                body: Arc::new(body.instantiate_levels(params, args)),
+                info: *info,
+            },
+            Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                info,
+            } => Expr::Forall {
+                binder_name: binder_name.clone(),
+                binder_type: Arc::new(binder_type.instantiate_levels(params, args)),
+                body: Arc::new(body.instantiate_levels(params, args)),
+                info: *info,
+            },
+            Expr::Let {
+                binder_name,
+                binder_type,
+                value,
+                body,
+            } => Expr::Let {
+                binder_name: binder_name.clone(),
+                binder_type: Arc::new(binder_type.instantiate_levels(params, args)),
+                value: Arc::new(value.instantiate_levels(params, args)),
+                body: Arc::new(body.instantiate_levels(params, args)),
+            },
+            Expr::Proj(proj) => Expr::Proj(Proj {
+                structure: proj.structure.clone(),
+                index: proj.index,
+                value: Arc::new(proj.value.instantiate_levels(params, args)),
+            }),
+            other => other.clone(),
+        }
+    }
+
     // --- comparison ------------------------------------------------------
 
     /// Returns `true` if `self` and `other` are the same term up to binder

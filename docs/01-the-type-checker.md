@@ -505,18 +505,31 @@ names must lend them back.
 
 ---
 
-## 1.14 What chapter 2 adds
+## 1.14 What chapter 2 added
+
+See [chapter 2](02-the-environment.md).
 
 | Piece | Unlocks |
 |---|---|
 | `Environment`, a map from `Name` to a declaration | the δ rule, and a type for every constant |
-| `axiom`, `def`, and `theorem` declarations | named theorems that build on each other |
-| `inductive` declarations and the recursor | the ι rule |
-| the strict positivity check | soundness of an inductive declaration |
+| `inductive`, `ctor`, and `rec` declarations | the ι rule |
+| projections | a structure field |
 | level normalization | `max u 0` equals `u` |
 | proof irrelevance and the η rule | the last two entries of section 1.11 |
 
-With those, `∧`, `∨`, `∃`, `=`, `Nat`, and real mathematics become reachable.
+The free functions of this chapter became methods on a `TypeChecker`, because
+they all need the environment and they call each other. Two of the five "gap"
+tests of section 1.11 had to flip.
+
+Chapter 2 also had to fix one thing that this chapter got away with. Section 1.6
+said that `is_def_eq` compares two binder bodies with no renumber, and called it
+a de Bruijn dividend. That is true for a structural comparison, and it breaks
+the moment proof irrelevance arrives, because each body still holds a loose
+bound variable and a loose bound variable has no type. Chapter 2, section 2.7
+has the cure.
+
+Then [chapter 3](03-the-ground-truth.md) points the checker at a real Lean file:
+32 of 32.
 
 ---
 

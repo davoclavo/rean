@@ -4,7 +4,7 @@
 //! stays free of input and output, so a test can call it directly.
 
 use rean_core::{DiagnosticBag, SourceMap};
-use rean_kernel::{Expr, Level, LocalContext, check, infer_type};
+use rean_kernel::{Environment, Expr, Level, TypeChecker};
 use rean_lexer::{TokenKind, TokenTable, tokenize};
 use rean_syntax::{Syntax, kind};
 use std::process::ExitCode;
@@ -16,6 +16,7 @@ usage:
   rean lex <file.lean>   print every token with its position
   rean demo              walk the stages over a small example
   rean prove             check a proof with the kernel
+  rean check <f.ndjson>  check a lean4export file with our kernel
   rean help              print this text
 ";
 
@@ -31,6 +32,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("prove") => prove(),
+        Some("check") => match args.get(1) {
+            Some(path) => check_export(path),
+            None => fail("check needs a path to an .ndjson file"),
+        },
         Some("help") | Some("--help") | Some("-h") | None => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -215,7 +220,8 @@ fn demo() {
 ///
 /// This command is chapter 1. See `docs/01-the-type-checker.md`.
 fn prove() -> ExitCode {
-    let mut ctx = LocalContext::new();
+    let env = Environment::new();
+    let mut tc = TypeChecker::new(&env);
 
     // `fun (α : Prop) (h : α) => h`
     let proof = Expr::lam(
@@ -234,27 +240,27 @@ fn prove() -> ExitCode {
     println!("readable  : {}", proposition.pretty());
 
     println!("\n== infer_type ==");
-    match infer_type(&mut ctx, &proof) {
-        Ok(ty) => println!("the proof has type : {}", ctx.pretty(&ty)),
+    match tc.infer_type(&proof) {
+        Ok(ty) => println!("the proof has type : {}", tc.lctx().pretty(&ty)),
         Err(err) => {
-            eprintln!("error: {}", err.render(&ctx));
+            eprintln!("error: {}", err.render(tc.lctx()));
             return ExitCode::FAILURE;
         }
     }
 
     println!("\n== check ==");
-    match check(&mut ctx, &proof, &proposition) {
+    match tc.check(&proof, &proposition) {
         Ok(()) => println!("accepted. The proposition holds."),
         Err(err) => {
-            eprintln!("error: {}", err.render(&ctx));
+            eprintln!("error: {}", err.render(tc.lctx()));
             return ExitCode::FAILURE;
         }
     }
 
     // The level of the proposition. `imax 1 0 = 0`, so it is a `Prop`.
-    match infer_type(&mut ctx, &proposition) {
-        Ok(ty) => println!("the proposition lives in : {}", ctx.pretty(&ty)),
-        Err(err) => eprintln!("error: {}", err.render(&ctx)),
+    match tc.infer_type(&proposition) {
+        Ok(ty) => println!("the proposition lives in : {}", tc.lctx().pretty(&ty)),
+        Err(err) => eprintln!("error: {}", err.render(tc.lctx())),
     }
 
     println!("\n== a proof that does not check ==");
@@ -275,18 +281,79 @@ fn prove() -> ExitCode {
     );
     println!("the proof  : {}", bad_proof.pretty());
     println!("the claim  : {}", wanted.pretty());
-    match check(&mut ctx, &bad_proof, &wanted) {
+    match tc.check(&bad_proof, &wanted) {
         Ok(()) => println!("accepted, and that is a bug"),
-        Err(err) => println!("rejected:\n  {}", err.render(&ctx).replace('\n', "\n  ")),
+        Err(err) => println!(
+            "rejected:\n  {}",
+            err.render(tc.lctx()).replace('\n', "\n  ")
+        ),
     }
 
     println!("\n== what still needs chapter 2 ==");
     for term in [Expr::const_("Nat", vec![]), Expr::nat("3")] {
-        match infer_type(&mut ctx, &term) {
-            Ok(ty) => println!("{} : {}", term.pretty(), ctx.pretty(&ty)),
-            Err(err) => println!("{} -> {}", term.pretty(), err.render(&ctx)),
+        match tc.infer_type(&term) {
+            Ok(ty) => println!("{} : {}", term.pretty(), tc.lctx().pretty(&ty)),
+            Err(err) => println!("{} -> {}", term.pretty(), err.render(tc.lctx())),
         }
     }
     let _ = Level::Zero;
     ExitCode::SUCCESS
+}
+
+/// Reads a `lean4export` file and checks every declaration with our kernel.
+///
+/// This is the level 1 checkpoint of `docs/ROADMAP.md`.
+fn check_export(path: &str) -> ExitCode {
+    let module = match rean_export::read_module(path) {
+        Ok(module) => module,
+        Err(err) => return fail(&format!("cannot read {path}: {err}")),
+    };
+
+    println!("{path}");
+    println!("  {}", module.meta);
+    println!("  {} declarations\n", module.order.len());
+
+    // Build the environment one declaration at a time. A declaration may only
+    // use the ones before it, so a circular definition cannot slip through.
+    let mut known = Environment::new();
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+
+    for name in &module.order {
+        let Some(decl) = module.env.get(name) else {
+            println!("  MISSING  {name}");
+            failed += 1;
+            continue;
+        };
+        let outcome = {
+            let mut tc = TypeChecker::new(&known);
+            tc.check_declaration(decl)
+                .map_err(|err| err.render(tc.lctx()))
+        };
+        match outcome {
+            Ok(()) => {
+                println!("  ok    {:10} {name}", decl.kind_label());
+                passed += 1;
+            }
+            Err(message) => {
+                println!("  FAIL  {:10} {name}", decl.kind_label());
+                for line in message.lines() {
+                    println!("          {line}");
+                }
+                failed += 1;
+            }
+        }
+        // Add it either way, so one failure does not cascade.
+        known.add(decl.clone());
+    }
+
+    println!(
+        "\nlevel 1: checked {passed} of {} declarations",
+        passed + failed
+    );
+    if failed == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }

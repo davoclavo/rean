@@ -17,6 +17,7 @@ Two commands show the code at work:
 cargo run -p rean -- lex examples/twice.lean    # print every token
 cargo run -p rean -- demo                       # walk the four stages
 cargo run -p rean -- prove                      # check a proof with the kernel
+cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
 ```
 
 ## Examples
@@ -61,7 +62,8 @@ environment that grows as it works.
 | `rean_core` | `Name`, `Span`, `SourceMap`, `Diagnostic`. Every crate uses these. |
 | `rean_lexer` | `TokenTable`, `Lexer`, `Token`. Stage 1. |
 | `rean_syntax` | `Syntax`, the lossless tree. The result of stage 2. |
-| `rean_kernel` | `Expr`, `Level`, and the three variable operations. Stage 4. |
+| `rean_kernel` | `Expr`, `Level`, the variable operations, the `Environment`, and the checker. Stage 4. |
+| `rean_export` | reads a `lean4export` NDJSON file into an `Environment`. |
 | `rean` | The driver. It owns the order of the stages and all input and output. |
 
 No library crate reads a file or prints a line. Only `rean` does. A test can
@@ -79,13 +81,32 @@ must meet.
 |---|---|
 | [0 — Introduction to the kernel](docs/00-introduction-to-the-kernel.md) | What a proof checker is. `Sort`, `Prop`, `Type`, de Bruijn indices, definitional equality, and the ultimate primitives. |
 | [1 — The type checker](docs/01-the-type-checker.md) | `alpha_eq`, `LocalContext`, `whnf`, `is_def_eq`, and `infer_type`. The first real proof. |
+| [2 — The environment](docs/02-the-environment.md) | declarations, δ, ι, η, proof irrelevance, projections, level normalization. |
+| [3 — The ground truth](docs/03-the-ground-truth.md) | reading a real `lean4export` file and checking it. |
 
 Every claim in a chapter has a test:
 
 ```sh
 devbox run -- cargo test -p rean_kernel --test universes   # chapter 0
-devbox run -- cargo test -p rean_kernel --test typeck      # chapter 1
+devbox run -- cargo test -p rean_kernel --test typeck      # chapters 1 and 2
+devbox run -- cargo test -p rean_export                    # chapter 3
 ```
+
+## The scoreboard
+
+| Checkpoint | Score | Meaning |
+|---|---|---|
+| level 1 | **32 of 32** | our kernel checks the declarations that Lean wrote |
+| level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
+| level 3 | 0 of 32 | our term matches Lean's term |
+
+```sh
+cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
+```
+
+Level 1 covers the whole transitive closure of `theorem Nat.add_succ`, including
+an inductive type, a recursor with its ι rules, a projection, universe
+polymorphism, and type class instances. See [the roadmap](docs/ROADMAP.md).
 
 ## The building blocks
 

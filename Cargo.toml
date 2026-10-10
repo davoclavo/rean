@@ -13,6 +13,8 @@ rean_core = { path = "crates/rean_core" }
 rean_lexer = { path = "crates/rean_lexer" }
 rean_syntax = { path = "crates/rean_syntax" }
 rean_kernel = { path = "crates/rean_kernel" }
+rean_export = { path = "crates/rean_export" }
+serde_json = "1"
 
 [workspace.lints.clippy]
 all = "warn"

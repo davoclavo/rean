@@ -29,11 +29,12 @@ Lean's kernel.
 | **A** the lexer | `.lean` text | `Vec<Token>` | works |
 | — the parser | `Vec<Token>` | `Syntax` | missing |
 | — the elaborator | `Syntax` | `Expr` | missing |
-| **B** the kernel | `Expr` | yes or no | works, implicational logic |
+| **B** the kernel | `Expr` | yes or no | works. β ζ δ ι η, proof irrelevance, projections. |
+| **B** the importer | `.ndjson` | `Environment` | works |
 
-The two islands do not touch. Nothing in a `.lean` file reaches the kernel. The
-ground truth file is what lets us work on both islands at once, because it
-supplies the `Expr` values that the missing middle would have supplied.
+The two islands still do not touch. Nothing in a `.lean` file reaches the
+kernel. But island B now reads real Lean terms, so it is testable on its own.
+That is what the ground truth bought.
 
 ## The checkpoint ladder
 
@@ -110,9 +111,9 @@ ours. Only the library comes from outside.
 |---|---|---|
 | 0 | the kernel terms. **Done.** | `Expr`, `Level`, de Bruijn |
 | 1 | the type checker. **Done.** | implicational logic |
-| 2 | `Environment`, declarations, δ, level normalization, η, proof irrelevance | a name has a type |
-| 3 | the importer and the Level 1 harness | **first contact with the ground truth** |
-| 4 | inductive types, recursors, ι, strict positivity | `∧`, `∨`, `=`, `Nat`. Level 1 jumps. |
+| 2 | `Environment`, declarations, δ, ι, η, proof irrelevance, projections, level normalization. **Done.** | a name has a type |
+| 3 | the importer and the Level 1 harness. **Done.** | **32 of 32 on the fixture** |
+| 4 | strict positivity, recursor re-derivation, K-like ι, the quotient rules | a checker you can **trust** |
 | 5 | the Pratt parser, with the extensible precedence table | `Vec<Token>` becomes `Syntax` |
 | 6 | the elaborator: name resolution, implicit arguments, unification | **Level 2 opens** |
 | 7 | metavariables, instance search, tactics | real proofs from real text |
@@ -176,9 +177,9 @@ JSON key order also varies between lines, so the reader must not depend on it.
 Each level reports one number. Put all three in the README and move them up.
 
 ```
-level 1   our kernel checks        N of M declarations
-level 2   our elaborator inhabits  N of M types
-level 3   our term matches Lean's  N of M terms
+level 1   our kernel checks        32 of 32 declarations   <- as of 2026-10-10
+level 2   our elaborator inhabits   0 of 32 types          <- needs a parser
+level 3   our term matches Lean's    0 of 32 terms
 ```
 
 That beats a hand written test as a correctness oracle, and it is how the other

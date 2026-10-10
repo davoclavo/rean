@@ -15,14 +15,18 @@
 //! part that decides whether a proof is correct. A smaller kernel is a smaller
 //! thing to trust.
 
+pub mod environment;
 pub mod expr;
 pub mod level;
 pub mod local;
 pub mod typeck;
 
+pub use environment::{
+    AxiomVal, ConstructorVal, Declaration, DefinitionSafety, DefinitionVal, Environment,
+    InductiveVal, OpaqueVal, QuotKind, QuotVal, RecursorRule, RecursorVal, ReducibilityHints,
+    TheoremVal,
+};
 pub use expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj};
 pub use level::Level;
 pub use local::{LocalContext, LocalDecl};
-pub use typeck::{
-    TypeError, TypeResult, check, check_closed, infer_sort, infer_type, is_def_eq, whnf,
-};
+pub use typeck::{TypeChecker, TypeError, TypeResult};
