@@ -5,7 +5,8 @@
     "cargo@latest",
     "rustfmt@latest",
     "clippy@latest",
-    "rust-analyzer@latest"
+    "rust-analyzer@latest",
+    "lean4@latest"
   ],
   "env": {
     "RUST_BACKTRACE": "1"
@@ -16,9 +17,9 @@
     ],
     "scripts": {
       "build": ["cargo build --workspace"],
-      "test": ["cargo test --workspace"],
-      "lint": ["cargo clippy --workspace --all-targets -- -D warnings"],
-      "fmt": ["cargo fmt --all"],
+      "test":  ["cargo test --workspace"],
+      "lint":  ["cargo clippy --workspace --all-targets -- -D warnings"],
+      "fmt":   ["cargo fmt --all"],
       "check": [
         "cargo fmt --all --check",
         "cargo clippy --workspace --all-targets -- -D warnings",

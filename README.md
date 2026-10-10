@@ -67,6 +67,12 @@ environment that grows as it works.
 No library crate reads a file or prints a line. Only `rean` does. A test can
 therefore call any stage directly.
 
+## The plan
+
+See [the roadmap](docs/ROADMAP.md). In short: build the whole pipeline here, and
+use `lean4export` output from the real Lean as a ground truth that our answers
+must meet.
+
 ## Chapters
 
 | Chapter | Topic |

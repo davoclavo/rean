@@ -89,6 +89,54 @@
       "last_modified": "2026-09-10T03:47:09Z",
       "resolved": "github:NixOS/nixpkgs/d5dfd8e6716dde34398bc14bc87c10dece9c8c68?lastModified=1789012029&narHash=sha256-1CBkBf%2BNhggykzlx0jvXrj5rk20btl%2BtK8Fa8Ml%2FBL4%3D"
     },
+    "lean4@latest": {
+      "last_modified": "2026-08-27T07:16:00Z",
+      "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#lean4",
+      "source": "devbox-search",
+      "version": "4.30.0",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/qp2nf3sy7hdwp5csip0x6zaym3j90iz5-lean4-4.30.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/qp2nf3sy7hdwp5csip0x6zaym3j90iz5-lean4-4.30.0"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/zpwg9w370cwv1mdgn6s3k2s8gs8i6wz2-lean4-4.30.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/zpwg9w370cwv1mdgn6s3k2s8gs8i6wz2-lean4-4.30.0"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/hwyxsvwzq2b5z36zdzb3grr5kjzn5nj6-lean4-4.30.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/hwyxsvwzq2b5z36zdzb3grr5kjzn5nj6-lean4-4.30.0"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/09s0cg95jsi5vwd5a747w2xdsvn05a98-lean4-4.30.0",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/09s0cg95jsi5vwd5a747w2xdsvn05a98-lean4-4.30.0"
+        }
+      }
+    },
     "rust-analyzer@latest": {
       "last_modified": "2026-08-27T07:16:00Z",
       "resolved": "github:NixOS/nixpkgs/c27cdad491a991b11ed731760aa2ef8db0cb0410#rust-analyzer",
