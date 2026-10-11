@@ -559,51 +559,88 @@ impl Expr {
         if amount == 0 {
             return self.clone();
         }
+        self.lift_opt(cutoff, amount)
+            .unwrap_or_else(|| self.clone())
+    }
+
+    /// The worker for [`Expr::lift`]. `None` means "nothing changed".
+    ///
+    /// Returning `None` instead of a rebuilt copy is the whole performance
+    /// story of this module. A profile of the Lean prelude showed
+    /// `Arc<Expr>::drop_slow` as the single heaviest frame, far above the
+    /// substitution itself: the old code rebuilt every node of every subterm,
+    /// even where nothing changed, and then dropped the lot.
+    ///
+    /// With `None`, an unchanged subterm keeps its existing `Arc`, so the cost
+    /// is one reference count bump instead of a deep copy and a deep drop.
+    fn lift_opt(&self, cutoff: u32, amount: u32) -> Option<Expr> {
         match self {
-            Expr::BVar(index) if *index >= cutoff => Expr::BVar(index + amount),
-            Expr::App { fun, arg } => Expr::App {
-                fun: Arc::new(fun.lift(cutoff, amount)),
-                arg: Arc::new(arg.lift(cutoff, amount)),
-            },
+            Expr::BVar(index) if *index >= cutoff => Some(Expr::BVar(index + amount)),
+            Expr::App { fun, arg } => {
+                let new_fun = fun.lift_opt(cutoff, amount);
+                let new_arg = arg.lift_opt(cutoff, amount);
+                rebuild_app(fun, arg, new_fun, new_arg)
+            }
             Expr::Lam {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Lam {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.lift(cutoff, amount)),
-                body: Arc::new(body.lift(cutoff + 1, amount)),
-                info: *info,
-            },
+            } => {
+                let new_type = binder_type.lift_opt(cutoff, amount);
+                let new_body = body.lift_opt(cutoff + 1, amount);
+                rebuild_binder(
+                    true,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
             Expr::Forall {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Forall {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.lift(cutoff, amount)),
-                body: Arc::new(body.lift(cutoff + 1, amount)),
-                info: *info,
-            },
+            } => {
+                let new_type = binder_type.lift_opt(cutoff, amount);
+                let new_body = body.lift_opt(cutoff + 1, amount);
+                rebuild_binder(
+                    false,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
             Expr::Let {
                 binder_name,
                 binder_type,
                 value,
                 body,
-            } => Expr::Let {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.lift(cutoff, amount)),
-                value: Arc::new(value.lift(cutoff, amount)),
-                body: Arc::new(body.lift(cutoff + 1, amount)),
-            },
-            Expr::Proj(proj) => Expr::Proj(Proj {
-                structure: proj.structure.clone(),
-                index: proj.index,
-                value: Arc::new(proj.value.lift(cutoff, amount)),
-            }),
-            other => other.clone(),
+            } => {
+                let new_type = binder_type.lift_opt(cutoff, amount);
+                let new_value = value.lift_opt(cutoff, amount);
+                let new_body = body.lift_opt(cutoff + 1, amount);
+                rebuild_let(
+                    binder_name,
+                    binder_type,
+                    value,
+                    body,
+                    new_type,
+                    new_value,
+                    new_body,
+                )
+            }
+            Expr::Proj(proj) => proj
+                .value
+                .lift_opt(cutoff, amount)
+                .map(|value| rebuild_proj(proj, value)),
+            _ => None,
         }
     }
 
@@ -613,58 +650,84 @@ impl Expr {
     /// step is `Lam(body).instantiate(arg)`, which [`Expr::beta`] does.
     pub fn instantiate(&self, value: &Expr) -> Expr {
         self.instantiate_at(0, value)
+            .unwrap_or_else(|| self.clone())
     }
 
-    fn instantiate_at(&self, depth: u32, value: &Expr) -> Expr {
+    /// The worker for [`Expr::instantiate`]. `None` means "nothing changed".
+    ///
+    /// See [`Expr::lift_opt`] for why it returns an `Option`.
+    fn instantiate_at(&self, depth: u32, value: &Expr) -> Option<Expr> {
         match self {
             // This use points at the binder that disappears.
-            Expr::BVar(index) if *index == depth => value.lift(0, depth),
-            // This use points further out, so one binder less now stands between.
-            Expr::BVar(index) if *index > depth => Expr::BVar(index - 1),
-            Expr::BVar(index) => Expr::BVar(*index),
-            Expr::App { fun, arg } => Expr::App {
-                fun: Arc::new(fun.instantiate_at(depth, value)),
-                arg: Arc::new(arg.instantiate_at(depth, value)),
-            },
+            Expr::BVar(index) if *index == depth => Some(value.lift(0, depth)),
+            // This use points further out, so one binder less now stands
+            // between.
+            Expr::BVar(index) if *index > depth => Some(Expr::BVar(index - 1)),
+            Expr::App { fun, arg } => {
+                let new_fun = fun.instantiate_at(depth, value);
+                let new_arg = arg.instantiate_at(depth, value);
+                rebuild_app(fun, arg, new_fun, new_arg)
+            }
             Expr::Lam {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Lam {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.instantiate_at(depth, value)),
-                body: Arc::new(body.instantiate_at(depth + 1, value)),
-                info: *info,
-            },
+            } => {
+                let new_type = binder_type.instantiate_at(depth, value);
+                let new_body = body.instantiate_at(depth + 1, value);
+                rebuild_binder(
+                    true,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
             Expr::Forall {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Forall {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.instantiate_at(depth, value)),
-                body: Arc::new(body.instantiate_at(depth + 1, value)),
-                info: *info,
-            },
+            } => {
+                let new_type = binder_type.instantiate_at(depth, value);
+                let new_body = body.instantiate_at(depth + 1, value);
+                rebuild_binder(
+                    false,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
             Expr::Let {
                 binder_name,
                 binder_type,
                 value: bound,
                 body,
-            } => Expr::Let {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.instantiate_at(depth, value)),
-                value: Arc::new(bound.instantiate_at(depth, value)),
-                body: Arc::new(body.instantiate_at(depth + 1, value)),
-            },
-            Expr::Proj(proj) => Expr::Proj(Proj {
-                structure: proj.structure.clone(),
-                index: proj.index,
-                value: Arc::new(proj.value.instantiate_at(depth, value)),
-            }),
-            other => other.clone(),
+            } => {
+                let new_type = binder_type.instantiate_at(depth, value);
+                let new_value = bound.instantiate_at(depth, value);
+                let new_body = body.instantiate_at(depth + 1, value);
+                rebuild_let(
+                    binder_name,
+                    binder_type,
+                    bound,
+                    body,
+                    new_type,
+                    new_value,
+                    new_body,
+                )
+            }
+            Expr::Proj(proj) => proj
+                .value
+                .instantiate_at(depth, value)
+                .map(|inner| rebuild_proj(proj, inner)),
+            _ => None,
         }
     }
 
@@ -673,55 +736,78 @@ impl Expr {
     /// This operation is the reverse of [`Expr::instantiate`]. The elaborator
     /// uses it to close a binder after it finishes the body.
     pub fn abstract_fvar(&self, fvar: FVarId) -> Expr {
-        self.abstract_at(0, fvar)
+        self.abstract_at(0, fvar).unwrap_or_else(|| self.clone())
     }
 
-    fn abstract_at(&self, depth: u32, fvar: FVarId) -> Expr {
+    /// The worker for [`Expr::abstract_fvar`]. `None` means "nothing changed".
+    fn abstract_at(&self, depth: u32, fvar: FVarId) -> Option<Expr> {
         match self {
-            Expr::FVar(id) if *id == fvar => Expr::BVar(depth),
-            Expr::App { fun, arg } => Expr::App {
-                fun: Arc::new(fun.abstract_at(depth, fvar)),
-                arg: Arc::new(arg.abstract_at(depth, fvar)),
-            },
+            Expr::FVar(id) if *id == fvar => Some(Expr::BVar(depth)),
+            Expr::App { fun, arg } => {
+                let new_fun = fun.abstract_at(depth, fvar);
+                let new_arg = arg.abstract_at(depth, fvar);
+                rebuild_app(fun, arg, new_fun, new_arg)
+            }
             Expr::Lam {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Lam {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.abstract_at(depth, fvar)),
-                body: Arc::new(body.abstract_at(depth + 1, fvar)),
-                info: *info,
-            },
+            } => {
+                let new_type = binder_type.abstract_at(depth, fvar);
+                let new_body = body.abstract_at(depth + 1, fvar);
+                rebuild_binder(
+                    true,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
             Expr::Forall {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Forall {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.abstract_at(depth, fvar)),
-                body: Arc::new(body.abstract_at(depth + 1, fvar)),
-                info: *info,
-            },
+            } => {
+                let new_type = binder_type.abstract_at(depth, fvar);
+                let new_body = body.abstract_at(depth + 1, fvar);
+                rebuild_binder(
+                    false,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
             Expr::Let {
                 binder_name,
                 binder_type,
                 value,
                 body,
-            } => Expr::Let {
-                binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.abstract_at(depth, fvar)),
-                value: Arc::new(value.abstract_at(depth, fvar)),
-                body: Arc::new(body.abstract_at(depth + 1, fvar)),
-            },
-            Expr::Proj(proj) => Expr::Proj(Proj {
-                structure: proj.structure.clone(),
-                index: proj.index,
-                value: Arc::new(proj.value.abstract_at(depth, fvar)),
-            }),
-            other => other.clone(),
+            } => {
+                let new_type = binder_type.abstract_at(depth, fvar);
+                let new_value = value.abstract_at(depth, fvar);
+                let new_body = body.abstract_at(depth + 1, fvar);
+                rebuild_let(
+                    binder_name,
+                    binder_type,
+                    value,
+                    body,
+                    new_type,
+                    new_value,
+                    new_body,
+                )
+            }
+            Expr::Proj(proj) => proj
+                .value
+                .abstract_at(depth, fvar)
+                .map(|inner| rebuild_proj(proj, inner)),
+            _ => None,
         }
     }
 
@@ -917,6 +1003,96 @@ impl Expr {
                 }
             }
         }
+    }
+}
+
+/// Rebuilds an application, reusing an unchanged side.
+///
+/// `None` in, `None` out. See [`Expr::lift_opt`].
+fn rebuild_app(
+    fun: &Arc<Expr>,
+    arg: &Arc<Expr>,
+    new_fun: Option<Expr>,
+    new_arg: Option<Expr>,
+) -> Option<Expr> {
+    if new_fun.is_none() && new_arg.is_none() {
+        return None;
+    }
+    Some(Expr::App {
+        fun: keep(fun, new_fun),
+        arg: keep(arg, new_arg),
+    })
+}
+
+/// Rebuilds a lambda or a function type, reusing an unchanged part.
+fn rebuild_binder(
+    lambda: bool,
+    binder_name: &Name,
+    binder_type: &Arc<Expr>,
+    body: &Arc<Expr>,
+    info: BinderInfo,
+    new_type: Option<Expr>,
+    new_body: Option<Expr>,
+) -> Option<Expr> {
+    if new_type.is_none() && new_body.is_none() {
+        return None;
+    }
+    let binder_name = binder_name.clone();
+    let binder_type = keep(binder_type, new_type);
+    let body = keep(body, new_body);
+    Some(if lambda {
+        Expr::Lam {
+            binder_name,
+            binder_type,
+            body,
+            info,
+        }
+    } else {
+        Expr::Forall {
+            binder_name,
+            binder_type,
+            body,
+            info,
+        }
+    })
+}
+
+/// Rebuilds a `let`, reusing an unchanged part.
+fn rebuild_let(
+    binder_name: &Name,
+    binder_type: &Arc<Expr>,
+    value: &Arc<Expr>,
+    body: &Arc<Expr>,
+    new_type: Option<Expr>,
+    new_value: Option<Expr>,
+    new_body: Option<Expr>,
+) -> Option<Expr> {
+    if new_type.is_none() && new_value.is_none() && new_body.is_none() {
+        return None;
+    }
+    Some(Expr::Let {
+        binder_name: binder_name.clone(),
+        binder_type: keep(binder_type, new_type),
+        value: keep(value, new_value),
+        body: keep(body, new_body),
+    })
+}
+
+/// Rebuilds a projection around a changed target.
+fn rebuild_proj(proj: &Proj, value: Expr) -> Expr {
+    Expr::Proj(Proj {
+        structure: proj.structure.clone(),
+        index: proj.index,
+        value: Arc::new(value),
+    })
+}
+
+/// Keeps the existing `Arc` when nothing changed, so the cost is one reference
+/// count bump rather than a deep copy.
+fn keep(original: &Arc<Expr>, replacement: Option<Expr>) -> Arc<Expr> {
+    match replacement {
+        Some(changed) => Arc::new(changed),
+        None => Arc::clone(original),
     }
 }
 

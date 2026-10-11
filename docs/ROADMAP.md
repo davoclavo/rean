@@ -176,6 +176,40 @@ the `meta` line and must reject a version it does not know, rather than guess.
 
 JSON key order also varies between lines, so the reader must not depend on it.
 
+## Speed, measured
+
+The two committed fixtures check in well under a second. A 340 MB export of the
+whole Lean prelude, 57,512 declarations, runs at about **750 declarations a
+minute**, so a full pass is over an hour rather than minutes.
+
+A profile named the cost precisely, and it was not where anyone would guess:
+
+| Frame | Before | After |
+|---|---|---|
+| `Arc<Expr>::drop_slow` | 121,445 | **7,982** |
+| `drop_glue::<Expr>` | 55,427 | **3,906** |
+| `Expr::instantiate_at` | 35,385 | 41,436 |
+
+Substitution rebuilt every node of every subterm, even where nothing changed,
+and then dropped the lot. `instantiate_at`, `lift` and `abstract_fvar` now
+return `None` for "nothing changed", so an unchanged subterm keeps its existing
+`Arc` and costs one reference count bump. That removed the dominant frame.
+
+What is left is `instantiate_at`'s **traversal**: it still walks a subterm to
+discover that nothing changed. The principled fix is the one Lean uses, and it
+is a real refactor rather than a tweak:
+
+- **Cache the loose bound variable range in every node.** Then substitution
+  skips a closed subterm without walking it at all.
+- **Cache the result of `is_def_eq`.** Two large terms share subterms, and
+  without a memo those get compared again and again.
+
+Until then the checker carries **fuel**: each reduction step and each
+comparison spends a unit, the budget resets per declaration, and a declaration
+that runs out is reported as unchecked. So the checker can never hang. At a
+budget of forty million, three of the first 3,202 prelude declarations ran out,
+all of them theorems about division that reduce through well founded recursion.
+
 ## The one number
 
 Each level reports one number. Put all three in the README and move them up.

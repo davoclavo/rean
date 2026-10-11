@@ -3,7 +3,7 @@
 //! This file does the printing and nothing else. Every decision lives in the
 //! library, so a test can reach it.
 
-use rean::{USAGE, Verdict, check_export, demo, lex_file, prove};
+use rean::{DeclOutcome, USAGE, Verdict, check_export_streaming, demo, lex_file, prove};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -53,31 +53,26 @@ fn run_lex(path: &str) -> ExitCode {
 }
 
 fn run_check(path: &str) -> ExitCode {
-    let report = match check_export(path) {
-        Ok(report) => report,
-        Err(message) => return fail(&message),
-    };
     println!("{path}");
-    println!("  {}", report.meta);
-    println!("  {} declarations\n", report.outcomes.len());
-    for outcome in &report.outcomes {
+    // Print each declaration as it is decided, so a long file shows progress.
+    let mut show = |outcome: &DeclOutcome| {
         let (label, message) = match &outcome.verdict {
             Verdict::Ok => ("ok   ", None),
             Verdict::Failed(message) => ("FAIL ", Some(message)),
             Verdict::Blocked(message) => ("block", Some(message)),
         };
-        let axioms = if outcome.axioms.is_empty() {
-            String::new()
-        } else {
-            format!("   [axioms: {}]", outcome.axioms.join(", "))
-        };
-        println!("  {label} {:10} {}{axioms}", outcome.kind, outcome.name);
+        println!("  {label} {:10} {}", outcome.kind, outcome.name);
         if let Some(message) = message {
             for line in message.lines() {
                 println!("          {line}");
             }
         }
-    }
+    };
+    let report = match check_export_streaming(path, &mut show) {
+        Ok(report) => report,
+        Err(message) => return fail(&message),
+    };
+    println!("\n  {}", report.meta);
     println!("\n{}", report.score());
     println!("{}", report.trust());
     if report.failed() == 0 && report.blocked() == 0 {

@@ -166,6 +166,19 @@ impl CheckReport {
 /// The environment grows one declaration at a time, so a declaration can only
 /// use the ones before it. A circular definition cannot slip through.
 pub fn check_export(path: &str) -> Result<CheckReport, String> {
+    check_export_streaming(path, &mut |_| {})
+}
+
+/// Like [`check_export`], and calls `report` as each declaration is decided.
+///
+/// A file of the whole Lean prelude holds 57,512 declarations. Building the
+/// whole report before printing a line of it tells the reader nothing for
+/// minutes, and it hid a measurement from us: zero output looked like "stuck on
+/// the first declaration" when it only meant "nothing is printed yet".
+pub fn check_export_streaming(
+    path: &str,
+    report: &mut dyn FnMut(&DeclOutcome),
+) -> Result<CheckReport, String> {
     let module =
         rean_export::read_module(path).map_err(|err| format!("cannot read {path}: {err}"))?;
 
@@ -185,12 +198,14 @@ pub fn check_export(path: &str) -> Result<CheckReport, String> {
         let mut accepted: Vec<Declaration> = Vec::new();
         for name in group {
             let Some(decl) = module.env.get(name) else {
-                outcomes.push(DeclOutcome {
+                let lost = DeclOutcome {
                     name: name.to_string(),
                     kind: "missing",
                     verdict: Verdict::Failed("the reader lost this declaration".to_string()),
                     axioms: Vec::new(),
-                });
+                };
+                report(&lost);
+                outcomes.push(lost);
                 rejected.push(name.clone());
                 continue;
             };
@@ -222,12 +237,14 @@ pub fn check_export(path: &str) -> Result<CheckReport, String> {
             if !matches!(verdict, Verdict::Ok) {
                 rejected.push(name.clone());
             }
-            outcomes.push(DeclOutcome {
+            let outcome = DeclOutcome {
                 name: name.to_string(),
                 kind: decl.kind_label(),
                 verdict,
                 axioms: Vec::new(),
-            });
+            };
+            report(&outcome);
+            outcomes.push(outcome);
         }
 
         // Only a declaration that checks goes into the environment. A bogus

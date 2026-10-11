@@ -49,6 +49,25 @@ use std::sync::Arc;
 /// have to obey the theory, so the loop needs a bound.
 const REDUCTION_LIMIT: u32 = 100_000;
 
+/// How much work one declaration may take.
+///
+/// `whnf` already has a step limit, and that is not enough. A comparison of two
+/// large terms calls `whnf` again and again, and nothing bounded the total. A
+/// run over the Lean prelude went from 78 seconds to no answer at all after the
+/// level normal form improved, because a pair that used to fail fast on a
+/// universe mismatch now went on to explore a term the size of a module.
+///
+/// So the checker carries fuel. Each reduction step and each comparison spends
+/// one unit, and the budget resets for every declaration. A declaration that
+/// runs out is reported as a failure with a clear reason, which is the honest
+/// answer: we did not check it.
+///
+/// This is a bound, not a fix. The real cure is the one Lean uses: cache the
+/// loose bound variable range in every node so substitution can skip a closed
+/// subterm without walking it, and cache the result of a comparison. Both are
+/// in the roadmap.
+const FUEL: u64 = 40_000_000;
+
 /// Why a term failed to check.
 ///
 /// The variants that carry a term carry it in a [`Box`]. The reason is size.
@@ -87,6 +106,8 @@ pub enum TypeError {
     },
     /// Reduction did not stop. The input is probably corrupt.
     ReductionLimit,
+    /// The declaration took more work than the budget allows.
+    OutOfFuel,
     /// A constructor type is not acceptable, so the inductive declaration is
     /// not sound. This is the check that stops a user from proving `False`.
     BadConstructor {
@@ -201,6 +222,9 @@ impl TypeError {
             TypeError::ReductionLimit => {
                 format!("reduction did not stop after {REDUCTION_LIMIT} steps")
             }
+            TypeError::OutOfFuel => {
+                format!("this declaration needed more than {FUEL} steps, so it was not checked")
+            }
             TypeError::BadConstructor {
                 ctor,
                 inductive,
@@ -281,15 +305,27 @@ pub struct TypeChecker<'e> {
     /// make sense together. The export format puts a whole mutual group on one
     /// line for exactly this reason.
     pending: Vec<Declaration>,
+    /// What is left of the work budget. See [`FUEL`].
+    fuel: u64,
 }
 
 impl<'e> TypeChecker<'e> {
+    /// Sets the work budget for each declaration. See [`FUEL`].
+    ///
+    /// A benchmark over a large file may want a smaller budget, so that one
+    /// heavy declaration costs seconds rather than minutes. A smaller budget
+    /// reports more declarations as unchecked, which is the honest trade.
+    pub fn set_fuel(&mut self, fuel: u64) {
+        self.fuel = fuel;
+    }
+
     /// Builds a checker with an empty local context.
     pub fn new(env: &'e Environment) -> Self {
         TypeChecker {
             env,
             lctx: LocalContext::new(),
             pending: Vec::new(),
+            fuel: FUEL,
         }
     }
 
@@ -312,6 +348,17 @@ impl<'e> TypeChecker<'e> {
         let out = body(self);
         self.pending = saved;
         out
+    }
+
+    /// Spends one unit of the work budget.
+    fn spend(&mut self) -> TypeResult<()> {
+        match self.fuel.checked_sub(1) {
+            Some(left) => {
+                self.fuel = left;
+                Ok(())
+            }
+            None => Err(TypeError::OutOfFuel),
+        }
     }
 
     /// Returns the environment.
@@ -349,12 +396,16 @@ impl<'e> TypeChecker<'e> {
 
     /// Does one reduction step at the head, or returns `None` if none applies.
     fn whnf_step(&mut self, e: &Expr) -> TypeResult<Option<Expr>> {
-        let (head, args) = e.unfold_apps();
-        let args: Vec<Expr> = args.into_iter().cloned().collect();
+        self.spend()?;
+        let (head, borrowed) = e.unfold_apps();
+        // The arguments stay borrowed until a rule actually fires. Cloning
+        // them first cost a whole `Vec` of deep copies per reduction step,
+        // and most steps do not fire.
+        let cloned = || -> Vec<Expr> { borrowed.iter().map(|arg| (*arg).clone()).collect() };
 
         // ζ: a `let` in the head position substitutes its value.
         if let Expr::Let { value, body, .. } = head {
-            return Ok(Some(body.instantiate(value).apps(args)));
+            return Ok(Some(body.instantiate(value).apps(cloned())));
         }
 
         // β: a lambda in the head position takes its first argument.
@@ -366,10 +417,11 @@ impl<'e> TypeChecker<'e> {
         if let Expr::Proj(proj) = head
             && let Some(field) = self.proj_step(proj)?
         {
-            return Ok(Some(field.apps(args)));
+            return Ok(Some(field.apps(cloned())));
         }
 
         if let Expr::Const { name, levels } = head {
+            let args = cloned();
             // The kernel computes on a `Nat` literal directly.
             if let Some(next) = self.nat_step(name, &args)? {
                 return Ok(Some(next));
@@ -597,10 +649,11 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns `true` if `a` and `b` are the same term by computation.
     pub fn is_def_eq(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
-        // The cheap test. Most comparisons stop here.
+        // The cheap test. Most comparisons stop here, and it costs no fuel.
         if a.alpha_eq(b) {
             return Ok(true);
         }
+        self.spend()?;
         let a = self.whnf(a)?;
         let b = self.whnf(b)?;
         if a.alpha_eq(&b) {
@@ -1927,6 +1980,9 @@ impl<'e> TypeChecker<'e> {
     ///
     /// This is the entry point of the level 1 checkpoint in `docs/ROADMAP.md`.
     pub fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
+        // Every declaration gets the whole budget, so one heavy neighbour does
+        // not starve the rest of the file.
+        self.fuel = FUEL;
         if self.env.contains(decl.name()) {
             return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }
