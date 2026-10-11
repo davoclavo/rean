@@ -16,8 +16,9 @@ devbox run -- cargo test -p rean_kernel --test cache
 
 ## 12.1 The method said no
 
-`Nat.mul_add_div._f` is the first of the 221 that remained. Its slice holds
-1,172 declarations, and the sweep looked nothing like the one in chapter 11:
+`Nat.mul_add_div._f` is the first of the 221 that remained. `tools/slice.py`
+cuts it out, its slice holds 1,172 declarations, and the sweep looked nothing
+like the one in chapter 11:
 
 | budget | result | time for the slice |
 |---|---|---|

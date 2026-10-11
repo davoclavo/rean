@@ -22,8 +22,14 @@ order, so a prefix of the file is a module in its own right: every index a line
 mentions is defined on an earlier line. Cut the file after the declaration you
 want, and you have its dependencies and nothing else.
 
-`Nat.modCore_eq_mod` is the first real failure of the prelude. Its prefix holds
-886 declarations, and the slice checks in **under a second**.
+`tools/slice.py` does the cut, and `Nat.modCore_eq_mod` is the first real
+failure of the prelude. Its prefix holds 886 declarations, and the slice checks
+in **under a second**.
+
+```sh
+python3 tools/slice.py full.ndjson one.ndjson Nat.modCore_eq_mod
+REAN_FUEL=500000000 ./target/release/rean check one.ndjson
+```
 
 Then the question that changed everything: how much budget does that one
 declaration want?

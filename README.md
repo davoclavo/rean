@@ -119,7 +119,7 @@ devbox run -- cargo test -p rean_kernel --test typeck      # chapters 1 and 2
 devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 devbox run -- cargo test -p rean_kernel --test structures  # chapter 9
 devbox run -- cargo test -p rean_kernel --test cache       # chapter 10
-devbox run -- cargo test -p rean_kernel --test comparison  # chapter 11
+devbox run -- cargo test -p rean_kernel --test comparison  # chapters 11 and 12
 ```
 
 ## The scoreboard
