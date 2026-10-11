@@ -76,6 +76,20 @@ See [the roadmap](docs/ROADMAP.md). In short: build the whole pipeline here, and
 use `lean4export` output from the real Lean as a ground truth that our answers
 must meet.
 
+## Learning path
+
+New to this? Read in this order. Each chapter is self-contained and ends with
+exercises and answers.
+
+| If you want | Start at |
+|---|---|
+| to understand what a proof checker **is** | [chapter 0](docs/00-introduction-to-the-kernel.md) |
+| to see a checker **built**, step by step | chapters [1](docs/01-the-type-checker.md) and [2](docs/02-the-environment.md) |
+| to see it meet **real Lean** | [chapter 3](docs/03-the-ground-truth.md) |
+| to see what **breaks** and how it is found | chapters [4](docs/04-making-it-work.md) to [7](docs/07-mutual-and-nested.md) |
+| to see where a compiler **begins** | [chapter 8](docs/08-the-frontend.md), independent of the rest |
+| a word you do not know | [the glossary](docs/GLOSSARY.md) |
+
 ## Chapters
 
 | Chapter | Topic |
@@ -88,6 +102,8 @@ must meet.
 | [5 — What a checker must check](docs/05-what-a-checker-must-check.md) | red team. It accepted a proof of `False`. Recursor checking, large elimination, universe hygiene. |
 | [6 — What a theorem rests on](docs/06-what-a-theorem-rests-on.md) | derived minor premises, the axiom trust report, unsafe isolation. |
 | [7 — Mutual and nested](docs/07-mutual-and-nested.md) | mutual groups, nested positivity, the inductive universe constraint. |
+| [8 — The frontend](docs/08-the-frontend.md) | `Name`, spans, diagnostics, the **extensible token table**, and the lossless tree. Independent of the kernel. |
+| [Glossary](docs/GLOSSARY.md) | every term the chapters use |
 
 Every claim in a chapter has a test:
 

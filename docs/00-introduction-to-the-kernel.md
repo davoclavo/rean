@@ -1041,6 +1041,7 @@ Two fixtures, 95 declarations of real Lean, every one checked. See
 | [5](05-what-a-checker-must-check.md) | the red team. It accepted a proof of `False`. |
 | [6](06-what-a-theorem-rests-on.md) | derived premises, the axiom report, unsafe isolation |
 | [7](07-mutual-and-nested.md) | mutual groups, nesting, field universes |
+| [8](08-the-frontend.md) | the frontend: text to tokens to a tree. Independent of this chapter. |
 
 ---
 
