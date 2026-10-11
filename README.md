@@ -144,6 +144,15 @@ REAN_FUEL=20000000000 REAN_STACK=8192 ./target/release/rean check one.ndjson
 Chapters [11](docs/11-compare-before-you-unfold.md) and
 [12](docs/12-ask-the-cheapest-question.md) are that method, worked twice.
 
+A third tool keeps the chapters honest. Every chapter cites its tests by name,
+and `tools/cite.py` fails the gate when a chapter names a test that the code
+does not define. It found six stale citations in chapter 1 the day it was
+written, and chapter 1 says so.
+
+```sh
+devbox run cite
+```
+
 ## The scoreboard
 
 | Checkpoint | Score | Meaning |
@@ -153,6 +162,7 @@ Chapters [11](docs/11-compare-before-you-unfold.md) and
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
 | tests | **421** | `devbox run test` |
+| citations | every chapter's test names resolve | `devbox run cite` |
 | coverage | **94.7% of regions, 96.5% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |

@@ -160,7 +160,8 @@ Note the ζ arm. It splits the application spine first, so
 `whnf_unfolds_a_let_under_an_application`.
 
 There is no δ arm, because no constant has a value yet. The test
-`whnf_does_not_unfold_a_constant` records that.
+`an_empty_environment_does_not_unfold_a_constant` records that, and it still
+passes: δ needs an environment, and chapter 2 is where one arrives.
 
 ---
 
@@ -416,126 +417,43 @@ of chapter 0, section 0.3 at work in the printer.
 
 ## 1.11 The gaps, and the test that records each one
 
-Each gap is a test that asserts the **wrong** answer on purpose. When chapter 2
-closes the gap, the test fails, and that is the reminder to flip it.
+Each gap was a test that asserted the **wrong** answer on purpose. When chapter
+2 closed the gap, the test failed, and that was the reminder to flip it.
 
-| Gap | Test | What it asserts today |
-|---|---|---|
-| the δ rule | `whnf_does_not_unfold_a_constant` | a constant does not reduce |
-| proof irrelevance | `proof_irrelevance_is_missing` | two proofs of one `Prop` differ |
-| the η rule | `eta_is_missing` | `fun x => f x` differs from `f` |
-| constants | `a_constant_has_no_declaration_yet` | `Nat` has no type |
-| literals | `a_literal_needs_an_environment` | `3` has no type |
-
-This is the honest way to carry a gap. A comment goes stale in silence. A test
-does not.
-
----
-
-## 1.12 Why the printer needed the context
-
-The first run of the test suite printed this:
-
-```
-_f0 → _f0
-```
-
-That was correct and useless. `Expr::pretty` has no local context, so it cannot
-know that `_f0` is named `α`.
-
-The cure splits the job. The term printer asks for the name, and the context
-supplies it:
-
-```rust
-pub fn pretty_with(&self, fvar_name: &dyn Fn(FVarId) -> Option<String>) -> String
-```
-
-```rust
-// on LocalContext
-pub fn pretty(&self, e: &Expr) -> String {
-    e.pretty_with(&|id| self.name_of(id).map(Name::to_string))
-}
-```
-
-`TypeError::render(&ctx)` uses the same road. Use it and not `Display`, because a
-message that says `_f0` helps nobody.
-
-This is a small thing with a general lesson. The kernel holds no names, by
-design. So the kernel cannot print a good message on its own. Whoever holds the
-names must lend them back.
-
----
-
-## 1.13 Exercises
-
-1. `is_def_eq` calls `alpha_eq` before it calls `whnf`. Say why that order is
-   faster, and name an input where the order makes no difference.
-2. The `Lam` arm calls `infer_sort(binder_type)` and throws the level away. Why
-   does it call it at all?
-3. Remove the `whnf` call from the `App` arm. Which test fails, and why?
-4. Write the de Bruijn form of the K combinator by hand, then compare with
-   `the_k_combinator_checks`.
-5. `is_def_eq` compares two `Forall` bodies directly, with no renumber. Say why
-   that is correct.
-6. `check` calls `infer_sort` on the expected type. Give a term that this call
-   rejects and that `infer_type` alone would accept.
-7. Why can the checker not type `3` yet, when `3` is just a number?
-
-### Answers
-
-1. `alpha_eq` is one structural walk and allocates nothing, while `whnf` clones
-   and substitutes. In a real check most comparisons are between two terms that
-   are already identical. For two terms that differ at the root, such as a
-   `Sort` against a `Lam`, both orders fail at once.
-2. To reject a binder whose type is not a type. `fun (x : hp) => x` where
-   `hp : p` and `p : Prop` must fail. The test is
-   `a_binder_whose_type_is_a_proof_fails`.
-3. `the_result_type_depends_on_the_argument_value` still passes, but a function
-   type that hides behind a redex breaks. For example apply `(fun x => x) f` to
-   an argument. The `App` arm would see a `Lam` and not a `Forall`, so it would
-   report `NotAFunction`.
-4. `λ λ λ λ #1`, with binder types `Sort 0`, `Sort 0`, `#1`, `#1`.
-5. Both bodies sit under exactly one binder, so index 0 means that binder in
-   both terms and index `n+1` means the same outer binder in both. The index
-   spaces are already aligned.
-6. `check(ctx, hp, hp2)` where both are proofs. The expected type `hp2` is not a
-   type, so `infer_sort` rejects it. `infer_type(hp)` alone succeeds.
-7. `3` is `Expr::Lit`, and its type is the constant `Nat`. A constant needs a
-   declaration, and a declaration needs an `Environment`. There is none yet.
-
----
-
-## 1.14 What chapter 2 added
-
-See [chapter 2](02-the-environment.md).
-
-| Piece | Unlocks |
+| Gap | What chapter 2 closed it with |
 |---|---|
-| `Environment`, a map from `Name` to a declaration | the δ rule, and a type for every constant |
-| `inductive`, `ctor`, and `rec` declarations | the ι rule |
-| projections | a structure field |
-| level normalization | `max u 0` equals `u` |
-| proof irrelevance and the η rule | the last two entries of section 1.11 |
+| the δ rule | `a_definition_unfolds_to_its_value` |
+| proof irrelevance | `proof_irrelevance_makes_two_proofs_equal` |
+| the η rule | `eta_makes_a_wrapper_equal_to_the_function` |
+| constants | `delta_substitutes_the_universe_arguments` |
+| literals | `a_nat_literal_has_type_nat`, `a_string_literal_has_type_string` |
 
-The free functions of this chapter became methods on a `TypeChecker`, because
-they all need the environment and they call each other. Two of the five "gap"
-tests of section 1.11 had to flip.
+One gap of this chapter is still real, and its test still passes:
+`an_empty_environment_does_not_unfold_a_constant`. δ needs an environment.
 
-Chapter 2 also had to fix one thing that this chapter got away with. Section 1.6
-said that `is_def_eq` compares two binder bodies with no renumber, and called it
-a de Bruijn dividend. That is true for a structural comparison, and it breaks
-the moment proof irrelevance arrives, because each body still holds a loose
-bound variable and a loose bound variable has no type. Chapter 2, section 2.7
-has the cure.
+### What this section got wrong, and for ten commits
 
-Then [chapter 3](03-the-ground-truth.md) points the checker at a real Lean file:
-32 of 32.
+The sentence that used to end this chapter was:
 
----
+> This is the honest way to carry a gap. A comment goes stale in silence. A test
+> does not.
 
-## 1.15 References
+That is true, and it was not enough. The five tests this table used to name were
+**deleted** when chapter 2 closed their gaps, which is the right thing to do
+with a test that records a gap that is gone. The table went on naming them
+anyway, and nothing noticed, because nothing checked that a chapter's citation
+still resolves.
 
-- Chapter 0, sections 0.6 to 0.8 and 0.13, for the rules that this chapter runs.
-- `crates/rean_kernel/src/typeck.rs`, `crates/rean_kernel/src/local.rs`.
-- `crates/rean_kernel/tests/typeck.rs`, 27 tests.
-- The Lean 4 source, `src/kernel/type_checker.cpp`.
+So a stale **citation** goes stale in silence, even when every test is live. The
+rule needed a tool, and now it has one:
+
+```sh
+python3 tools/cite.py
+```
+
+It reads every `snake_case` name in backticks in every document and fails if the
+code defines no such function. `devbox run check` runs it, so a chapter that
+names a test nobody wrote, or that somebody removed, now fails the gate.
+
+It found these six citations the day it was written. That is the only reason
+this section is honest today.
