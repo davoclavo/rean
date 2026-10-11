@@ -1857,7 +1857,19 @@ impl<'e> TypeChecker<'e> {
         outcome
     }
 
-    /// Returns `true` if every field of the constructor is itself a proof.
+    /// Returns `true` if the constructor makes its type a subsingleton.
+    ///
+    /// A field is acceptable when either of two things holds:
+    ///
+    /// 1. Its type is itself a `Prop`, so the field carries no data.
+    /// 2. The field appears among the **indices** of the result type. Then the
+    ///    index already pins the field down, so the field carries nothing that
+    ///    the type does not already say.
+    ///
+    /// Rule 2 is the one that `Acc` needs, and leaving it out is a false
+    /// rejection. `Acc.intro : (x : α) → (∀ y, r y x → Acc r y) → Acc r x` has
+    /// a data field `x`, and `x` is the index of `Acc r x`. Lean permits
+    /// `Acc.rec` to eliminate into any sort, and the Lean prelude relies on it.
     fn every_field_is_a_proof(&mut self, ctor: &crate::ConstructorVal) -> TypeResult<bool> {
         let mut ty = ctor.ty.clone();
         for _ in 0..ctor.num_params {
@@ -1873,6 +1885,9 @@ impl<'e> TypeChecker<'e> {
             let id = self.lctx.push(binder_name, (*binder_type).clone());
             ty = body.instantiate(&Expr::FVar(id));
         }
+
+        // Open every field, and remember which ones carry data.
+        let mut data_fields: Vec<FVarId> = Vec::new();
         for _ in 0..ctor.num_fields {
             let Expr::Forall {
                 binder_name,
@@ -1883,18 +1898,32 @@ impl<'e> TypeChecker<'e> {
             else {
                 return Ok(false);
             };
-            // The field type must itself live in `Prop`.
             let level = self.infer_sort(&binder_type)?;
-            if !level.normalize().is_zero() {
-                return Ok(false);
-            }
             let id = self.lctx.push(binder_name, (*binder_type).clone());
+            if !level.normalize().is_zero() {
+                data_fields.push(id);
+            }
             ty = body.instantiate(&Expr::FVar(id));
         }
-        Ok(true)
+        if data_fields.is_empty() {
+            return Ok(true);
+        }
+
+        // What is left is the inductive type applied to parameters and indices.
+        let (_, applied) = ty.unfold_apps();
+        let indices: Vec<Expr> = applied
+            .into_iter()
+            .skip(ctor.num_params as usize)
+            .cloned()
+            .collect();
+
+        // Every data field must be pinned down by an index.
+        Ok(data_fields
+            .iter()
+            .all(|id| indices.iter().any(|index| mentions_fvar(index, *id))))
     }
 
-    /// Checks one declaration: its type is a type, and its value has that type.
+    /// Checks one declaration: its type is a type, and its value has that type.    /// Checks one declaration: its type is a type, and its value has that type.
     ///
     /// This is the entry point of the level 1 checkpoint in `docs/ROADMAP.md`.
     pub fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
@@ -1918,6 +1947,28 @@ impl<'e> TypeChecker<'e> {
             }
         }
         Ok(())
+    }
+}
+
+/// Returns `true` if `id` occurs anywhere in `e`.
+fn mentions_fvar(e: &Expr, id: FVarId) -> bool {
+    match e {
+        Expr::FVar(found) => *found == id,
+        Expr::App { fun, arg } => mentions_fvar(fun, id) || mentions_fvar(arg, id),
+        Expr::Lam {
+            binder_type, body, ..
+        }
+        | Expr::Forall {
+            binder_type, body, ..
+        } => mentions_fvar(binder_type, id) || mentions_fvar(body, id),
+        Expr::Let {
+            binder_type,
+            value,
+            body,
+            ..
+        } => mentions_fvar(binder_type, id) || mentions_fvar(value, id) || mentions_fvar(body, id),
+        Expr::Proj(proj) => mentions_fvar(&proj.value, id),
+        Expr::BVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Const { .. } | Expr::Lit(_) => false,
     }
 }
 

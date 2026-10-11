@@ -131,58 +131,84 @@ impl Level {
         }
     }
 
-    /// Rewrites `self` into a shape that compares well.
+    /// Rewrites `self` into a canonical shape.
     ///
-    /// Three rules do the work:
+    /// Two levels that mean the same thing must reach the same shape, or
+    /// `is_def_eq` reports a mismatch on a correct program. Running the checker
+    /// over the Lean prelude showed how much this matters: a weak normal form
+    /// caused 809 of 895 failures, and every one of them was a `Sort` compared
+    /// with the same `Sort` written differently.
     ///
-    /// - `max u u` becomes `u`, and so does `max u 0` and `max 0 u`.
-    /// - `imax u 0` becomes `0`, and `imax u v` becomes `max u v` when `v` is a
-    ///   successor, because a successor is never `0`.
-    /// - A closed level becomes a plain chain of `succ`.
+    /// The form is a `max` over atoms, each with a count of successors on top.
+    /// Four rules get there:
     ///
-    /// This is weaker than the normal form of the real Lean kernel. It is
-    /// enough for the fixture, and the limit is honest rather than hidden.
+    /// 1. `imax u 0` becomes `0`, and `imax u (v+1)` becomes `max u (v+1)`,
+    ///    because a successor is never zero.
+    /// 2. `succ (max a b)` becomes `max (a+1) (b+1)`, so a successor never
+    ///    hides a `max`.
+    /// 3. A nested `max` flattens into one list.
+    /// 4. In that list, a dominated entry goes away, and what is left is
+    ///    sorted. So `max u (max u v)` becomes `max u v`, and `max (u+1) 1`
+    ///    becomes `u+1`.
+    ///
+    /// An `imax` whose right side is a bare parameter cannot be resolved, so it
+    /// stays as an atom of the list.
     pub fn normalize(&self) -> Level {
-        if let Some(n) = self.to_nat() {
-            return Level::of_nat(n);
-        }
         match self {
             Level::Zero | Level::Param(_) => self.clone(),
-            Level::Succ(inner) => Level::Succ(Arc::new(inner.normalize())),
-            Level::Max(a, b) => {
-                let a = a.normalize();
-                let b = b.normalize();
-                if a == b || b.is_zero() {
-                    return a;
+            Level::Succ(inner) => {
+                let inner = inner.normalize();
+                match &inner {
+                    // A successor must never hide a `max`, so distribute it
+                    // over the branches.
+                    Level::Max(_, _) => {
+                        let mut parts = Vec::new();
+                        flatten(&inner, &mut parts);
+                        for (_, offset) in parts.iter_mut() {
+                            *offset += 1;
+                        }
+                        rebuild_max(parts)
+                    }
+                    _ => Level::Succ(Arc::new(inner)),
                 }
-                if a.is_zero() {
-                    return b;
-                }
-                a.max(&b)
             }
             Level::IMax(a, b) => {
-                let a = a.normalize();
-                let b = b.normalize();
-                // `imax u 0` is `0`.
-                //
-                // The branch below is unreachable today, and the coverage
-                // report shows it. If `b` normalizes to zero then `b` is
-                // semantically zero, so `b.to_nat()` gives `Some(0)`, so the
-                // whole `imax` gives `Some(0)`, and the fast path at the top
-                // of this method already returned. It stays because the rule
-                // is part of the definition of `imax`, and because removing
-                // the fast path must not silently change the answer.
-                if b.is_zero() {
+                let right = b.normalize();
+                // `imax u 0` is `0`. That is what makes `Prop` impredicative.
+                if right.is_zero() {
                     return Level::Zero;
                 }
-                // A successor is never zero, so `imax` acts like `max` here.
-                if matches!(b, Level::Succ(_)) {
-                    return Level::Max(Arc::new(a), Arc::new(b)).normalize();
+                let left = a.normalize();
+                // The right side is never zero, so `imax` acts like `max`.
+                if is_never_zero(&right) {
+                    let mut parts = Vec::new();
+                    flatten(&left, &mut parts);
+                    flatten(&right, &mut parts);
+                    return rebuild_max(parts);
                 }
-                if a == b {
-                    return a;
+                // `imax a b` is `b` whenever `a` is at most one.
+                //
+                // Read the definition. If `b` is zero the answer is zero,
+                // which is `b`. If `b` is not zero then `b` is at least one,
+                // so `max a b` is `b`. Either way the left side drops out.
+                //
+                // Leaving this rule out cost 48 declarations of the Lean
+                // prelude on its own, all of them `imax 0 u` against `u`.
+                if left.to_nat().is_some_and(|value| value <= 1) {
+                    return right;
                 }
-                a.imax(&b)
+                if left == right {
+                    return left;
+                }
+                Level::IMax(Arc::new(left), Arc::new(right))
+            }
+            Level::Max(a, b) => {
+                let left = a.normalize();
+                let right = b.normalize();
+                let mut parts = Vec::new();
+                flatten(&left, &mut parts);
+                flatten(&right, &mut parts);
+                rebuild_max(parts)
             }
         }
     }
@@ -203,40 +229,7 @@ impl Level {
     /// - `max a b ≤ v` when both `a ≤ v` and `b ≤ v`
     /// - `u ≤ v+1` when `u ≤ v`
     pub fn is_leq(&self, other: &Level) -> Option<bool> {
-        let left = self.normalize();
-        let right = other.normalize();
-        if left == right {
-            return Some(true);
-        }
-        if let (Some(a), Some(b)) = (left.to_nat(), right.to_nat()) {
-            return Some(a <= b);
-        }
-        // `u+1 ≤ v+1` reduces to `u ≤ v`. Try it before the looser rules.
-        if let (Level::Succ(a), Level::Succ(b)) = (&left, &right)
-            && a.is_leq(b) == Some(true)
-        {
-            return Some(true);
-        }
-        // Every branch of a `max` on the left must fit.
-        if let Level::Max(a, b) = &left
-            && a.is_leq(&right) == Some(true)
-            && b.is_leq(&right) == Some(true)
-        {
-            return Some(true);
-        }
-        // One branch of a `max` on the right is enough.
-        if let Level::Max(a, b) = &right
-            && (left.is_leq(a) == Some(true) || left.is_leq(b) == Some(true))
-        {
-            return Some(true);
-        }
-        // Room to spare on the right.
-        if let Level::Succ(b) = &right
-            && left.is_leq(b) == Some(true)
-        {
-            return Some(true);
-        }
-        None
+        leq_normal(&self.normalize(), &other.normalize())
     }
 
     /// Returns `true` if `self` and `other` mean the same level.
@@ -269,6 +262,160 @@ impl fmt::Display for Level {
             Level::IMax(a, b) => write!(f, "imax {a} {b}"),
             Level::Param(name) => write!(f, "{name}"),
         }
+    }
+}
+
+/// Flattens an **already normal** `max` into `(atom, successor count)` pairs.
+///
+/// The input must be normal. Normalizing here instead would re-normalize every
+/// sub level once per level of nesting, and that cost is not theoretical: it
+/// took the Lean prelude run from 81 seconds to over 10 minutes.
+fn flatten(level: &Level, out: &mut Vec<(Level, u32)>) {
+    match level {
+        Level::Max(a, b) => {
+            flatten(a, out);
+            flatten(b, out);
+        }
+        other => out.push(strip_succ(other)),
+    }
+}
+
+/// Compares two **already normal** levels. See [`Level::is_leq`].
+fn leq_normal(left: &Level, right: &Level) -> Option<bool> {
+    if left == right {
+        return Some(true);
+    }
+    if let (Some(a), Some(b)) = (left.to_nat(), right.to_nat()) {
+        return Some(a <= b);
+    }
+    // `u+1 ≤ v+1` reduces to `u ≤ v`. Try it before the looser rules.
+    if let (Level::Succ(a), Level::Succ(b)) = (left, right)
+        && leq_normal(a, b) == Some(true)
+    {
+        return Some(true);
+    }
+    // Every branch of a `max` on the left must fit.
+    if let Level::Max(a, b) = left
+        && leq_normal(a, right) == Some(true)
+        && leq_normal(b, right) == Some(true)
+    {
+        return Some(true);
+    }
+    // One branch of a `max` on the right is enough.
+    if let Level::Max(a, b) = right
+        && (leq_normal(left, a) == Some(true) || leq_normal(left, b) == Some(true))
+    {
+        return Some(true);
+    }
+    // Room to spare on the right.
+    if let Level::Succ(b) = right
+        && leq_normal(left, b) == Some(true)
+    {
+        return Some(true);
+    }
+    None
+}
+
+/// Splits a level into its atom and the number of successors on top.
+fn strip_succ(level: &Level) -> (Level, u32) {
+    let mut current = level;
+    let mut count = 0;
+    while let Level::Succ(inner) = current {
+        count += 1;
+        current = inner;
+    }
+    (current.clone(), count)
+}
+
+/// Rebuilds a canonical `max` from a flattened list.
+fn rebuild_max(parts: Vec<(Level, u32)>) -> Level {
+    // The largest plain number in the list.
+    let constant = parts
+        .iter()
+        .filter(|(base, _)| base.is_zero())
+        .map(|(_, offset)| *offset)
+        .max()
+        .unwrap_or(0);
+
+    // For each atom, keep only its largest offset.
+    let mut atoms: Vec<(Level, u32)> = Vec::new();
+    for (base, offset) in parts {
+        if base.is_zero() {
+            continue;
+        }
+        match atoms.iter_mut().find(|(seen, _)| *seen == base) {
+            Some((_, best)) => *best = (*best).max(offset),
+            None => atoms.push((base, offset)),
+        }
+    }
+
+    // An atom is at least zero, so `atom + k` is at least `k`. A plain number
+    // no larger than some atom's offset is therefore dominated.
+    let dominated = atoms.iter().any(|(_, offset)| *offset >= constant);
+    // One order, so that two equal levels reach one shape. The comparison
+    // walks the structure rather than render a string, because `normalize`
+    // runs on every level comparison and a string per comparison is too much.
+    atoms.sort_by(|(a, ka), (b, kb)| compare(a, b).then(ka.cmp(kb)));
+
+    let mut pieces: Vec<Level> = Vec::new();
+    if !dominated || atoms.is_empty() {
+        pieces.push(Level::of_nat(constant));
+    }
+    for (base, offset) in atoms {
+        let mut piece = base;
+        for _ in 0..offset {
+            piece = piece.succ();
+        }
+        pieces.push(piece);
+    }
+    let mut result = pieces.remove(0);
+    for piece in pieces {
+        result = Level::Max(Arc::new(result), Arc::new(piece));
+    }
+    result
+}
+
+/// Returns `true` if `level` cannot be zero, whatever its parameters are.
+///
+/// `imax a b` only differs from `max a b` when `b` is zero. So this test is
+/// what lets an `imax` collapse into a `max`.
+fn is_never_zero(level: &Level) -> bool {
+    match level {
+        Level::Succ(_) => true,
+        Level::Max(a, b) => is_never_zero(a) || is_never_zero(b),
+        // `imax a b` is zero exactly when `b` is zero.
+        Level::IMax(_, b) => is_never_zero(b),
+        Level::Zero | Level::Param(_) => false,
+    }
+}
+
+/// A total order on levels, for a canonical `max`.
+///
+/// The order has no meaning of its own. It only has to be the same every time,
+/// so that two equal levels reach one shape.
+fn compare(a: &Level, b: &Level) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    fn tag(level: &Level) -> u8 {
+        match level {
+            Level::Zero => 0,
+            Level::Param(_) => 1,
+            Level::Succ(_) => 2,
+            Level::Max(_, _) => 3,
+            Level::IMax(_, _) => 4,
+        }
+    }
+    match tag(a).cmp(&tag(b)) {
+        Ordering::Equal => {}
+        other => return other,
+    }
+    match (a, b) {
+        (Level::Zero, Level::Zero) => Ordering::Equal,
+        (Level::Param(x), Level::Param(y)) => x.to_string().cmp(&y.to_string()),
+        (Level::Succ(x), Level::Succ(y)) => compare(x, y),
+        (Level::Max(x1, y1), Level::Max(x2, y2)) | (Level::IMax(x1, y1), Level::IMax(x2, y2)) => {
+            compare(x1, x2).then_with(|| compare(y1, y2))
+        }
+        _ => Ordering::Equal,
     }
 }
 
