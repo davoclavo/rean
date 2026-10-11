@@ -342,6 +342,12 @@ pub struct TypeChecker<'e> {
     /// means the two terms are not equal, which is a decision; a comparison
     /// that ran out of budget returns `Err` instead, and no error is cached.
     def_eq_cache: HashMap<u64, Vec<(Expr, Expr, bool)>>,
+    /// Types that [`Self::infer_type`] already found.
+    ///
+    /// The same discipline again. Proof irrelevance asks for the type of both
+    /// sides of every comparison, and the answer for one term never changes
+    /// inside one declaration.
+    infer_cache: HashMap<u64, Vec<(Expr, Expr)>>,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -365,6 +371,7 @@ impl<'e> TypeChecker<'e> {
             budget: FUEL,
             whnf_cache: HashMap::new(),
             def_eq_cache: HashMap::new(),
+            infer_cache: HashMap::new(),
         }
     }
 
@@ -924,6 +931,7 @@ impl<'e> TypeChecker<'e> {
     fn clear_caches(&mut self) {
         self.whnf_cache.clear();
         self.def_eq_cache.clear();
+        self.infer_cache.clear();
     }
 
     /// Stores one answer of [`Self::is_def_eq`].
@@ -957,6 +965,26 @@ impl<'e> TypeChecker<'e> {
         // comparison below. Only a `true` answer is a decision.
         if self.spine_eq(a, b)? {
             return Ok(true);
+        }
+        // **Proof irrelevance, before any reduction.**
+        //
+        // Two proofs of one proposition are equal, so the kernel never has to
+        // look at a proof at all. It only has to see that both sides prove the
+        // same thing.
+        //
+        // This used to be the **last** rule, after every reduction above it had
+        // already run. A proof of the Lean prelude is built from `Eq.mpr`,
+        // `congrArg` and `of_eq_true`, and reducing one of those drags in the
+        // whole computation it speaks about.
+        match self.proof_irrelevant(a, b) {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            // The budget is the one error that must not be hidden, because a
+            // report that blames the wrong cause is worse than no report.
+            Err(error @ TypeError::OutOfFuel(_)) => return Err(error),
+            // Any other error means this rule did not apply, not that the
+            // declaration is wrong. The full comparison below decides.
+            Err(_) => {}
         }
         let a = self.whnf(a)?;
         let b = self.whnf(b)?;
@@ -1295,6 +1323,32 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns the type of `e`.
     pub fn infer_type(&mut self, e: &Expr) -> TypeResult<Expr> {
+        // A leaf is cheaper to type than to look up, so the cache ignores one.
+        if matches!(
+            e,
+            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Lit(_)
+        ) {
+            return self.infer_type_uncached(e);
+        }
+        let key = e.hash_value();
+        if let Some(bucket) = self.infer_cache.get(&key)
+            && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
+        {
+            return Ok(answer.clone());
+        }
+        let answer = self.infer_type_uncached(e)?;
+        if self.infer_cache.len() >= CACHE_CAP {
+            self.infer_cache.clear();
+        }
+        self.infer_cache
+            .entry(key)
+            .or_default()
+            .push((e.clone(), answer.clone()));
+        Ok(answer)
+    }
+
+    /// Returns the type of `e`, and asks no cache.
+    fn infer_type_uncached(&mut self, e: &Expr) -> TypeResult<Expr> {
         match e {
             Expr::BVar(index) => Err(TypeError::LooseBVar(*index)),
 
@@ -2384,8 +2438,7 @@ impl<'e> TypeChecker<'e> {
         self.fuel = self.budget;
         // And fresh caches. An answer about a free variable of the last
         // declaration means nothing here.
-        self.whnf_cache.clear();
-        self.def_eq_cache.clear();
+        self.clear_caches();
         if self.env.contains(decl.name()) {
             return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }

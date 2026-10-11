@@ -231,3 +231,7 @@ Two candidates are already in view, and both are things Lean does and we do not.
   ignores them.
 - **A lazy `whnf`.** Still true, still the deeper change, and no longer the
   first thing to try.
+
+[Chapter 12](12-ask-the-cheapest-question.md) asks the question again, and the
+answer is neither of those two. The method works a second time, and it retires
+the first candidate before a line of it is written.

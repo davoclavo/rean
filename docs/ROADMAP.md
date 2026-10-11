@@ -181,10 +181,10 @@ JSON key order also varies between lines, so the reader must not depend on it.
 The checker now runs the **whole Lean prelude** and finishes.
 
 ```
-level 1: checked 39066 of 57512 declarations (229 failed, 18217 blocked)
+level 1: checked 39244 of 57512 declarations (115 failed, 18153 blocked)
 trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
-real 205s
+real 192s
 ```
 
 Getting there took three measurements and one wrong guess.
@@ -253,7 +253,8 @@ bought. The summary:
 | a name compared without a `String` | 33,862 | 163 s |
 | a cache on `whnf` | 34,419 | 172 s |
 | a cache on `is_def_eq` | 35,115 | 190 s |
-| **compare before you unfold** | **39,066** | **205 s** |
+| compare before you unfold | 39,066 | 205 s |
+| **proof irrelevance first, and an `infer_type` cache** | **39,244** | **192 s** |
 
 Read the first three rows together. The `loose` and `size` caches moved the
 **time** and not the **count**, because the budget is charged by work and a
@@ -270,7 +271,7 @@ a **stack overflow**. The kernel recurses over terms, a reduced term can be very
 deep, and 8 MB of main thread stack is not enough. The checker now runs on a
 thread with 512 MB, as `rustc` does.
 
-Of the 229 failures that remain, **221 are out of budget** —
+Of the 115 failures that remain, **107 are out of budget** —
 `WellFounded.Nat.fix_eq`, `Nat.modCore_eq_mod`, and their relatives, all well
 founded recursion. The other 8 are one cascade from a single rejected
 constructor, and not a gap in the rules.
@@ -290,19 +291,25 @@ then report the wrong cause: "reduction did not stop" for a declaration that was
 correct and simply expensive. It changed no verdict and cost about 33 s at the
 larger budget. We kept the removal for the message and for one constant fewer.
 
-Two items are left, and both are things Lean does and we do not:
+**Lazy δ by height is retired, unwritten.** Chapter 12 followed the method onto
+`Nat.mul_add_div._f` and the profile showed the two heads already **matching**,
+so a rule that picks the taller of two different heads had nothing to do. That
+is the second plan this roadmap has dropped without writing a line of it, and
+both times the measurement was cheaper than the code.
 
-- **Lazy δ by height.** Lean keeps a height in `ReducibilityHints`, and when two
-  sides have **different** constant heads it unfolds only the taller one. We
-  unfold both. Our `Declaration` carries the hints already and the checker
-  ignores them.
+One item is left:
+
 - Our `whnf` is **eager** and rebuilds a whole term for each step, which is why
   `drop_slow` sat at the top of our profile and not of Lean's. Lean's `whnf` is
-  lazy. This is the deeper change, and no longer the first one to try.
+  lazy. This is a change to every rule.
 
-Before either, do what chapter 11 did: take **one** of the 221, cut its slice,
-and sweep the budget. The number will say which fix is needed, and it may say
-neither of these.
+Before starting it, do what chapters 11 and 12 did: take **one** of the 107, cut
+its slice, and sweep the budget. The sweep already separates them into two
+kinds, and only the second kind needs this job:
+
+1. Those that want a larger budget and spend it in a second. `REAN_FUEL` checks
+   them today.
+2. Those like `Nat.mul_add_div._f`, which want more than 20 **billion** units.
 
 A bigger budget is not the fix. Five times the number bought three declarations.
 
@@ -316,11 +323,11 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   39066 of 57512 of the Lean prelude, in 205 s
+          and                   39244 of 57512 of the Lean prelude, in 192 s
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     414
+tests     418
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name

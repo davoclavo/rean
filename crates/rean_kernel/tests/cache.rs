@@ -194,3 +194,44 @@ fn a_comparison_that_ran_out_of_budget_is_not_remembered() {
         "`D` unfolds to `Nat`, so the two are equal"
     );
 }
+
+// --- the cache on `infer_type` -------------------------------------------
+
+#[test]
+fn a_type_is_inferred_once_and_read_after_that() {
+    // Proof irrelevance asks for the type of both sides of every comparison,
+    // so one term is typed many times inside one declaration. Its type never
+    // changes there.
+    let env = with_a_definition();
+    let mut tc = TypeChecker::new(&env);
+    let term = Expr::const_("D", vec![]).app(Expr::const_("Nat", vec![]));
+    let first = tc.infer_type(&term);
+    let second = tc.infer_type(&term);
+    assert_eq!(first, second);
+    // And the answer survives a new declaration, which clears the cache.
+    let decl = Declaration::Definition(DefinitionVal {
+        name: Name::from_dotted("F"),
+        all: vec![Name::from_dotted("F")],
+        level_params: Vec::new(),
+        ty: Expr::type_(1),
+        value: Expr::type_(0),
+        hints: ReducibilityHints::Regular(0),
+        safety: DefinitionSafety::Safe,
+    });
+    tc.check_declaration(&decl).unwrap();
+    assert_eq!(tc.infer_type(&term), first);
+}
+
+#[test]
+fn a_free_variable_is_typed_from_the_context_and_not_the_cache() {
+    // A leaf is cheaper to type than to look up, so the cache ignores one. That
+    // also keeps a free variable honest: its type comes from the context that
+    // holds it, and two contexts can give the same variable two types.
+    let env = with_a_definition();
+    let mut tc = TypeChecker::new(&env);
+    let nat = Expr::const_("Nat", vec![]);
+    let x = Expr::FVar(tc.push_local("x", nat.clone()));
+    assert_eq!(tc.infer_type(&x), Ok(nat));
+    let y = Expr::FVar(tc.push_local("y", Expr::const_("Int", vec![])));
+    assert_eq!(tc.infer_type(&y), Ok(Expr::const_("Int", vec![])));
+}

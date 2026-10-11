@@ -87,8 +87,8 @@ exercises and answers.
 | to see a checker **built**, step by step | chapters [1](docs/01-the-type-checker.md) and [2](docs/02-the-environment.md) |
 | to see it meet **real Lean** | [chapter 3](docs/03-the-ground-truth.md) |
 | to see what **breaks** and how it is found | chapters [4](docs/04-making-it-work.md) to [7](docs/07-mutual-and-nested.md) |
-| to see what a checker **costs**, measured | chapters [9](docs/09-structures-and-cost.md) to [11](docs/11-compare-before-you-unfold.md) |
-| to see how to **find** a performance fault | [chapter 11](docs/11-compare-before-you-unfold.md) |
+| to see what a checker **costs**, measured | chapters [9](docs/09-structures-and-cost.md) to [12](docs/12-ask-the-cheapest-question.md) |
+| to see how to **find** a performance fault | chapters [11](docs/11-compare-before-you-unfold.md) and [12](docs/12-ask-the-cheapest-question.md) |
 | to see where a compiler **begins** | [chapter 8](docs/08-the-frontend.md), independent of the rest |
 | a word you do not know | [the glossary](docs/GLOSSARY.md) |
 
@@ -108,6 +108,7 @@ exercises and answers.
 | [9 — Structures, and what the kernel costs](docs/09-structures-and-cost.md) | the three rules a structure needs, the two numbers every node caches, and why a faster kernel checked no more declarations. |
 | [10 — The cache](docs/10-the-cache.md) | the third number, a cache on `whnf` and on `is_def_eq`, and the rule that keeps a cache honest: a hash **finds** an answer, equality **decides** whether to trust it. |
 | [11 — Compare before you unfold](docs/11-compare-before-you-unfold.md) | one moved line, 3,951 declarations. How to take one failing case out of 676 and let the measurement overrule your plan. |
+| [12 — Ask the cheapest question first](docs/12-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, and why a pair of changes is one unit of measurement. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use |
 
 Every claim in a chapter has a test:
@@ -126,11 +127,11 @@ devbox run -- cargo test -p rean_kernel --test comparison  # chapter 11
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, stress | **39,066 of 57,512** | the whole Lean prelude, in 205 seconds |
+| level 1, stress | **39,244 of 57,512** | the whole Lean prelude, in 192 seconds |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **414** | `devbox run test` |
-| coverage | **94.5% of regions, 96.3% of lines** | `devbox run coverage` |
+| tests | **418** | `devbox run test` |
+| coverage | **94.7% of regions, 96.5% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 

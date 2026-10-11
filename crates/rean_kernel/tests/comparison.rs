@@ -105,3 +105,86 @@ fn a_shared_head_with_unequal_arguments_falls_through() {
     let right = Expr::const_("Big", vec![]).app(Expr::type_(3));
     assert_eq!(tc.is_def_eq(&left, &right), Ok(true));
 }
+
+// --- proof irrelevance, before any reduction ------------------------------
+
+/// Adds `T : <sort>`, `t : T`, and `Slow : T` whose reduction is expensive.
+///
+/// `Slow` unfolds to `Wrap Big`, and `Big` is about 1,200 nodes, so each step
+/// of that reduction is charged for a term of that size. Reading the **type**
+/// of `Slow` costs nothing, because a declaration states its own type.
+fn with_a_slow_proof(env: &mut Environment, sort: Expr, prefix: &str) {
+    let name = |part: &str| Name::from_dotted(&format!("{prefix}{part}"));
+    let ty = Expr::const_(name("T").to_string().as_str(), vec![]);
+    env.add(Declaration::Axiom(AxiomVal {
+        name: name("T"),
+        level_params: Vec::new(),
+        ty: sort,
+        is_unsafe: false,
+    }));
+    env.add(Declaration::Axiom(AxiomVal {
+        name: name("t"),
+        level_params: Vec::new(),
+        ty: ty.clone(),
+        is_unsafe: false,
+    }));
+    // `Wrap := fun _ => t`, so it throws its argument away.
+    env.add(Declaration::Definition(DefinitionVal {
+        name: name("Wrap"),
+        all: vec![name("Wrap")],
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::const_("Nat", vec![]), ty.clone()),
+        value: Expr::lam(
+            "n",
+            Expr::const_("Nat", vec![]),
+            Expr::const_(name("t").to_string().as_str(), vec![]),
+        ),
+        hints: ReducibilityHints::Regular(0),
+        safety: DefinitionSafety::Safe,
+    }));
+    env.add(Declaration::Definition(DefinitionVal {
+        name: name("Slow"),
+        all: vec![name("Slow")],
+        level_params: Vec::new(),
+        ty,
+        value: Expr::const_(name("Wrap").to_string().as_str(), vec![]).app(big(600)),
+        hints: ReducibilityHints::Regular(0),
+        safety: DefinitionSafety::Safe,
+    }));
+}
+
+#[test]
+fn two_proofs_of_one_proposition_need_no_reduction() {
+    // `PropSlow` and `Propt` both prove `PropT`, which is a `Prop`. So they are
+    // equal, and the kernel never has to look at either one.
+    //
+    // Reducing `PropSlow` costs more than this budget, so the test fails if the
+    // kernel reduces before it reads the two types.
+    let mut env = env();
+    with_a_slow_proof(&mut env, Expr::prop(), "Prop");
+    let mut tc = TypeChecker::new(&env);
+    tc.set_fuel(SMALL);
+    let slow = Expr::const_("PropSlow", vec![]);
+    let plain = Expr::const_("Propt", vec![]);
+    assert_eq!(tc.is_def_eq(&slow, &plain), Ok(true));
+}
+
+#[test]
+fn two_terms_of_one_type_do_need_reduction() {
+    // The control. `TypeT` is a `Type` and not a `Prop`, so two of its terms
+    // are not equal for free, and the kernel must reduce after all. The same
+    // budget is then not enough.
+    //
+    // Without this test the one above could pass because `Prop` is special in
+    // name only.
+    let mut env = env();
+    with_a_slow_proof(&mut env, Expr::type_(0), "Type");
+    let mut tc = TypeChecker::new(&env);
+    tc.set_fuel(SMALL);
+    let slow = Expr::const_("TypeSlow", vec![]);
+    let plain = Expr::const_("Typet", vec![]);
+    assert_eq!(
+        tc.is_def_eq(&slow, &plain),
+        Err(TypeError::OutOfFuel(SMALL))
+    );
+}
