@@ -103,6 +103,7 @@ pub struct Sub {
     expr: Arc<Expr>,
     loose: u32,
     size: u32,
+    hash: u64,
 }
 
 impl Sub {
@@ -110,10 +111,12 @@ impl Sub {
     pub fn new(expr: Expr) -> Sub {
         let loose = loose_range(&expr);
         let size = size_range(&expr);
+        let hash = hash_range(&expr);
         Sub {
             expr: Arc::new(expr),
             loose,
             size,
+            hash,
         }
     }
 
@@ -125,6 +128,11 @@ impl Sub {
     /// Returns the node count of the term, saturated at [`u32::MAX`].
     pub fn size(&self) -> u32 {
         self.size
+    }
+
+    /// Returns the cached hash of the term.
+    pub fn hash(&self) -> u64 {
+        self.hash
     }
 
     /// Returns a copy of the term inside.
@@ -202,6 +210,81 @@ fn loose_range(e: &Expr) -> u32 {
             .max(body.loose.saturating_sub(1)),
         Expr::Proj(proj) => proj.value.loose,
         Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Const { .. } | Expr::Lit(_) => 0,
+    }
+}
+
+/// Mixes a value into a hash. This is the FNV-1a step.
+///
+/// The kernel needs a hash that is cheap to compute, not one that resists an
+/// attack, so a multiply and an exclusive or are enough.
+fn mix(state: u64, value: u64) -> u64 {
+    (state ^ value).wrapping_mul(0x0000_0100_0000_01b3)
+}
+
+/// Hashes a name by its last part and its length, and allocates nothing.
+fn hash_name(name: &Name) -> u64 {
+    let mut state = mix(0xcbf2_9ce4_8422_2325, name.len() as u64);
+    if let Some(last) = name.last_str() {
+        for byte in last.as_bytes() {
+            state = mix(state, *byte as u64);
+        }
+    }
+    state
+}
+
+/// Hashes a term, in constant time, from the hashes of its children.
+///
+/// This is the third number every node caches, and it exists so that the
+/// checker can **look a term up**. See chapter 10.
+///
+/// The hash is a **filter and not a decision.** Two different terms can share a
+/// hash, so a cache that finds an entry must still confirm it with
+/// [`Expr::alpha_eq`]. A proof checker may not be probably right.
+///
+/// So the hash may be coarse, and here it is coarse on purpose in two places.
+/// [`Expr::alpha_eq`] compares a universe level by [`Level::is_equiv`] and not
+/// by shape, and it ignores a binder name. A hash that read the shape of a level
+/// would give two equal terms two different hashes, and every lookup of them
+/// would miss. So this skips both.
+fn hash_range(e: &Expr) -> u64 {
+    match e {
+        Expr::BVar(index) => mix(1, *index as u64),
+        Expr::FVar(id) => mix(2, id.0),
+        Expr::MVar(id) => mix(3, id.0),
+        // The levels are compared by equivalence, so the hash leaves them out.
+        Expr::Sort(_) => 4,
+        Expr::Const { name, levels } => mix(mix(5, hash_name(name)), levels.len() as u64),
+        Expr::App { fun, arg } => mix(mix(6, fun.hash), arg.hash),
+        // The binder name is not compared, so the hash leaves it out.
+        Expr::Lam {
+            binder_type,
+            body,
+            info,
+            ..
+        } => mix(mix(mix(7, binder_type.hash), body.hash), *info as u64),
+        Expr::Forall {
+            binder_type,
+            body,
+            info,
+            ..
+        } => mix(mix(mix(8, binder_type.hash), body.hash), *info as u64),
+        Expr::Let {
+            binder_type,
+            value,
+            body,
+            ..
+        } => mix(mix(mix(9, binder_type.hash), value.hash), body.hash),
+        Expr::Lit(Literal::Nat(text)) | Expr::Lit(Literal::Str(text)) => {
+            let mut state = mix(10, text.len() as u64);
+            for byte in text.as_bytes() {
+                state = mix(state, *byte as u64);
+            }
+            state
+        }
+        Expr::Proj(proj) => mix(
+            mix(mix(11, hash_name(&proj.structure)), proj.index as u64),
+            proj.value.hash,
+        ),
     }
 }
 
@@ -411,6 +494,15 @@ impl Expr {
     /// tree.
     pub fn size_up_to(&self, limit: u32) -> u32 {
         size_range(self).min(limit)
+    }
+
+    /// Returns the hash of `self`, in constant time.
+    ///
+    /// Two terms that [`Expr::alpha_eq`] accepts have the same hash. Two terms
+    /// with the same hash are **not** necessarily equal, so a caller that finds
+    /// a term by its hash must confirm the find. See [`hash_range`].
+    pub fn hash_value(&self) -> u64 {
+        hash_range(self)
     }
 
     /// Returns `true` if a bound variable in `self` points outside `self`.

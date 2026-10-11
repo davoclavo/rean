@@ -40,6 +40,7 @@ use crate::local::LocalContext;
 use crate::nat_lit::{self, NatShape};
 use crate::positivity::{self, PositivityError};
 use rean_core::Name;
+use std::collections::HashMap;
 use std::fmt;
 
 /// The largest number of reduction steps that [`TypeChecker::whnf`] will take.
@@ -59,6 +60,19 @@ const REDUCTION_LIMIT: u32 = 100_000;
 ///
 /// See [`Expr::size_up_to`] for why the count has a cap at all.
 const SIZE_CAP: u32 = 100_000;
+
+/// How large a term must be before the `whnf` cache takes an interest in it.
+///
+/// A lookup costs a hash and then an [`Expr::alpha_eq`] against each answer in
+/// the bucket. For a small term that is as much work as the reduction it would
+/// save, so the cache ignores one. The number comes from a sweep.
+const CACHE_MIN_SIZE: u32 = 4;
+
+/// How many hash buckets the `whnf` cache keeps before it starts again.
+///
+/// A cache of answers nobody asks for is only memory. The number is a round
+/// one, and `REAN_FUEL` is the knob that matters more.
+const CACHE_CAP: usize = 200_000;
 
 /// How much work one declaration may take.
 ///
@@ -320,6 +334,16 @@ pub struct TypeChecker<'e> {
     fuel: u64,
     /// The budget that each declaration starts with. See [`FUEL`].
     budget: u64,
+    /// Answers that [`Self::whnf`] already found, by the hash of the question.
+    ///
+    /// The checker reduces the same subterm again and again while it unfolds
+    /// one well founded definition, and the profile showed it: the heaviest
+    /// frame was the drop of a term that a reduction built and discarded.
+    ///
+    /// The key is a hash, so **one bucket can hold more than one answer**. A
+    /// lookup compares the question with [`Expr::alpha_eq`] before it trusts
+    /// the answer. A proof checker may not be probably right.
+    whnf_cache: HashMap<u64, Vec<(Expr, Expr)>>,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -341,6 +365,7 @@ impl<'e> TypeChecker<'e> {
             pending: Vec::new(),
             fuel: FUEL,
             budget: FUEL,
+            whnf_cache: HashMap::new(),
         }
     }
 
@@ -359,9 +384,13 @@ impl<'e> TypeChecker<'e> {
     /// group is **not** added to the environment. It is only visible while
     /// `body` runs.
     pub fn with_group<R>(&mut self, group: &[Declaration], body: impl FnOnce(&mut Self) -> R) -> R {
+        // δ reads the declarations under check, so an answer from before this
+        // group may rest on a different set of them.
+        self.whnf_cache.clear();
         let saved = std::mem::replace(&mut self.pending, group.to_vec());
         let out = body(self);
         self.pending = saved;
+        self.whnf_cache.clear();
         out
     }
 
@@ -406,8 +435,48 @@ impl<'e> TypeChecker<'e> {
     /// "Weak" means that the function does not look inside a binder. "Head"
     /// means that it only reduces the outermost shape.
     pub fn whnf(&mut self, e: &Expr) -> TypeResult<Expr> {
+        let worth_it = e.size_up_to(CACHE_MIN_SIZE) >= CACHE_MIN_SIZE;
+        let key = if worth_it { e.hash_value() } else { 0 };
+        if worth_it
+            && let Some(bucket) = self.whnf_cache.get(&key)
+            && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
+        {
+            return Ok(answer.clone());
+        }
+        let (answer, steps) = self.whnf_uncached(e)?;
+        // A term that was already in weak head normal form is not worth an
+        // entry. Finding that out again costs one `whnf_step` that fires no
+        // rule, and the entry would cost two clones and the memory to hold
+        // them. Most calls are of that kind.
+        if worth_it && steps > 0 {
+            self.remember_whnf(key, e, &answer);
+        }
+        Ok(answer)
+    }
+
+    /// Stores one answer of [`Self::whnf`].
+    ///
+    /// The cache is cleared for each declaration, because a term that mentions
+    /// a free variable only means something in the context that holds it. It
+    /// also has a cap, because the Lean prelude would otherwise fill memory
+    /// with answers that no later declaration asks for.
+    fn remember_whnf(&mut self, key: u64, question: &Expr, answer: &Expr) {
+        if self.whnf_cache.len() >= CACHE_CAP {
+            self.whnf_cache.clear();
+        }
+        self.whnf_cache
+            .entry(key)
+            .or_default()
+            .push((question.clone(), answer.clone()));
+    }
+
+    /// Reduces to weak head normal form, and asks no cache.
+    ///
+    /// Returns the result and the number of rules that fired, so that the
+    /// caller can decide whether the answer is worth keeping.
+    fn whnf_uncached(&mut self, e: &Expr) -> TypeResult<(Expr, u32)> {
         let mut current = e.clone();
-        for _ in 0..REDUCTION_LIMIT {
+        for steps in 0..REDUCTION_LIMIT {
             match self.whnf_step(&current)? {
                 Some(next) => {
                     // A step can make the term larger, and the ι rule often
@@ -421,7 +490,7 @@ impl<'e> TypeChecker<'e> {
                     self.spend_many(next.size_up_to(SIZE_CAP))?;
                     current = next;
                 }
-                None => return Ok(current),
+                None => return Ok((current, steps)),
             }
         }
         Err(TypeError::ReductionLimit)
@@ -2253,6 +2322,9 @@ impl<'e> TypeChecker<'e> {
         // Every declaration gets the whole budget, so one heavy neighbour does
         // not starve the rest of the file.
         self.fuel = self.budget;
+        // And a fresh cache. An answer about a free variable of the last
+        // declaration means nothing here.
+        self.whnf_cache.clear();
         if self.env.contains(decl.name()) {
             return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }
