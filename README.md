@@ -137,7 +137,8 @@ python3 tools/roots.py report.txt
 python3 tools/slice.py full.ndjson one.ndjson _private.Init.Prelude.0.isValidChar_UInt32
 
 # Then sweep. Passes at a bigger budget in a second? The budget was the fault.
-REAN_FUEL=20000000000 ./target/release/rean check one.ndjson
+# The two knobs are coupled: a bigger budget needs a bigger stack.
+REAN_FUEL=20000000000 REAN_STACK=8192 ./target/release/rean check one.ndjson
 ```
 
 Chapters [11](docs/11-compare-before-you-unfold.md) and
@@ -151,7 +152,7 @@ Chapters [11](docs/11-compare-before-you-unfold.md) and
 | level 1, stress | **39,244 of 57,512** | the whole Lean prelude, in 192 seconds |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **418** | `devbox run test` |
+| tests | **421** | `devbox run test` |
 | coverage | **94.7% of regions, 96.5% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |

@@ -18,6 +18,13 @@ usage:
   rean prove             check a proof with the kernel
   rean demo              walk the stages over a small example
   rean help              print this text
+
+two knobs, and they are coupled:
+  REAN_FUEL=<units>      work budget per declaration, default 20000000
+  REAN_STACK=<MiB>       stack for the checker, default 512
+
+A larger budget lets a reduction run longer, a longer reduction builds a
+deeper term, and a deeper term needs more stack.
 ";
 
 /// What `lex` found.
@@ -473,6 +480,34 @@ pub fn demo() -> String {
         Expr::sort(Level::param("u").succ()).pretty()
     );
     out
+}
+
+/// The stack the checker runs on by default, in bytes.
+///
+/// The kernel walks a term by recursion, so the depth of the Rust stack follows
+/// the depth of the term. The 8 MB that a main thread gets is not enough for
+/// the Lean prelude, and the checker aborted with a stack overflow before it
+/// ran on a thread of its own. `rustc` solves the same problem the same way.
+pub const DEFAULT_STACK_MIB: usize = 512;
+
+/// Turns the value of `REAN_STACK` into a stack size in bytes.
+///
+/// The stack and the work budget are **coupled**, and that is worth knowing
+/// before a sweep. A larger `REAN_FUEL` lets a reduction run longer, a longer
+/// reduction builds a deeper term, and a deeper term needs more stack.
+///
+/// 512 MB carries the whole prelude at the default budget and at five times it.
+/// At a **thousand** times it, the checker overflowed that stack after 4,034
+/// declarations, which is why this is a knob and not a constant.
+///
+/// A value that does not parse gives the default. A sweep must not stop on a
+/// typo in a variable, and it must not silently use a number nobody wrote.
+pub fn stack_bytes(setting: Option<&str>) -> usize {
+    let mib = match setting.map(str::trim).map(str::parse::<usize>) {
+        Some(Ok(mib)) if mib > 0 => mib,
+        _ => DEFAULT_STACK_MIB,
+    };
+    mib * 1024 * 1024
 }
 
 /// Reads a work budget from `REAN_FUEL`, if it is set.

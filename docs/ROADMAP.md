@@ -347,7 +347,7 @@ level 1   our kernel checks        95 of 95 on the two committed fixtures
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     418
+tests     421
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name

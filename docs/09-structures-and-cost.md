@@ -297,10 +297,22 @@ The fix is four lines, and `rustc` solves the same problem the same way:
 
 ```rust
 let child = std::thread::Builder::new()
-    .stack_size(512 * 1024 * 1024)
+    .stack_size(stack_bytes(std::env::var("REAN_STACK").ok().as_deref()))
     .spawn(run)
     .expect("the main thread must start");
 ```
+
+512 MB is the default, and it is **not** a number that holds for every budget.
+The two limits are coupled: a larger budget lets a reduction run longer, a
+longer reduction builds a deeper term, and a deeper term needs more stack. At a
+thousand times the default budget this stack overflowed after 4,034
+declarations, so the size is a knob, `REAN_STACK`, in MiB. `rean help` names
+both knobs and says they are coupled, because a reader who raises one and then
+meets the other has been failed by the text.
+
+Tests: `the_stack_size_reads_a_number_of_mebibytes`,
+`a_stack_size_nobody_wrote_is_the_default`,
+`the_usage_text_names_both_knobs_and_their_coupling`.
 
 Note what the first budget sweep reported before this fix: "did not finish". A
 timeout and a crash look the same from outside, and we read it as the first for

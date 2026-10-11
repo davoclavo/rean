@@ -3,21 +3,14 @@
 //! This file does the printing and nothing else. Every decision lives in the
 //! library, so a test can reach it.
 
-use rean::{DeclOutcome, USAGE, Verdict, check_export_streaming, demo, lex_file, prove};
+use rean::{
+    DeclOutcome, USAGE, Verdict, check_export_streaming, demo, lex_file, prove, stack_bytes,
+};
 use std::process::ExitCode;
-
-/// The stack the checker runs on.
-///
-/// The kernel walks a term by recursion, so the depth of the Rust stack follows
-/// the depth of the term. A term that a reduction built can be very deep, and
-/// the 8 MB that a main thread gets is not enough for the Lean prelude. The
-/// checker aborted with a stack overflow before this thread existed. `rustc`
-/// solves the same problem the same way.
-const STACK: usize = 512 * 1024 * 1024;
 
 fn main() -> ExitCode {
     let child = std::thread::Builder::new()
-        .stack_size(STACK)
+        .stack_size(stack_bytes(std::env::var("REAN_STACK").ok().as_deref()))
         .spawn(run)
         .expect("the main thread must start");
     match child.join() {

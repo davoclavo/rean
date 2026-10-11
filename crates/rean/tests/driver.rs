@@ -3,7 +3,7 @@
 //! Each command returns a value, so a test can read it. That is the whole
 //! reason the driver is a library and not only a binary.
 
-use rean::{USAGE, check_export, demo, lex_file, prove};
+use rean::{DEFAULT_STACK_MIB, USAGE, check_export, demo, lex_file, prove, stack_bytes};
 
 const FIXTURE: &str = "../../fixtures/lean4export/Nat.add_succ.ndjson";
 
@@ -135,4 +135,35 @@ fn the_usage_text_lists_every_command() {
     for command in ["lex", "check", "prove", "demo", "help"] {
         assert!(USAGE.contains(command), "usage must mention {command}");
     }
+}
+
+// --- the two knobs, and why they are coupled -----------------------------
+
+#[test]
+fn the_stack_size_reads_a_number_of_mebibytes() {
+    assert_eq!(stack_bytes(Some("1024")), 1024 * 1024 * 1024);
+    // Whitespace comes free with a shell variable.
+    assert_eq!(stack_bytes(Some(" 64 ")), 64 * 1024 * 1024);
+}
+
+#[test]
+fn a_stack_size_nobody_wrote_is_the_default() {
+    let default = DEFAULT_STACK_MIB * 1024 * 1024;
+    // Not set at all.
+    assert_eq!(stack_bytes(None), default);
+    // A typo in a variable must not stop a sweep, and must not be read as a
+    // number nobody wrote.
+    assert_eq!(stack_bytes(Some("lots")), default);
+    assert_eq!(stack_bytes(Some("")), default);
+    // Zero would be a stack of no size.
+    assert_eq!(stack_bytes(Some("0")), default);
+}
+
+#[test]
+fn the_usage_text_names_both_knobs_and_their_coupling() {
+    // A reader who raises the budget and then meets a stack overflow has been
+    // failed by this text. See chapter 9, section 9.8.
+    assert!(USAGE.contains("REAN_FUEL"), "{USAGE}");
+    assert!(USAGE.contains("REAN_STACK"), "{USAGE}");
+    assert!(USAGE.contains("deeper term needs more stack"), "{USAGE}");
 }
