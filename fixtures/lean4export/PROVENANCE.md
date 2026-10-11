@@ -86,5 +86,3 @@ One real module exercises only the paths that one module needs. This one has:
 - no `axiom`, and no `opaque`
 
 The first item is the one worth chasing. Everything else has a written test.
-MDEOF
-echo ok
