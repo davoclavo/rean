@@ -147,6 +147,33 @@ pub fn binop(name: &Name, a: u128, b: u128) -> Option<Expr> {
     }
 }
 
+/// A function of **one** natural number that the kernel computes directly.
+///
+/// `Nat.pred` earns its place by measurement. A proof of the Lean prelude about
+/// decoding UTF-8 unfolded it **21,999** times, and each unfolding went
+/// `Nat.pred` to its match, to `Nat.casesOn`, to `Nat.rec`, and then peeled one
+/// `Nat.succ` off a literal above ten thousand so that ι could fire. Those
+/// peels were 21,406 of the recursion steps in that declaration.
+///
+/// Computed here, each one of those is a single step and no peel at all.
+///
+/// `Nat.pred 0` is `0`, not an error, which is what `saturating_sub` gives.
+pub fn unop(name: &Name, a: u128) -> Option<Expr> {
+    match name.two_parts()? {
+        ("Nat", "pred") => Some(lit(a.saturating_sub(1))),
+        // `Nat.succ` must NOT be here. It is a constructor, and the ι rule
+        // turns a literal back into `Nat.succ` of one less so that it can
+        // fire. Folding the one into the other as well makes the two rules
+        // undo each other for ever, and the test suite stopped finishing.
+        _ => None,
+    }
+}
+
+/// Returns `true` if `name` is a function that [`unop`] computes.
+pub fn is_unop(name: &Name) -> bool {
+    unop(name, 0).is_some()
+}
+
 /// Returns `true` if `name` is a function that [`binop`] computes.
 pub fn is_binop(name: &Name) -> bool {
     binop(name, 0, 0).is_some()

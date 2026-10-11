@@ -566,6 +566,10 @@ impl<'e> TypeChecker<'e> {
             if let Some(next) = self.nat_step(name, &args)? {
                 return Ok(Some(next));
             }
+            // And on a function of one number, such as `Nat.pred`.
+            if let Some(next) = self.nat_unary_step(name, &args)? {
+                return Ok(Some(next));
+            }
             // And on a string literal.
             if let Some(next) = self.string_step(name, &args)? {
                 return Ok(Some(next));
@@ -610,6 +614,23 @@ impl<'e> TypeChecker<'e> {
             return Ok(None);
         };
         Ok(Some(out.apps(args[2..].iter().cloned())))
+    }
+
+    /// Computes a function of one `Nat`, such as `Nat.pred`.
+    ///
+    /// Only a function, never a **constructor**. See [`nat_lit::unop`] for the
+    /// loop that `Nat.succ` caused when it was on that list.
+    fn nat_unary_step(&mut self, name: &Name, args: &[Expr]) -> TypeResult<Option<Expr>> {
+        if !nat_lit::is_unop(name) || args.is_empty() {
+            return Ok(None);
+        }
+        let Some(value) = self.read_nat(&args[0])? else {
+            return Ok(None);
+        };
+        let Some(out) = nat_lit::unop(name, value) else {
+            return Ok(None);
+        };
+        Ok(Some(out.apps(args[1..].iter().cloned())))
     }
 
     /// Reads a number out of `e`, in either of the two forms it can take.
@@ -1391,6 +1412,24 @@ impl<'e> TypeChecker<'e> {
     /// closed. A loose bound variable has no type.
     fn proof_irrelevant(&mut self, a: &Expr, b: &Expr) -> TypeResult<Option<bool>> {
         if a.has_loose_bvars() || b.has_loose_bvars() {
+            return Ok(None);
+        }
+        // A sort and a function type are never proofs, and saying so costs one
+        // test instead of three type inferences.
+        //
+        // `Sort u` has type `Sort (u+1)`, and a function type has type `Sort k`
+        // for some `k`. The type of either is therefore a sort, and the type of
+        // a sort is `Sort (k+1)`, which is never `Sort 0`. So neither can have
+        // a type that is a `Prop`.
+        //
+        // A **lambda** is not on that list, and must not be: a proof of `p → q`
+        // is a lambda.
+        //
+        // This rule runs on nearly every comparison, and the checker compares
+        // types constantly, so most of what it meets is exactly these two
+        // shapes. `infer_type` was the second heaviest frame in a profile of
+        // the prelude.
+        if matches!(a, Expr::Sort(_) | Expr::Forall { .. }) {
             return Ok(None);
         }
         let type_a = self.infer_type(a)?;
