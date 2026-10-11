@@ -86,3 +86,90 @@ One real module exercises only the paths that one module needs. This one has:
 - no `axiom`, and no `opaque`
 
 The first item is the one worth chasing. Everything else has a written test.
+
+---
+
+## shapes.ndjson
+
+The second fixture, and this one we generated. It covers every shape that
+`Nat.add_succ.ndjson` leaves out.
+
+| Field | Value |
+|---|---|
+| Source | `fixtures/lean4export/shapes.lean`, exported by `lean4export` |
+| Upstream commit | `a3e35a584f59b390667db7269cd37fca8575e4bf` |
+| Toolchain | `leanprover/lean4:v4.30.0` |
+| Format | 3.1.0 |
+| Size | 964 lines, 63 declarations |
+
+### What it covers
+
+| Shape | Declaration |
+|---|---|
+| a **mutual** inductive group | `Tree` and `Forest`, with two recursors |
+| a **nested** inductive | `Rose`, with `numNested = 1` and an auxiliary recursor |
+| all four **quotient** constants | `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` |
+| a **structure**, for eta | `Point` |
+| `letE` | `withLet` |
+| a `Nat` **literal** and arithmetic | `twoAddThree : 2 + 3 = 5` |
+| `proj` | five of them |
+
+### What it settled
+
+Chapter 7 derived the shape of a mutual recursor from reading, with no ground
+truth. This fixture confirms it:
+
+```
+rec Tree.rec   all=[Tree, Forest]  motives=2  minors=3  rules=[Tree.node]
+rec Forest.rec all=[Tree, Forest]  motives=2  minors=3  rules=[Forest.nil, Forest.cons]
+```
+
+One motive per type in the group, one minor premise per constructor of **both**
+types, and iota rules only for the type the recursor takes apart. That is
+exactly what chapter 7 predicted, and `Tree.rec` and `Forest.rec` both pass.
+
+It also showed one thing chapter 7 got **wrong**. For a nested declaration the
+recursor speaks about an auxiliary type that Lean builds and never exports:
+
+```
+inductive Rose    nested=1  all=[Rose]
+rec Rose.rec      all=[Rose]  motives=2   <- two motives, one type
+rec Rose.rec_1    all=[Rose]  rules=[List.nil, List.cons]   <- not in its group
+```
+
+Every group check would fire on a correct declaration. So a nested recursor is
+now **trusted**, and that is the one place the checker still takes a recursor on
+faith.
+
+## How to build the exporter
+
+`lean4export` master pins a Lean that devbox does not carry. Commit
+`a3e35a584f59b390667db7269cd37fca8575e4bf` pins `v4.30.0`, which devbox does.
+
+```sh
+git clone https://github.com/leanprover/lean4export
+cd lean4export && git checkout a3e35a584f59b390667db7269cd37fca8575e4bf
+lake build            # compiles, and then the link fails
+```
+
+The link fails with `ld: library 'c++' not found`, because Lean passes the nix
+Apple SDK and that SDK carries no `libc++`. Point the link at the Xcode SDK
+instead:
+
+```sh
+SDK=$(xcrun --show-sdk-path)
+sed "s|-isysroot[^\"]*MacOSX.sdk|-isysroot$SDK|" \
+  .lake/build/bin/lean4export.rsp > .lake/build/bin/patched.rsp
+MACOSX_DEPLOYMENT_TARGET=14.0 cc -o .lake/build/bin/lean4export \
+  @.lake/build/bin/patched.rsp
+```
+
+Then export a module, with an optional list of declarations after `--`:
+
+```sh
+lake env <path>/lean4export Probe -- Tree Forest Rose Point Q withLet twoAddThree
+```
+
+Without the list it exports the whole transitive closure. For this probe that is
+340 MB and 6.4 million lines, which is a fine test input and far too big to
+commit.

@@ -11,8 +11,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-/// The format version that this reader was written against.
-pub const KNOWN_FORMAT_VERSION: &str = "3.0.0";
+/// The format versions that this reader knows.
+///
+/// The two differ in one place, and the reader takes either spelling. Version
+/// 3.0.0 writes `inductiveVals`, `constructorVals`, and `recursorVals`, and
+/// 3.1.0 writes `types`, `ctors`, and `recs`.
+pub const KNOWN_FORMAT_VERSIONS: &[&str] = &["3.0.0", "3.1.0"];
 
 /// Why a file failed to read.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -163,10 +167,10 @@ impl Reader {
 
             if let Some(m) = value.get("meta") {
                 let m = self.read_meta(line, m)?;
-                if m.format_version != KNOWN_FORMAT_VERSION {
+                if !KNOWN_FORMAT_VERSIONS.contains(&m.format_version.as_str()) {
                     return Err(ExportError::UnknownFormat {
                         got: m.format_version,
-                        known: KNOWN_FORMAT_VERSION.to_string(),
+                        known: KNOWN_FORMAT_VERSIONS.join(" or "),
                     });
                 }
                 meta = Some(m);

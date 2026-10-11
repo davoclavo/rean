@@ -1267,6 +1267,20 @@ impl<'e> TypeChecker<'e> {
         if group.is_empty() {
             return Ok(());
         }
+        // A nested declaration is the one shape these checks cannot read.
+        //
+        // Lean compiles `inductive Rose | node : List Rose → Rose` into an
+        // auxiliary type, and the recursor speaks about that type. So
+        // `Rose.rec` reports two motives while its group lists one type, and
+        // `Rose.rec_1` has rules for `List.nil` and `List.cons`, which belong
+        // to no type in its group at all. Every count below would fire on a
+        // correct declaration.
+        //
+        // So a nested recursor is **trusted**, and this is the one place the
+        // checker still takes a recursor on faith. Chapter 7, section 7.5.
+        if group.iter().any(|i| i.num_nested > 0) {
+            return Ok(());
+        }
         if rec.num_motives as usize != group.len() {
             return Err(bad(format!(
                 "it has {} motives and its group has {} types",

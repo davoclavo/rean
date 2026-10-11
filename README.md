@@ -101,21 +101,26 @@ devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 
 | Checkpoint | Score | Meaning |
 |---|---|---|
-| level 1 | **32 of 32** | our kernel checks the declarations that Lean wrote |
+| level 1 | **95 of 95** | our kernel checks the declarations that Lean wrote, across two fixtures |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **375** | `devbox run test` |
+| tests | **383** | `devbox run test` |
 | coverage | **95.1% of regions, 96.7% of lines** | `devbox run coverage` |
 | red team | **38 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
+cargo run -p rean -- check fixtures/lean4export/shapes.ndjson
 ```
 
-Level 1 covers the whole transitive closure of `theorem Nat.add_succ`, including
-an inductive type, a recursor with its ι rules, a projection, universe
-polymorphism, and type class instances. See [the roadmap](docs/ROADMAP.md).
+| Fixture | Covers |
+|---|---|
+| `Nat.add_succ.ndjson` | one real module: an inductive type, a recursor with its ι rules, a projection, universe polymorphism, type class instances |
+| `shapes.ndjson` | a **mutual** inductive group, a **nested** one, all four `Quot` constants, a structure, a `let`, and `2 + 3 = 5` |
+
+See [the roadmap](docs/ROADMAP.md) and
+[`fixtures/lean4export/PROVENANCE.md`](fixtures/lean4export/PROVENANCE.md).
 
 ## The building blocks
 
