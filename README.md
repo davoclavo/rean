@@ -108,7 +108,7 @@ exercises and answers.
 | [9 — Structures, and what the kernel costs](docs/09-structures-and-cost.md) | the three rules a structure needs, the two numbers every node caches, and why a faster kernel checked no more declarations. |
 | [10 — The cache](docs/10-the-cache.md) | the third number, a cache on `whnf` and on `is_def_eq`, and the rule that keeps a cache honest: a hash **finds** an answer, equality **decides** whether to trust it. |
 | [11 — Compare before you unfold](docs/11-compare-before-you-unfold.md) | one moved line, 3,951 declarations. How to take one failing case out of 676 and let the measurement overrule your plan. |
-| [12 — Ask the cheapest question first](docs/12-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, and why a pair of changes is one unit of measurement. |
+| [12 — Ask the cheapest question first](docs/12-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, why a pair of changes is one unit of measurement, and how to rank 107 failures so you work on the one worth 15,272. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use |
 
 Every claim in a chapter has a test:
@@ -121,6 +121,27 @@ devbox run -- cargo test -p rean_kernel --test structures  # chapter 9
 devbox run -- cargo test -p rean_kernel --test cache       # chapter 10
 devbox run -- cargo test -p rean_kernel --test comparison  # chapters 11 and 12
 ```
+
+## Two tools, and the method they serve
+
+Both of the largest wins in this project came from one move: **take one failing
+declaration out of hundreds, and let the measurement choose the fix.** Three
+plans were retired that way before a line of them was written.
+
+```sh
+# Which failure is worth the trouble? One of them blocked 15,272 declarations.
+./target/release/rean check full.ndjson > report.txt
+python3 tools/roots.py report.txt
+
+# Cut that one declaration and its dependencies out of the export.
+python3 tools/slice.py full.ndjson one.ndjson _private.Init.Prelude.0.isValidChar_UInt32
+
+# Then sweep. Passes at a bigger budget in a second? The budget was the fault.
+REAN_FUEL=20000000000 ./target/release/rean check one.ndjson
+```
+
+Chapters [11](docs/11-compare-before-you-unfold.md) and
+[12](docs/12-ask-the-cheapest-question.md) are that method, worked twice.
 
 ## The scoreboard
 

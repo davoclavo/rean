@@ -227,22 +227,118 @@ that remains is cost.
 
 ---
 
-## 12.8 What is left, honestly
+## 12.8 Which failure to work on next
 
-**107 declarations out of budget**, and they are not one problem. The sweep
-already separated them into two kinds:
+**107 declarations out of budget**, and 18,153 blocked behind them. So the next
+question is not "what is wrong" but **"which one of the 107 is worth the
+trouble"**.
 
-1. Those that want more budget and would spend it in a second. A larger
-   `REAN_FUEL` checks them today. 100,000,000 is a reasonable second look.
-2. Those like `Nat.mul_add_div._f`, which want more than 20 billion units. These
-   are a real gap between our kernel and Lean's, and the profile says it is
-   genuine ι reduction, not a missing shortcut.
+A blocked declaration is not wrong. It waits on something, and the report says
+what:
 
-For the second kind the remaining candidate is the one chapter 10 named and
-chapter 11 demoted: our `whnf` is **eager**, and it rebuilds a whole term for
-each step where Lean's rebuilds nothing. That is a change to every rule, and it
-is the right size of job to do on its own.
+```text
+block def   instAppendString
+              `String.append` did not check
+```
 
-What this chapter would say about starting it: do not. Not yet. Take one of the
-107, cut its slice, sweep the budget, and find out which of the two kinds it is
-first. Twice now that has turned a large plan into a small one.
+Follow every chain to its end and count the leaves that each root holds up.
+`tools/roots.py` does it:
+
+```sh
+./target/release/rean check full.ndjson > report.txt
+python3 tools/roots.py report.txt
+```
+
+```text
+115 failures block 18153 declarations
+
+blocked  root failure
+  15272  _private.Init.Prelude.0.isValidChar_UInt32
+   1810  Nat.mul_add_div._f
+    323  Lean.Grind.CommRing.Mon.revlexWF._unary._proof_2
+    221  Char.utf8Size._proof_2
+```
+
+**One declaration holds up 15,272 of the 18,153.** That is 84% of everything
+the checker did not read, behind a single private theorem of `Init.Prelude`
+about whether a number is a valid character.
+
+Had I worked down the failure list in order, that one is ninth. The first eight
+are worth 1,810, 323, 221, and then rows of fifty. **Rank before you choose.**
+
+---
+
+## 12.9 And the budget is no longer the lever
+
+Two measurements, on the same binary, say where the limit now is.
+
+| budget | checked | failed | time |
+|---|---|---|---|
+| 20,000,000 | 39,244 | 115 | 192 s |
+| 100,000,000 | 39,318 | 103 | 354 s |
+
+Five times the budget buys **74 declarations**. Before the two reorderings of
+chapters 11 and 12, five times the budget bought 1,094. The checker is no longer
+budget-bound on this input; it is work-bound, and the work is real.
+
+The one high-leverage declaration shows it exactly. On its slice,
+`isValidChar_UInt32` fails at 2,000,000,000 and **passes at
+20,000,000,000** — somewhere between two and twenty **billion** units for a
+theorem that Lean checks without noticing. The profile of that run is one stack:
+
+```text
+infer_type (13 deep) -> is_def_eq -> spine_eq -> is_def_eq
+                     -> whnf -> iota_step -> whnf -> iota_step -> whnf
+                     -> beta_step -> instantiate -> drop
+```
+
+Nested ι, each step doing a β and a substitution, and then dropping the term it
+built. That is not a missing shortcut. That is the eager shape of our `whnf`.
+
+### One guess, measured and reverted
+
+`iota_step` began with `rec.clone()`, which copies **every rule** of the
+recursor, and a rule holds a term. ι runs on most steps of this workload, and
+`drop_slow` was the heaviest frame that is not a stack frame. The story fits.
+
+So I read only the shape of the recursor first, and cloned the one rule that
+fires once it was known. The result:
+
+| | 2 G budget | 20 G budget |
+|---|---|---|
+| before | 1,896 in 15 s | 1,897 in 103 s |
+| after | 1,896 in 15 s | 1,897 in 103 s |
+
+**Nothing.** Not one second, not one declaration. The story fitted and was
+wrong, so the change is not in the tree: a new type for an unmeasurable gain is
+a cost with no payment. The profile pointed at the drop of terms that
+**reduction** builds, not at the drop of rules that the lookup copies.
+
+This is the third plan this project has retired by measuring it, and the
+cheapest of the three to retire.
+
+---
+
+## 12.10 What is left, honestly
+
+One thing, and it is the job that chapters 10 and 11 both named and both
+deferred.
+
+Our `whnf` is **eager**. Each step builds a whole new term and drops the old
+one, and the profile has said so under four different changes now. Lean's `whnf`
+rebuilds nothing. That is a change to every rule, and it is the right size of
+job to do on its own.
+
+What would make it worth starting: the ranking above. One declaration is worth
+15,272, and it is the same shape of work as the next three. Four fixes could be
+worth 17,600 declarations, which is nearly everything that remains.
+
+And the discipline these two chapters earned, stated once more, because it has
+now worked three times and failed none:
+
+1. Rank the failures by what they block. Work on the longest row.
+2. Take that one declaration alone. `tools/slice.py` cuts it out.
+3. Sweep `REAN_FUEL`. Passes at a larger budget in a second: the budget was the
+   fault. Wants twenty billion units: the kernel is.
+4. Profile, and read the **stack**, not the list of symbols.
+5. Then change one thing and measure. A story that fits is not evidence.

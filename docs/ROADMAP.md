@@ -303,13 +303,33 @@ One item is left:
   `drop_slow` sat at the top of our profile and not of Lean's. Lean's `whnf` is
   lazy. This is a change to every rule.
 
-Before starting it, do what chapters 11 and 12 did: take **one** of the 107, cut
-its slice, and sweep the budget. The sweep already separates them into two
-kinds, and only the second kind needs this job:
+**The budget is no longer the lever.** Five times the default now buys 74
+declarations, where before chapters 11 and 12 it bought 1,094. The checker is
+work-bound, and the work is real.
 
-1. Those that want a larger budget and spend it in a second. `REAN_FUEL` checks
-   them today.
-2. Those like `Nat.mul_add_div._f`, which want more than 20 **billion** units.
+**And the failures are not equal.** `tools/roots.py` follows every blocked
+chain to its root and counts the leaves:
+
+```text
+115 failures block 18153 declarations
+
+blocked  root failure
+  15272  _private.Init.Prelude.0.isValidChar_UInt32
+   1810  Nat.mul_add_div._f
+    323  Lean.Grind.CommRing.Mon.revlexWF._unary._proof_2
+    221  Char.utf8Size._proof_2
+```
+
+One declaration holds up **84%** of everything unread, and it is ninth in the
+failure list. Rank before you choose. Those four together are worth about
+17,600 declarations, which is nearly all that remains, and all four are the
+same shape of work.
+
+Then do what chapters 11 and 12 did: take that one, cut its slice with
+`tools/slice.py`, and sweep `REAN_FUEL`. Passes at a larger budget in a second:
+the budget was the fault. Wants twenty **billion** units: the kernel is.
+`isValidChar_UInt32` is the second kind, and that is what the eager `whnf`
+costs.
 
 A bigger budget is not the fix. Five times the number bought three declarations.
 
