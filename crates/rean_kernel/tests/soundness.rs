@@ -428,3 +428,344 @@ fn a_projection_needs_a_type_with_one_constructor() {
     let err = tc.infer_type(&projection).unwrap_err();
     assert!(matches!(err, TypeError::NotAStructure { .. }), "{err}");
 }
+
+// --- the minor premises must be the ones induction needs -----------------
+
+/// `inductive N : Type` with `N.z : N` and `N.s : N → N`.
+fn peano() -> Environment {
+    let mut env = Environment::new();
+    let n = || Expr::const_("N", vec![]);
+    env.add(inductive("N", Expr::type_(0), &["N.z", "N.s"]));
+    env.add(constructor("N.z", "N", n()));
+    env.add(Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("N.s"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(n(), n()),
+        induct: Name::from_dotted("N"),
+        cidx: 1,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    }));
+    env
+}
+
+#[test]
+fn a_minor_premise_with_an_extra_binder_is_refused() {
+    // The rule stays type correct and the premise is not the one induction
+    // needs. Induction over a constructor with no field needs
+    // `motive U.u`, and this recursor asks for `(x : U) → motive U.u`.
+    //
+    // The old check passed this, because the rule really does deliver
+    // `motive U.u`. Only a derived premise catches it.
+    let env = base();
+    let sort_v = || Expr::sort(Level::param("v"));
+    // `minor : (x : U) → motive U.u`, with `motive` one binder out.
+    let minor_type =
+        |motive_depth: u32| Expr::forall("x", u(), Expr::bvar(motive_depth + 1).app(uu()));
+    let ty = Expr::forall(
+        "motive",
+        Expr::arrow(u(), sort_v()),
+        Expr::forall(
+            "minor",
+            minor_type(0),
+            Expr::forall("t", u(), Expr::bvar(2).app(Expr::bvar(0))),
+        ),
+    );
+    // `fun motive minor => minor U.u`, which really does deliver `motive U.u`.
+    let rhs = Expr::lam(
+        "motive",
+        Expr::arrow(u(), sort_v()),
+        Expr::lam("minor", minor_type(0), Expr::bvar(0).app(uu())),
+    );
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&recursor(ty, rhs, 1)).unwrap_err();
+    assert!(matches!(err, TypeError::BadRecursor { .. }), "{err}");
+    assert!(
+        err.to_string().contains("induction needs"),
+        "the message must say what induction needs: {err}"
+    );
+}
+
+#[test]
+fn a_minor_premise_that_drops_the_induction_hypothesis_is_refused() {
+    // This is the sharpest case. `N.s` has a recursive field, so induction
+    // needs `(n : N) → motive n → motive (N.s n)`. This recursor asks only for
+    // `(n : N) → motive (N.s n)`, with no hypothesis.
+    //
+    // Both rules are type correct, so every earlier check passes. What is left
+    // is not an induction principle, and a recursor that is not an induction
+    // principle is an axiom.
+    let env = peano();
+    let n = || Expr::const_("N", vec![]);
+    let nz = || Expr::const_("N.z", vec![]);
+    let ns = |x: Expr| Expr::const_("N.s", vec![]).app(x);
+    let sort_v = || Expr::sort(Level::param("v"));
+    let motive_type = || Expr::arrow(n(), sort_v());
+
+    // `mz : motive N.z`, with `motive` at the given depth.
+    let mz_type = |motive: u32| Expr::bvar(motive).app(nz());
+    // `ms : (k : N) → motive (N.s k)`, with no hypothesis.
+    let ms_type =
+        |motive: u32| Expr::forall("k", n(), Expr::bvar(motive + 1).app(ns(Expr::bvar(0))));
+
+    let ty = Expr::forall(
+        "motive",
+        motive_type(),
+        Expr::forall(
+            "mz",
+            mz_type(0),
+            Expr::forall(
+                "ms",
+                ms_type(1),
+                Expr::forall("t", n(), Expr::bvar(3).app(Expr::bvar(0))),
+            ),
+        ),
+    );
+
+    // `fun motive mz ms => mz`
+    let rhs_z = Expr::lam(
+        "motive",
+        motive_type(),
+        Expr::lam("mz", mz_type(0), Expr::lam("ms", ms_type(1), Expr::bvar(1))),
+    );
+    // `fun motive mz ms k => ms k`, which delivers `motive (N.s k)`.
+    let rhs_s = Expr::lam(
+        "motive",
+        motive_type(),
+        Expr::lam(
+            "mz",
+            mz_type(0),
+            Expr::lam(
+                "ms",
+                ms_type(1),
+                Expr::lam("k", n(), Expr::bvar(1).app(Expr::bvar(0))),
+            ),
+        ),
+    );
+
+    let rec = Declaration::Recursor(RecursorVal {
+        name: Name::from_dotted("N.rec"),
+        level_params: vec![Name::from_dotted("v")],
+        ty,
+        all: vec![Name::from_dotted("N")],
+        num_params: 0,
+        num_indices: 0,
+        num_motives: 1,
+        num_minors: 2,
+        rules: vec![
+            RecursorRule {
+                ctor: Name::from_dotted("N.z"),
+                num_fields: 0,
+                rhs: rhs_z,
+            },
+            RecursorRule {
+                ctor: Name::from_dotted("N.s"),
+                num_fields: 1,
+                rhs: rhs_s,
+            },
+        ],
+        k: false,
+        is_unsafe: false,
+    });
+
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&rec).unwrap_err();
+    assert!(matches!(err, TypeError::BadRecursor { .. }), "{err}");
+    let message = err.to_string();
+    assert!(message.contains("induction needs"), "{message}");
+    // The message must name the hypothesis that is absent.
+    assert!(message.contains("N.s"), "{message}");
+}
+
+#[test]
+fn the_wrong_number_of_minor_premises_is_refused() {
+    // `N` has two constructors, so induction needs two premises. This recursor
+    // offers one.
+    let env = peano();
+    let n = || Expr::const_("N", vec![]);
+    let ty = Expr::forall(
+        "motive",
+        Expr::arrow(n(), Expr::sort(Level::param("v"))),
+        Expr::forall(
+            "mz",
+            Expr::bvar(0).app(Expr::const_("N.z", vec![])),
+            Expr::forall("t", n(), Expr::bvar(2).app(Expr::bvar(0))),
+        ),
+    );
+    let rec = Declaration::Recursor(RecursorVal {
+        name: Name::from_dotted("N.rec"),
+        level_params: vec![Name::from_dotted("v")],
+        ty,
+        all: vec![Name::from_dotted("N")],
+        num_params: 0,
+        num_indices: 0,
+        num_motives: 1,
+        num_minors: 1,
+        rules: vec![
+            RecursorRule {
+                ctor: Name::from_dotted("N.z"),
+                num_fields: 0,
+                rhs: Expr::prop(),
+            },
+            RecursorRule {
+                ctor: Name::from_dotted("N.s"),
+                num_fields: 1,
+                rhs: Expr::prop(),
+            },
+        ],
+        k: false,
+        is_unsafe: false,
+    });
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&rec).unwrap_err();
+    assert!(
+        err.to_string().contains("minor premises"),
+        "one premise per constructor: {err}"
+    );
+}
+
+// --- the trust report ----------------------------------------------------
+
+/// `axiom Choice : Prop`, plus a chain that reaches it.
+fn with_an_axiom() -> Environment {
+    let mut env = Environment::new();
+    env.add(inductive("P", Expr::prop(), &[]));
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("Choice"),
+        level_params: Vec::new(),
+        ty: Expr::const_("P", vec![]),
+        is_unsafe: false,
+    }));
+    // `def viaChoice : P := Choice`
+    env.add(Declaration::Definition(rean_kernel::DefinitionVal {
+        name: Name::from_dotted("viaChoice"),
+        level_params: Vec::new(),
+        ty: Expr::const_("P", vec![]),
+        value: Expr::const_("Choice", vec![]),
+        hints: rean_kernel::ReducibilityHints::Abbrev,
+        safety: rean_kernel::DefinitionSafety::Safe,
+        all: Vec::new(),
+    }));
+    // `theorem rests : P := viaChoice`
+    env.add(Declaration::Theorem(TheoremVal {
+        name: Name::from_dotted("rests"),
+        level_params: Vec::new(),
+        ty: Expr::const_("P", vec![]),
+        value: Expr::const_("viaChoice", vec![]),
+        all: Vec::new(),
+    }));
+    env
+}
+
+#[test]
+fn an_axiom_is_reported_through_a_whole_chain() {
+    // The kernel re-checks everything but an axiom, so a report that does not
+    // name the axioms is not a trust report.
+    let env = with_an_axiom();
+    let names = |name: &str| {
+        env.axioms_of(&Name::from_dotted(name))
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names("Choice"), vec!["Choice"]);
+    assert_eq!(names("viaChoice"), vec!["Choice"]);
+    assert_eq!(
+        names("rests"),
+        vec!["Choice"],
+        "it must reach through the def"
+    );
+    // A declaration that rests on nothing reports nothing.
+    assert!(names("P").is_empty());
+    // An unknown name reports nothing rather than panic.
+    assert!(names("nope").is_empty());
+}
+
+#[test]
+fn a_recursor_that_names_itself_does_not_loop() {
+    // A recursor's rules call the recursor, so the dependency graph has a
+    // cycle. The walk must still stop.
+    let env = base();
+    let mut with_rec = env;
+    let Declaration::Recursor(mut rec) = recursor(honest_recursor_type(), honest_rhs(), 1) else {
+        panic!("it is a recursor");
+    };
+    rec.rules[0].rhs = Expr::const_("U.rec", vec![Level::Zero]);
+    with_rec.add(Declaration::Recursor(rec));
+    assert!(with_rec.axioms_of(&Name::from_dotted("U.rec")).is_empty());
+}
+
+// --- unsafe may not reach into safe code ---------------------------------
+
+#[test]
+fn a_safe_declaration_may_not_use_an_unsafe_one() {
+    // An unsafe declaration may not terminate. The kernel evaluates a term
+    // while it checks it, and a term that does not terminate can be given any
+    // type at all.
+    let mut env = Environment::new();
+    env.add(inductive("P", Expr::prop(), &[]));
+    env.add(Declaration::Definition(rean_kernel::DefinitionVal {
+        name: Name::from_dotted("risky"),
+        level_params: Vec::new(),
+        ty: Expr::const_("P", vec![]),
+        value: Expr::const_("P", vec![]),
+        hints: rean_kernel::ReducibilityHints::Opaque,
+        safety: rean_kernel::DefinitionSafety::Partial,
+        all: Vec::new(),
+    }));
+    let safe = Declaration::Theorem(TheoremVal {
+        name: Name::from_dotted("leans"),
+        level_params: Vec::new(),
+        ty: Expr::const_("P", vec![]),
+        value: Expr::const_("risky", vec![]),
+        all: Vec::new(),
+    });
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&safe).unwrap_err();
+    assert_eq!(
+        err,
+        TypeError::UnsafeDependency {
+            declaration: Name::from_dotted("leans"),
+            dependency: Name::from_dotted("risky"),
+        }
+    );
+    assert!(err.to_string().contains("may not terminate"));
+}
+
+#[test]
+fn an_unsafe_declaration_may_use_an_unsafe_one() {
+    // That is what the word means.
+    let mut env = Environment::new();
+    env.add(inductive("P", Expr::prop(), &[]));
+    env.add(Declaration::Definition(rean_kernel::DefinitionVal {
+        name: Name::from_dotted("risky"),
+        level_params: Vec::new(),
+        ty: Expr::prop(),
+        value: Expr::const_("P", vec![]),
+        hints: rean_kernel::ReducibilityHints::Opaque,
+        safety: rean_kernel::DefinitionSafety::Unsafe,
+        all: Vec::new(),
+    }));
+    let also = Declaration::Definition(rean_kernel::DefinitionVal {
+        name: Name::from_dotted("alsoRisky"),
+        level_params: Vec::new(),
+        ty: Expr::prop(),
+        value: Expr::const_("risky", vec![]),
+        hints: rean_kernel::ReducibilityHints::Opaque,
+        safety: rean_kernel::DefinitionSafety::Unsafe,
+        all: Vec::new(),
+    });
+    let mut tc = TypeChecker::new(&env);
+    assert!(tc.check_safety(&also).is_ok());
+}
+
+#[test]
+fn a_safe_declaration_may_use_a_safe_one() {
+    let env = with_an_axiom();
+    let mut tc = TypeChecker::new(&env);
+    // An axiom is trusted, not unsafe. Using one is fine, and the trust report
+    // names it.
+    let decl = env.get(&Name::from_dotted("rests")).unwrap();
+    assert!(tc.check_safety(decl).is_ok());
+}

@@ -31,8 +31,10 @@
 //! | a full level normal form | a hard pair of open levels can fail to match |
 //! | big number arithmetic | a literal past `u128` stays stuck rather than compute |
 
-use crate::environment::{Declaration, Environment, QuotKind, RecursorRule, RecursorVal};
-use crate::expr::{Expr, FVarId, Literal, MVarId, Proj};
+use crate::environment::{
+    ConstructorVal, Declaration, Environment, InductiveVal, QuotKind, RecursorRule, RecursorVal,
+};
+use crate::expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj};
 use crate::level::Level;
 use crate::local::LocalContext;
 use crate::nat_lit::{self, NatShape};
@@ -102,6 +104,8 @@ pub enum TypeError {
     RepeatedUniverse { declaration: Name, param: Name },
     /// The environment already holds this name.
     DuplicateDeclaration(Name),
+    /// A safe declaration uses one that is not safe.
+    UnsafeDependency { declaration: Name, dependency: Name },
 }
 
 impl TypeError {
@@ -220,6 +224,13 @@ impl TypeError {
             TypeError::DuplicateDeclaration(name) => {
                 format!("the environment already holds `{name}`")
             }
+            TypeError::UnsafeDependency {
+                declaration,
+                dependency,
+            } => format!(
+                "`{declaration}` is safe and it uses `{dependency}`, which is not. \
+                 An unsafe declaration may not terminate, so a proof must not rest on one."
+            ),
         }
     }
 }
@@ -1030,6 +1041,33 @@ impl<'e> TypeChecker<'e> {
         }
     }
 
+    /// Checks that a safe declaration uses no unsafe one.
+    ///
+    /// An `unsafe` or `partial` declaration may not terminate. The kernel
+    /// evaluates a term while it checks it, so a proof that rests on one could
+    /// make the checker diverge, and a term that does not terminate can be
+    /// given any type at all.
+    ///
+    /// An unsafe declaration may use anything. That is what the word means.
+    pub fn check_safety(&mut self, decl: &Declaration) -> TypeResult<()> {
+        if decl.is_unsafe() {
+            return Ok(());
+        }
+        let mut uses = Vec::new();
+        decl.collect_dependencies(&mut uses);
+        for dependency in uses {
+            if let Some(found) = self.lookup(&dependency)
+                && found.is_unsafe()
+            {
+                return Err(TypeError::UnsafeDependency {
+                    declaration: decl.name().clone(),
+                    dependency,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Checks that every universe parameter a declaration uses is declared,
     /// and that it declares none twice.
     ///
@@ -1158,6 +1196,7 @@ impl<'e> TypeChecker<'e> {
         }
 
         self.check_elimination_universe(rec, ind, &prefix, bad)?;
+        self.check_minor_premises(rec, ind, &prefix, bad)?;
 
         for rule in &rec.rules {
             let Some(Declaration::Constructor(ctor)) = self.lookup(&rule.ctor) else {
@@ -1284,6 +1323,253 @@ impl<'e> TypeChecker<'e> {
         Ok(())
     }
 
+    /// Checks that the minor premises are the ones induction requires.
+    ///
+    /// Chapter 5 checked that every ι rule is **type correct**. That is not
+    /// enough. A recursor could offer minor premises of some other shape, keep
+    /// its rules type correct, and still not be an induction principle. Then it
+    /// is an axiom again, only a quieter one.
+    ///
+    /// So this method **derives** the minor premise that each constructor needs
+    /// and compares it with the one the file declared. For a constructor
+    ///
+    /// ```text
+    /// c : (params) → (f₁ : F₁) … (f_m : F_m) → I params idx
+    /// ```
+    ///
+    /// the premise is
+    ///
+    /// ```text
+    /// (f₁ : F₁) … (f_m : F_m) → (one hypothesis per recursive field)
+    ///                         → motive idx (c params f₁ … f_m)
+    /// ```
+    ///
+    /// A field is **recursive** when its own result type is the inductive type
+    /// again. `Nat.succ` has one such field, so its premise gains `motive n`.
+    ///
+    /// The comparison uses [`TypeChecker::is_def_eq`], so a binder name or a
+    /// harmless redex does not matter.
+    fn check_minor_premises(
+        &mut self,
+        rec: &RecursorVal,
+        ind: &InductiveVal,
+        prefix: &[Expr],
+        bad: &dyn Fn(String) -> TypeError,
+    ) -> TypeResult<()> {
+        if rec.num_minors as usize != ind.ctors.len() {
+            return Err(bad(format!(
+                "it has {} minor premises and `{}` has {} constructors",
+                rec.num_minors,
+                ind.name,
+                ind.ctors.len()
+            )));
+        }
+        let params: Vec<Expr> = prefix
+            .iter()
+            .take(rec.num_params as usize)
+            .cloned()
+            .collect();
+        let Some(motive) = prefix.get(rec.num_params as usize).cloned() else {
+            return Err(bad("its type has no binder for the motive".to_string()));
+        };
+
+        for (index, ctor_name) in ind.ctors.iter().enumerate() {
+            let Some(Declaration::Constructor(ctor)) = self.lookup(ctor_name) else {
+                return Err(bad(format!("`{ctor_name}` is not a constructor")));
+            };
+            let ctor = ctor.clone();
+            let Some(Expr::FVar(declared_id)) = prefix.get(rec.num_params as usize + 1 + index)
+            else {
+                return Err(bad(format!(
+                    "its type has no binder for the minor premise of `{ctor_name}`"
+                )));
+            };
+            let Some(declared) = self.lctx.type_of(*declared_id).cloned() else {
+                return Err(bad("a minor premise left the context".to_string()));
+            };
+            let derived = self.derive_minor_premise(ind, &ctor, &params, &motive, bad)?;
+            if !self.is_def_eq(&declared, &derived)? {
+                return Err(bad(format!(
+                    "the minor premise for `{}` is `{}` and induction needs `{}`",
+                    ctor_name,
+                    self.lctx.pretty(&declared),
+                    self.lctx.pretty(&derived)
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Builds the minor premise that induction over one constructor needs.
+    fn derive_minor_premise(
+        &mut self,
+        ind: &InductiveVal,
+        ctor: &ConstructorVal,
+        params: &[Expr],
+        motive: &Expr,
+        bad: &dyn Fn(String) -> TypeError,
+    ) -> TypeResult<Expr> {
+        let mark = self.lctx.len();
+        let outcome = self.derive_minor_inner(ind, ctor, params, motive, bad);
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    fn derive_minor_inner(
+        &mut self,
+        ind: &InductiveVal,
+        ctor: &ConstructorVal,
+        params: &[Expr],
+        motive: &Expr,
+        bad: &dyn Fn(String) -> TypeError,
+    ) -> TypeResult<Expr> {
+        // Fill the parameters from the recursor's own parameter binders.
+        let mut ty = ctor.ty.clone();
+        for param in params.iter().take(ctor.num_params as usize) {
+            let Expr::Forall { body, .. } = self.whnf(&ty)? else {
+                return Err(bad(format!("`{}` has too few binders", ctor.name)));
+            };
+            ty = body.instantiate(param);
+        }
+
+        // Open one variable per field.
+        let mut fields: Vec<(Name, Expr, FVarId)> = Vec::new();
+        for _ in 0..ctor.num_fields {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ty)?
+            else {
+                return Err(bad(format!("`{}` has too few binders", ctor.name)));
+            };
+            let field_type = (*binder_type).clone();
+            let id = self.lctx.push(binder_name.clone(), field_type.clone());
+            fields.push((binder_name, field_type, id));
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+
+        // What is left is the inductive type applied to parameters and indices.
+        let (_, applied) = ty.unfold_apps();
+        let indices: Vec<Expr> = applied
+            .into_iter()
+            .skip(ind.num_params as usize)
+            .cloned()
+            .collect();
+
+        let ctor_app = Expr::Const {
+            name: ctor.name.clone(),
+            levels: ctor
+                .level_params
+                .iter()
+                .map(|name| Level::Param(name.clone()))
+                .collect(),
+        }
+        .apps(params.iter().take(ctor.num_params as usize).cloned())
+        .apps(fields.iter().map(|(_, _, id)| Expr::FVar(*id)));
+
+        // The conclusion of the premise.
+        let mut result = motive.clone().apps(indices.iter().cloned()).app(ctor_app);
+
+        // One induction hypothesis per recursive field, after the fields.
+        let mut hypotheses = Vec::new();
+        for (_, field_type, id) in &fields {
+            if let Some(hypothesis) =
+                self.induction_hypothesis(ind, field_type, &Expr::FVar(*id), motive)?
+            {
+                hypotheses.push(hypothesis);
+            }
+        }
+        for hypothesis in hypotheses.into_iter().rev() {
+            result = Expr::Forall {
+                binder_name: Name::from_dotted("ih"),
+                binder_type: Arc::new(hypothesis),
+                body: Arc::new(result),
+                info: BinderInfo::Default,
+            };
+        }
+        // Then close the field binders, innermost first.
+        for (name, field_type, id) in fields.into_iter().rev() {
+            result = Expr::Forall {
+                binder_name: name,
+                binder_type: Arc::new(field_type),
+                body: Arc::new(result.abstract_fvar(id)),
+                info: BinderInfo::Default,
+            };
+        }
+        Ok(result)
+    }
+
+    /// Returns the induction hypothesis for one field, if the field is
+    /// recursive.
+    ///
+    /// A field of type `(xs) → I params idx` gives the hypothesis
+    /// `(xs) → motive idx (field xs)`. A field whose result is anything else
+    /// gives none.
+    fn induction_hypothesis(
+        &mut self,
+        ind: &InductiveVal,
+        field_type: &Expr,
+        field: &Expr,
+        motive: &Expr,
+    ) -> TypeResult<Option<Expr>> {
+        let mark = self.lctx.len();
+        let outcome = self.induction_hypothesis_inner(ind, field_type, field, motive);
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    fn induction_hypothesis_inner(
+        &mut self,
+        ind: &InductiveVal,
+        field_type: &Expr,
+        field: &Expr,
+        motive: &Expr,
+    ) -> TypeResult<Option<Expr>> {
+        // Strip the field's own binders.
+        let mut ty = field_type.clone();
+        let mut binders: Vec<(Name, Expr, FVarId)> = Vec::new();
+        while let Expr::Forall {
+            binder_name,
+            binder_type,
+            body,
+            ..
+        } = self.whnf(&ty)?
+        {
+            let inner = (*binder_type).clone();
+            let id = self.lctx.push(binder_name.clone(), inner.clone());
+            binders.push((binder_name, inner, id));
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+
+        // Is the result the inductive type again?
+        let (head, applied) = ty.unfold_apps();
+        let recursive = matches!(head, Expr::Const { name, .. } if ind.all.contains(name));
+        if !recursive {
+            return Ok(None);
+        }
+        let indices: Vec<Expr> = applied
+            .into_iter()
+            .skip(ind.num_params as usize)
+            .cloned()
+            .collect();
+
+        let applied_field = field
+            .clone()
+            .apps(binders.iter().map(|(_, _, id)| Expr::FVar(*id)));
+        let mut result = motive.clone().apps(indices).app(applied_field);
+        for (name, binder_type, id) in binders.into_iter().rev() {
+            result = Expr::Forall {
+                binder_name: name,
+                binder_type: Arc::new(binder_type),
+                body: Arc::new(result.abstract_fvar(id)),
+                info: BinderInfo::Default,
+            };
+        }
+        Ok(Some(result))
+    }
+
     /// Checks that a `Prop` valued inductive type does not eliminate into a
     /// larger universe.
     ///
@@ -1403,6 +1689,7 @@ impl<'e> TypeChecker<'e> {
             return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }
         self.check_universes(decl)?;
+        self.check_safety(decl)?;
         self.infer_sort(decl.ty())?;
         // A constructor and a recursor are where a user hands the kernel a new
         // rule, so they are where the kernel must push back.

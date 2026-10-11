@@ -66,7 +66,12 @@ fn run_check(path: &str) -> ExitCode {
             Verdict::Failed(message) => ("FAIL ", Some(message)),
             Verdict::Blocked(message) => ("block", Some(message)),
         };
-        println!("  {label} {:10} {}", outcome.kind, outcome.name);
+        let axioms = if outcome.axioms.is_empty() {
+            String::new()
+        } else {
+            format!("   [axioms: {}]", outcome.axioms.join(", "))
+        };
+        println!("  {label} {:10} {}{axioms}", outcome.kind, outcome.name);
         if let Some(message) = message {
             for line in message.lines() {
                 println!("          {line}");
@@ -74,6 +79,7 @@ fn run_check(path: &str) -> ExitCode {
         }
     }
     println!("\n{}", report.score());
+    println!("{}", report.trust());
     if report.failed() == 0 && report.blocked() == 0 {
         ExitCode::SUCCESS
     } else {

@@ -115,7 +115,8 @@ ours. Only the library comes from outside.
 | 3 | the importer and the Level 1 harness. **Done.** | **32 of 32 on the fixture** |
 | 4 | `Nat` literals, K-like ι, the quotient rules, strict positivity, coverage. **Done.** | a checker that handles what a beginner writes |
 | 5 | recursor shape and rule checking, large elimination, universe hygiene, structure eta. **Done.** | a checker that is hard to **lie to** |
-| 5b | full recursor re-derivation, nested and mutual inductives, big numbers | a checker you can **trust** |
+| 6 | derived minor premises, the axiom trust report, unsafe isolation. **Done.** | a plain declaration is hard to lie to |
+| 6b | mutual and nested inductives, the inductive universe constraint, `Quot` types | a **mutual** declaration is hard to lie to as well |
 | 5 | the Pratt parser, with the extensible precedence table | `Vec<Token>` becomes `Syntax` |
 | 6 | the elaborator: name resolution, implicit arguments, unification | **Level 2 opens** |
 | 7 | metavariables, instance search, tactics | real proofs from real text |
@@ -183,9 +184,10 @@ level 1   our kernel checks        32 of 32 declarations   <- as of 2026-10-10
 level 2   our elaborator inhabits   0 of 32 types          <- needs a parser
 level 3   our term matches Lean's    0 of 32 terms
 
-tests     353
-coverage  95.3% of regions, 97.1% of lines   (devbox run coverage)
-red team  16 lies refused, each one once accepted
+tests     364
+coverage  95.2% of regions, 96.8% of lines   (devbox run coverage)
+red team  24 lies refused, each one once accepted
+trust     every axiom reported, by name
 ```
 
 ## Three kinds of oracle

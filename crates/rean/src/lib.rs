@@ -85,6 +85,11 @@ pub struct DeclOutcome {
     pub name: String,
     pub kind: &'static str,
     pub verdict: Verdict,
+    /// The axioms that this declaration rests on, if any.
+    ///
+    /// The kernel re-checks everything else, so an axiom is the only thing it
+    /// takes on trust. A report that does not name them is not a trust report.
+    pub axioms: Vec<String>,
 }
 
 /// What `check` found.
@@ -92,6 +97,30 @@ pub struct DeclOutcome {
 pub struct CheckReport {
     pub meta: String,
     pub outcomes: Vec<DeclOutcome>,
+}
+
+impl CheckReport {
+    /// Returns every axiom that any accepted declaration rests on.
+    pub fn axioms(&self) -> Vec<String> {
+        let mut all: Vec<String> = self
+            .outcomes
+            .iter()
+            .filter(|o| o.verdict == Verdict::Ok)
+            .flat_map(|o| o.axioms.iter().cloned())
+            .collect();
+        all.sort();
+        all.dedup();
+        all
+    }
+
+    /// Returns the trust line that follows the score.
+    pub fn trust(&self) -> String {
+        let axioms = self.axioms();
+        if axioms.is_empty() {
+            return "trust: no accepted declaration rests on an axiom".to_string();
+        }
+        format!("trust: {} axiom(s): {}", axioms.len(), axioms.join(", "))
+    }
 }
 
 impl CheckReport {
@@ -150,6 +179,7 @@ pub fn check_export(path: &str) -> Result<CheckReport, String> {
                 name: name.to_string(),
                 kind: "missing",
                 verdict: Verdict::Failed("the reader lost this declaration".to_string()),
+                axioms: Vec::new(),
             });
             continue;
         };
@@ -181,10 +211,18 @@ pub fn check_export(path: &str) -> Result<CheckReport, String> {
         if !matches!(verdict, Verdict::Ok) {
             rejected.push(name.clone());
         }
+        // Ask the trusted environment, so a refused axiom is not reported as
+        // something we rest on.
+        let axioms = known
+            .axioms_of(name)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
         outcomes.push(DeclOutcome {
             name: name.to_string(),
             kind: decl.kind_label(),
             verdict,
+            axioms,
         });
     }
 

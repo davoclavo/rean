@@ -242,3 +242,59 @@ fn index_zero_is_implicit_for_names_and_levels() {
     // `succ 0` is level 1, and `Sort 1` prints as `Type`.
     assert_eq!(decl.ty().pretty(), "Type");
 }
+
+#[test]
+fn the_fixture_rests_on_no_axiom() {
+    // `Nat.add_succ` is proved by `rfl`, so nothing is taken on trust. This is
+    // the trust report of chapter 6, run against the real file.
+    let m = module();
+    let axioms = m.env.axioms_of(&Name::from_dotted("Nat.add_succ"));
+    assert!(axioms.is_empty(), "got {axioms:?}");
+    // And nothing else in the module rests on one either.
+    for name in &m.order {
+        assert!(
+            m.env.axioms_of(name).is_empty(),
+            "{name} rests on {:?}",
+            m.env.axioms_of(name)
+        );
+    }
+}
+
+#[test]
+fn nothing_in_the_fixture_is_unsafe() {
+    let m = module();
+    let mut tc = TypeChecker::new(&m.env);
+    for name in &m.order {
+        let decl = m.env.get(name).unwrap();
+        assert!(!decl.is_unsafe(), "{name} is unsafe");
+        tc.check_safety(decl)
+            .unwrap_or_else(|err| panic!("{name}: {err}"));
+    }
+}
+
+#[test]
+fn the_trust_report_names_an_axiom_when_there_is_one() {
+    // Add an axiom and a theorem that uses it, and the report must say so.
+    let mut m = module();
+    let p = Name::from_dotted("Nat.add_succ");
+    m.env
+        .add(rean_kernel::Declaration::Axiom(rean_kernel::AxiomVal {
+            name: Name::from_dotted("sorryAx"),
+            level_params: Vec::new(),
+            ty: Expr::prop(),
+            is_unsafe: false,
+        }));
+    m.env
+        .add(rean_kernel::Declaration::Theorem(rean_kernel::TheoremVal {
+            name: Name::from_dotted("leans"),
+            level_params: Vec::new(),
+            ty: Expr::prop(),
+            value: Expr::const_("sorryAx", vec![]),
+            all: Vec::new(),
+        }));
+    let axioms = m.env.axioms_of(&Name::from_dotted("leans"));
+    assert_eq!(axioms.len(), 1);
+    assert_eq!(axioms[0].to_string(), "sorryAx");
+    // The honest theorem is unaffected.
+    assert!(m.env.axioms_of(&p).is_empty());
+}

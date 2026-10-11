@@ -13,7 +13,7 @@
 
 use crate::expr::Expr;
 use rean_core::Name;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How eager the elaborator should be to unfold a definition.
 ///
@@ -258,6 +258,58 @@ impl Declaration {
         }
     }
 
+    /// Returns the value that the declaration stores, if it stores one.
+    ///
+    /// Unlike [`Declaration::unfoldable_value`], this includes an `Opaque`
+    /// value. Use it to ask what a declaration depends on, not to reduce.
+    pub fn value(&self) -> Option<&Expr> {
+        match self {
+            Declaration::Definition(d) => Some(&d.value),
+            Declaration::Theorem(d) => Some(&d.value),
+            Declaration::Opaque(d) => Some(&d.value),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` if the declaration is not safe to trust in a proof.
+    pub fn is_unsafe(&self) -> bool {
+        match self {
+            Declaration::Axiom(d) => d.is_unsafe,
+            Declaration::Definition(d) => d.safety != DefinitionSafety::Safe,
+            Declaration::Opaque(d) => d.is_unsafe,
+            Declaration::Inductive(d) => d.is_unsafe,
+            Declaration::Constructor(d) => d.is_unsafe,
+            Declaration::Recursor(d) => d.is_unsafe,
+            Declaration::Theorem(_) | Declaration::Quot(_) => false,
+        }
+    }
+
+    /// Adds every name that this declaration mentions to `out`.
+    ///
+    /// The type, the value, and the right hand side of every ι rule all count.
+    /// A recursor that calls itself names itself, and that is correct.
+    pub fn collect_dependencies(&self, out: &mut Vec<Name>) {
+        self.ty().collect_constants(out);
+        if let Some(value) = self.value() {
+            value.collect_constants(out);
+        }
+        if let Declaration::Recursor(rec) = self {
+            for rule in &rec.rules {
+                rule.rhs.collect_constants(out);
+                if !out.contains(&rule.ctor) {
+                    out.push(rule.ctor.clone());
+                }
+            }
+        }
+        if let Declaration::Inductive(ind) = self {
+            for ctor in &ind.ctors {
+                if !out.contains(ctor) {
+                    out.push(ctor.clone());
+                }
+            }
+        }
+    }
+
     /// Returns the word that a report prints for this kind.
     pub fn kind_label(&self) -> &'static str {
         match self {
@@ -308,6 +360,35 @@ impl Environment {
     /// Returns `true` if the environment holds nothing.
     pub fn is_empty(&self) -> bool {
         self.decls.is_empty()
+    }
+
+    /// Returns every axiom that `name` rests on, in order of name.
+    ///
+    /// This is the trust report. The De Bruijn criterion of chapter 0, section
+    /// 0.16, says the kernel re-checks everything, so a tactic cannot lie. An
+    /// **axiom** is the one thing the kernel does not check: it asks to be
+    /// trusted. So the only honest answer to "do you believe this theorem" is
+    /// "yes, and here is what it rests on".
+    ///
+    /// Lean spells the same question `#print axioms`.
+    pub fn axioms_of(&self, name: &Name) -> Vec<Name> {
+        let mut seen: HashSet<Name> = HashSet::new();
+        let mut axioms: Vec<Name> = Vec::new();
+        let mut todo = vec![name.clone()];
+        while let Some(current) = todo.pop() {
+            if !seen.insert(current.clone()) {
+                continue;
+            }
+            let Some(decl) = self.get(&current) else {
+                continue;
+            };
+            if matches!(decl, Declaration::Axiom(_)) {
+                axioms.push(current.clone());
+            }
+            decl.collect_dependencies(&mut todo);
+        }
+        axioms.sort_by_key(Name::to_string);
+        axioms
     }
 
     /// Returns the inductive type that owns `ctor`.
