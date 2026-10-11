@@ -45,9 +45,24 @@
 //! A **nested** inductive puts its own type inside another type constructor,
 //! such as `inductive Tree | node : List Tree → Tree`. Lean compiles that into
 //! an auxiliary declaration, and the export format records the depth in
-//! `num_nested`. This module does not check a nested declaration. It says so
-//! and skips, rather than reject a correct program or accept a wrong one
-//! silently.
+//! `num_nested`.
+//!
+//! The strict rule above would refuse `List Tree → Tree`, because `Tree` is an
+//! argument of `List` and not the head. So a nested declaration gets a
+//! **weaker** rule, [`no_negative_occurrence`]: the inductive type may appear
+//! anywhere in the result, and still nowhere in a domain.
+//!
+//! That is weaker than Lean in two ways, and both are honest limits rather
+//! than hidden ones:
+//!
+//! 1. It does not understand the auxiliary form that Lean builds, so it checks
+//!    the declaration as written.
+//! 2. An abbreviation can hide a negative occurrence. If `Bad X` unfolds to
+//!    `X → False`, then `Bad Tree` looks clean and is not. The check is
+//!    syntactic and does not unfold.
+//!
+//! It still refuses `(Tree → False) → Tree`, which is the shape that proves
+//! `False` directly. Refusing that is worth more than skipping everything.
 
 use crate::expr::Expr;
 use rean_core::Name;
@@ -106,6 +121,24 @@ pub fn strictly_positive(e: &Expr, names: &[Name]) -> bool {
     }
 }
 
+/// Returns `true` if no name in `names` sits in a domain position in `e`.
+///
+/// This is the weaker rule, for a nested inductive declaration. Read `e` as a
+/// chain of binders. No domain may mention the name. The result may.
+pub fn no_negative_occurrence(e: &Expr, names: &[Name]) -> bool {
+    let mut current = e;
+    while let Expr::Forall {
+        binder_type, body, ..
+    } = current
+    {
+        if occurs(binder_type, names) {
+            return false;
+        }
+        current = body;
+    }
+    true
+}
+
 /// Why a constructor type is not acceptable.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum PositivityError {
@@ -129,6 +162,29 @@ pub fn check_constructor(
     num_fields: u32,
     names: &[Name],
 ) -> Result<(), PositivityError> {
+    check_constructor_with(ty, num_params, num_fields, names, strictly_positive)
+}
+
+/// Checks the type of one constructor of a **nested** inductive declaration.
+///
+/// Uses [`no_negative_occurrence`] in place of [`strictly_positive`]. See the
+/// module documentation for what that gives up.
+pub fn check_nested_constructor(
+    ty: &Expr,
+    num_params: u32,
+    num_fields: u32,
+    names: &[Name],
+) -> Result<(), PositivityError> {
+    check_constructor_with(ty, num_params, num_fields, names, no_negative_occurrence)
+}
+
+fn check_constructor_with(
+    ty: &Expr,
+    num_params: u32,
+    num_fields: u32,
+    names: &[Name],
+    acceptable: fn(&Expr, &[Name]) -> bool,
+) -> Result<(), PositivityError> {
     let mut current = ty;
 
     // A parameter is fixed across every constructor, so it needs no check.
@@ -151,7 +207,7 @@ pub fn check_constructor(
                 expected: num_params + num_fields,
             });
         };
-        if !strictly_positive(binder_type, names) {
+        if !acceptable(binder_type, names) {
             return Err(PositivityError::NotStrictlyPositive { field });
         }
         current = body;

@@ -180,7 +180,10 @@ fn a_rule_for_a_constructor_that_does_not_exist_is_refused() {
     let err = tc
         .check_declaration(&Declaration::Recursor(rec))
         .unwrap_err();
-    assert!(err.to_string().contains("no rule for `U.u`"), "{err}");
+    assert!(
+        err.to_string().contains("`U.nope` is not a constructor"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -194,7 +197,8 @@ fn the_wrong_number_of_rules_is_refused() {
     let err = tc
         .check_declaration(&Declaration::Recursor(rec))
         .unwrap_err();
-    assert!(err.to_string().contains("0 rules"), "{err}");
+    // A recursor with no rule computes nothing, and `U` has a constructor.
+    assert!(err.to_string().contains("no rules"), "{err}");
 }
 
 #[test]
@@ -228,46 +232,59 @@ fn the_wrong_parameter_or_index_count_is_refused() {
 // --- the elimination universe -------------------------------------------
 
 #[test]
-fn a_prop_with_two_elements_must_not_eliminate_into_type() {
-    // `Prop` carries no information beyond the fact that it holds. Let a
-    // two constructor `Prop` eliminate into `Type` and you can read which
-    // constructor a proof used, which breaks proof irrelevance.
+fn a_prop_that_is_not_a_subsingleton_must_not_eliminate_into_type() {
+    // `Box : Prop` has one constructor and its field is a `Nat`, which is
+    // data. So `Box` has more than one element, and reading the field out of a
+    // proof of `Box` would break proof irrelevance.
     let mut env = Environment::new();
-    env.add(inductive("Or2", Expr::prop(), &["Or2.l", "Or2.r"]));
-    let or2 = || Expr::const_("Or2", vec![]);
-    env.add(constructor("Or2.l", "Or2", or2()));
-    env.add(constructor("Or2.r", "Or2", or2()));
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("Nat"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        is_unsafe: false,
+    }));
+    let boxed = || Expr::const_("Box", vec![]);
+    let nat = || Expr::const_("Nat", vec![]);
+    env.add(inductive("Box", Expr::prop(), &["Box.mk"]));
+    env.add(Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("Box.mk"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(nat(), boxed()),
+        induct: Name::from_dotted("Box"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    }));
 
+    // `{motive : Box → Sort v} → ((n : Nat) → motive (Box.mk n)) → (t : Box) → motive t`
     let into = |sort: Expr| {
         Declaration::Recursor(RecursorVal {
-            name: Name::from_dotted("Or2.rec"),
+            name: Name::from_dotted("Box.rec"),
             level_params: vec![Name::from_dotted("v")],
             ty: Expr::forall(
                 "motive",
-                Expr::arrow(or2(), sort),
+                Expr::arrow(boxed(), sort),
                 Expr::forall(
                     "minor",
-                    Expr::bvar(0).app(Expr::const_("Or2.l", vec![])),
-                    Expr::forall("t", or2(), Expr::bvar(2).app(Expr::bvar(0))),
+                    Expr::forall(
+                        "n",
+                        nat(),
+                        Expr::bvar(1).app(Expr::const_("Box.mk", vec![]).app(Expr::bvar(0))),
+                    ),
+                    Expr::forall("t", boxed(), Expr::bvar(2).app(Expr::bvar(0))),
                 ),
             ),
-            all: vec![Name::from_dotted("Or2")],
+            all: vec![Name::from_dotted("Box")],
             num_params: 0,
             num_indices: 0,
             num_motives: 1,
             num_minors: 1,
-            rules: vec![
-                RecursorRule {
-                    ctor: Name::from_dotted("Or2.l"),
-                    num_fields: 0,
-                    rhs: Expr::prop(),
-                },
-                RecursorRule {
-                    ctor: Name::from_dotted("Or2.r"),
-                    num_fields: 0,
-                    rhs: Expr::prop(),
-                },
-            ],
+            rules: vec![RecursorRule {
+                ctor: Name::from_dotted("Box.mk"),
+                num_fields: 1,
+                rhs: Expr::prop(),
+            }],
             k: false,
             is_unsafe: false,
         })
@@ -278,7 +295,7 @@ fn a_prop_with_two_elements_must_not_eliminate_into_type() {
         .unwrap_err();
     assert!(
         err.to_string().contains("must not"),
-        "a large eliminator for a two element Prop must be refused: {err}"
+        "a large eliminator for a Prop that carries data must be refused: {err}"
     );
 }
 
@@ -768,4 +785,343 @@ fn a_safe_declaration_may_use_a_safe_one() {
     // names it.
     let decl = env.get(&Name::from_dotted("rests")).unwrap();
     assert!(tc.check_safety(decl).is_ok());
+}
+
+// --- a mutual group -------------------------------------------------------
+
+/// Two inductive types declared together, each with one constructor.
+///
+/// ```text
+/// mutual
+///   inductive A : Type | A.mk : A
+///   inductive B : Type | B.mk : B
+/// end
+/// ```
+///
+/// A recursor over a mutual group takes **one motive per type**, in group
+/// order, and **one minor premise per constructor of every type**, also in
+/// group order. The induction is simultaneous.
+fn mutual_group() -> Environment {
+    let mut env = Environment::new();
+    for name in ["A", "B"] {
+        env.add(Declaration::Inductive(InductiveVal {
+            name: Name::from_dotted(name),
+            level_params: Vec::new(),
+            ty: Expr::type_(0),
+            num_params: 0,
+            num_indices: 0,
+            all: vec![Name::from_dotted("A"), Name::from_dotted("B")],
+            ctors: vec![Name::from_dotted(&format!("{name}.mk"))],
+            num_nested: 0,
+            is_rec: false,
+            is_unsafe: false,
+            is_reflexive: false,
+        }));
+        env.add(constructor(
+            &format!("{name}.mk"),
+            name,
+            Expr::const_(name, vec![]),
+        ));
+    }
+    env
+}
+
+/// Builds `A.rec` over the mutual group, with the minors in the given order.
+///
+/// With `swapped` false this is the honest recursor. With `swapped` true the
+/// two minor premises trade places, which is the shape that only an ordered
+/// derivation can refuse.
+fn mutual_recursor(swapped: bool) -> Declaration {
+    let a = || Expr::const_("A", vec![]);
+    let b = || Expr::const_("B", vec![]);
+    let a_mk = || Expr::const_("A.mk", vec![]);
+    let b_mk = || Expr::const_("B.mk", vec![]);
+    let sort_v = || Expr::sort(Level::param("v"));
+
+    // `motive_A A.mk`, with `motive_A` at the given de Bruijn depth.
+    let for_a = |depth: u32| Expr::bvar(depth).app(a_mk());
+    // `motive_B B.mk`.
+    let for_b = |depth: u32| Expr::bvar(depth).app(b_mk());
+
+    // At the first minor binder: motive_B is 0 and motive_A is 1.
+    // At the second: the first minor is 0, motive_B is 1, motive_A is 2.
+    let (first, second) = if swapped {
+        (for_b(0), for_a(2))
+    } else {
+        (for_a(1), for_b(1))
+    };
+
+    let ty = Expr::forall(
+        "motiveA",
+        Expr::arrow(a(), sort_v()),
+        Expr::forall(
+            "motiveB",
+            Expr::arrow(b(), sort_v()),
+            Expr::forall(
+                "minor1",
+                first.clone(),
+                Expr::forall(
+                    "minor2",
+                    second.clone(),
+                    Expr::forall("t", a(), Expr::bvar(4).app(Expr::bvar(0))),
+                ),
+            ),
+        ),
+    );
+
+    // `fun motiveA motiveB minor1 minor2 => <the one for A.mk>`
+    let chosen = if swapped {
+        Expr::bvar(0)
+    } else {
+        Expr::bvar(1)
+    };
+    let rhs = Expr::lam(
+        "motiveA",
+        Expr::arrow(a(), sort_v()),
+        Expr::lam(
+            "motiveB",
+            Expr::arrow(b(), sort_v()),
+            Expr::lam("minor1", first, Expr::lam("minor2", second, chosen)),
+        ),
+    );
+
+    Declaration::Recursor(RecursorVal {
+        name: Name::from_dotted("A.rec"),
+        level_params: vec![Name::from_dotted("v")],
+        ty,
+        all: vec![Name::from_dotted("A"), Name::from_dotted("B")],
+        num_params: 0,
+        num_indices: 0,
+        num_motives: 2,
+        num_minors: 2,
+        rules: vec![RecursorRule {
+            ctor: Name::from_dotted("A.mk"),
+            num_fields: 0,
+            rhs,
+        }],
+        k: false,
+        is_unsafe: false,
+    })
+}
+
+#[test]
+fn a_mutual_recursor_is_accepted() {
+    let env = mutual_group();
+    let mut tc = TypeChecker::new(&env);
+    tc.check_declaration(&mutual_recursor(false))
+        .unwrap_or_else(|err| panic!("an honest mutual recursor must pass: {err}"));
+}
+
+#[test]
+fn a_mutual_recursor_with_its_minors_in_the_wrong_order_is_refused() {
+    // The premises are both present and each is type correct on its own. Only
+    // an ordered derivation can see that they are the wrong way round.
+    let env = mutual_group();
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&mutual_recursor(true)).unwrap_err();
+    assert!(matches!(err, TypeError::BadRecursor { .. }), "{err}");
+    assert!(err.to_string().contains("induction needs"), "{err}");
+}
+
+#[test]
+fn a_mutual_recursor_needs_one_motive_per_type() {
+    let env = mutual_group();
+    let Declaration::Recursor(mut rec) = mutual_recursor(false) else {
+        panic!("it is a recursor");
+    };
+    rec.num_motives = 1;
+    let mut tc = TypeChecker::new(&env);
+    let err = tc
+        .check_declaration(&Declaration::Recursor(rec))
+        .unwrap_err();
+    assert!(err.to_string().contains("motives"), "{err}");
+}
+
+#[test]
+fn a_mutual_recursor_needs_one_minor_per_constructor_of_the_whole_group() {
+    let env = mutual_group();
+    let Declaration::Recursor(mut rec) = mutual_recursor(false) else {
+        panic!("it is a recursor");
+    };
+    rec.num_minors = 1;
+    let mut tc = TypeChecker::new(&env);
+    let err = tc
+        .check_declaration(&Declaration::Recursor(rec))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("2 constructors"),
+        "the group has two constructors: {err}"
+    );
+}
+
+#[test]
+fn a_recursor_whose_rules_leave_its_own_group_is_refused() {
+    let env = mutual_group();
+    let Declaration::Recursor(mut rec) = mutual_recursor(false) else {
+        panic!("it is a recursor");
+    };
+    rec.all = vec![Name::from_dotted("B")];
+    rec.num_motives = 1;
+    let mut tc = TypeChecker::new(&env);
+    let err = tc
+        .check_declaration(&Declaration::Recursor(rec))
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("not in its own group"),
+        "the rules are for `A.mk` and the group says `B`: {err}"
+    );
+}
+
+#[test]
+fn a_group_sees_its_own_members() {
+    // Two recursors of a mutual group refer to each other, so neither is in
+    // the environment when the other is checked. `with_group` makes them
+    // visible to each other without adding them.
+    let env = mutual_group();
+    let mut tc = TypeChecker::new(&env);
+    let group = vec![mutual_recursor(false)];
+    let inside = tc.with_group(&group, |tc| {
+        tc.infer_type(&Expr::const_("A.rec", vec![Level::of_nat(1)]))
+            .is_ok()
+    });
+    assert!(inside, "a member of the group must be visible inside it");
+    // And invisible outside it.
+    assert!(
+        tc.infer_type(&Expr::const_("A.rec", vec![Level::of_nat(1)]))
+            .is_err(),
+        "the group must not leak into the environment"
+    );
+}
+
+// --- a nested inductive gets the weaker rule, not a free pass ------------
+
+/// `inductive Tree | node : <field> → Tree`, declared as nested.
+fn nested_tree(field: Expr) -> (Environment, ConstructorVal) {
+    let mut env = Environment::new();
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("List"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::type_(0), Expr::type_(0)),
+        is_unsafe: false,
+    }));
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("False"),
+        level_params: Vec::new(),
+        ty: Expr::prop(),
+        is_unsafe: false,
+    }));
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("Tree"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("Tree")],
+        ctors: vec![Name::from_dotted("Tree.node")],
+        num_nested: 1,
+        is_rec: true,
+        is_unsafe: false,
+        is_reflexive: false,
+    }));
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("Tree.node"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(field, Expr::const_("Tree", vec![])),
+        induct: Name::from_dotted("Tree"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    (env, ctor)
+}
+
+#[test]
+fn a_nested_occurrence_is_accepted() {
+    // `List Tree → Tree`. The strict rule refuses this, because `Tree` is an
+    // argument of `List` and not the head. A nested declaration needs it.
+    let tree = Expr::const_("Tree", vec![]);
+    let (env, ctor) = nested_tree(Expr::const_("List", vec![]).app(tree));
+    let mut tc = TypeChecker::new(&env);
+    tc.check_positivity(&ctor)
+        .unwrap_or_else(|err| panic!("a nested occurrence must pass: {err}"));
+}
+
+#[test]
+fn a_nested_declaration_still_refuses_a_negative_occurrence() {
+    // `(Tree → False) → Tree` is the shape that proves `False`. A nested
+    // declaration gets a weaker rule, not a free pass.
+    let tree = || Expr::const_("Tree", vec![]);
+    let (env, ctor) = nested_tree(Expr::arrow(tree(), Expr::const_("False", vec![])));
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_positivity(&ctor).unwrap_err();
+    assert!(matches!(err, TypeError::BadConstructor { .. }), "{err}");
+}
+
+// --- a constructor field must fit inside its inductive type --------------
+
+#[test]
+fn a_field_larger_than_its_inductive_type_is_refused() {
+    // `inductive Small : Type` with a field in `Type 1`. The type would hold
+    // something bigger than itself, which is the shape of Russell's paradox.
+    let mut env = Environment::new();
+    let small = || Expr::const_("Small", vec![]);
+    env.add(inductive("Small", Expr::type_(0), &["Small.mk"]));
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("Small.mk"),
+        level_params: Vec::new(),
+        // The field is `Type`, which lives in `Type 1`.
+        ty: Expr::arrow(Expr::type_(0), small()),
+        induct: Name::from_dotted("Small"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_field_universes(&ctor).unwrap_err();
+    assert!(matches!(err, TypeError::FieldTooLarge { .. }), "{err}");
+    assert!(err.to_string().contains("only reaches"), "{err}");
+}
+
+#[test]
+fn a_prop_may_hold_anything() {
+    // `Prop` is impredicative, so a proposition may quantify over any type.
+    // See chapter 0, section 0.10.
+    let mut env = Environment::new();
+    env.add(inductive("P", Expr::prop(), &["P.mk"]));
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("P.mk"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::type_(4), Expr::const_("P", vec![])),
+        induct: Name::from_dotted("P"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    let mut tc = TypeChecker::new(&env);
+    assert!(tc.check_field_universes(&ctor).is_ok());
+}
+
+#[test]
+fn the_level_order_decides_what_it_can_and_accepts_the_rest() {
+    let u = Level::param("u");
+    let v = Level::param("v");
+    // Two closed levels compare by value, both ways.
+    assert_eq!(Level::of_nat(1).is_leq(&Level::of_nat(2)), Some(true));
+    assert_eq!(Level::of_nat(2).is_leq(&Level::of_nat(1)), Some(false));
+    // The same level.
+    assert_eq!(u.is_leq(&u), Some(true));
+    // One branch of a `max` on the right is enough.
+    assert_eq!(u.is_leq(&u.max(&v)), Some(true));
+    assert_eq!(v.is_leq(&u.max(&v)), Some(true));
+    // Every branch on the left must fit.
+    assert_eq!(u.max(&v).is_leq(&u.max(&v)), Some(true));
+    // Room to spare on the right.
+    assert_eq!(u.is_leq(&u.succ()), Some(true));
+    // `u+1 ≤ (max u v)+1` because `u ≤ max u v`.
+    assert_eq!(u.succ().is_leq(&u.max(&v).succ()), Some(true));
+    // Two unrelated parameters cannot be ordered, and the answer is honest.
+    assert_eq!(u.is_leq(&v), None);
 }

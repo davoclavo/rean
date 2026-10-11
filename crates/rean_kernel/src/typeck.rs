@@ -106,6 +106,14 @@ pub enum TypeError {
     DuplicateDeclaration(Name),
     /// A safe declaration uses one that is not safe.
     UnsafeDependency { declaration: Name, dependency: Name },
+    /// A constructor field lives in a larger universe than its inductive type.
+    FieldTooLarge {
+        ctor: Name,
+        inductive: Name,
+        field: u32,
+        field_level: String,
+        limit: String,
+    },
 }
 
 impl TypeError {
@@ -224,6 +232,16 @@ impl TypeError {
             TypeError::DuplicateDeclaration(name) => {
                 format!("the environment already holds `{name}`")
             }
+            TypeError::FieldTooLarge {
+                ctor,
+                inductive,
+                field,
+                field_level,
+                limit,
+            } => format!(
+                "field {field} of `{ctor}` lives in `Sort {field_level}` and `{inductive}` \
+                 only reaches `Sort {limit}`"
+            ),
             TypeError::UnsafeDependency {
                 declaration,
                 dependency,
@@ -250,14 +268,19 @@ pub type TypeResult<T> = Result<T, TypeError>;
 pub struct TypeChecker<'e> {
     env: &'e Environment,
     lctx: LocalContext,
-    /// The declaration under check, if it refers to itself.
+    /// The declarations under check, which may refer to each other.
     ///
     /// A recursor needs this. The ι rule for `Nat.succ` rewrites to a term
     /// that calls `Nat.rec` again, so checking `Nat.rec` needs the type of
     /// `Nat.rec`, and the environment does not hold it yet. Putting the
     /// declaration here lets the check ask "are these rules consistent with
     /// the type that this declaration claims?", which is the right question.
-    pending: Option<Declaration>,
+    ///
+    /// A **mutual** group needs more than one. The rule of `A.rec` for a
+    /// constructor that carries a `B` calls `B.rec`, so the two recursors only
+    /// make sense together. The export format puts a whole mutual group on one
+    /// line for exactly this reason.
+    pending: Vec<Declaration>,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -266,18 +289,29 @@ impl<'e> TypeChecker<'e> {
         TypeChecker {
             env,
             lctx: LocalContext::new(),
-            pending: None,
+            pending: Vec::new(),
         }
     }
 
-    /// Looks up a declaration, and sees the one under check as well.
+    /// Looks up a declaration, and sees the ones under check as well.
     fn lookup(&self, name: &Name) -> Option<&Declaration> {
-        if let Some(pending) = &self.pending
-            && pending.name() == name
-        {
-            return Some(pending);
+        if let Some(found) = self.pending.iter().find(|decl| decl.name() == name) {
+            return Some(found);
         }
         self.env.get(name)
+    }
+
+    /// Makes a group of declarations visible to each other, then runs `body`.
+    ///
+    /// A mutual group arrives on one line of the export file, and its members
+    /// refer to each other, so a checker must see all of them at once. The
+    /// group is **not** added to the environment. It is only visible while
+    /// `body` runs.
+    pub fn with_group<R>(&mut self, group: &[Declaration], body: impl FnOnce(&mut Self) -> R) -> R {
+        let saved = std::mem::replace(&mut self.pending, group.to_vec());
+        let out = body(self);
+        self.pending = saved;
+        out
     }
 
     /// Returns the environment.
@@ -1017,21 +1051,111 @@ impl<'e> TypeChecker<'e> {
             // unknown constant.
             return Ok(());
         };
-        if inductive.num_nested > 0 {
-            return Ok(());
-        }
         let names = if inductive.all.is_empty() {
             vec![inductive.name.clone()]
         } else {
             inductive.all.clone()
         };
-        positivity::check_constructor(&ctor.ty, ctor.num_params, ctor.num_fields, &names).map_err(
-            |reason| TypeError::BadConstructor {
+        // A nested declaration gets the weaker rule. See `crate::positivity`.
+        let check = if inductive.num_nested > 0 {
+            positivity::check_nested_constructor
+        } else {
+            positivity::check_constructor
+        };
+        check(&ctor.ty, ctor.num_params, ctor.num_fields, &names).map_err(|reason| {
+            TypeError::BadConstructor {
                 ctor: ctor.name.clone(),
                 inductive: ctor.induct.clone(),
                 reason,
-            },
-        )
+            }
+        })?;
+        self.check_field_universes(ctor)
+    }
+
+    /// Checks that every field of a constructor fits inside the universe of
+    /// its inductive type.
+    ///
+    /// An inductive type declares a `Sort`, and a constructor field has a
+    /// `Sort` of its own. If a field were larger, the inductive type would
+    /// hold something bigger than itself, and that is the shape of Russell's
+    /// paradox.
+    ///
+    /// `Prop` is the exception, because `Prop` is impredicative. A proposition
+    /// may quantify over anything. See chapter 0, section 0.10.
+    ///
+    /// The order on levels is only partly decidable, and
+    /// [`Level::is_leq`] answers `None` when it cannot tell. This check then
+    /// **accepts**. A check that refused what it did not understand would
+    /// refuse correct Lean.
+    pub fn check_field_universes(&mut self, ctor: &crate::ConstructorVal) -> TypeResult<()> {
+        let Some(Declaration::Inductive(inductive)) = self.lookup(&ctor.induct) else {
+            return Ok(());
+        };
+        let inductive = inductive.clone();
+
+        // The universe that the inductive type declares.
+        let mut ind_type = inductive.ty.clone();
+        while let Expr::Forall { body, .. } = self.whnf(&ind_type)? {
+            ind_type = (*body).clone();
+        }
+        let Expr::Sort(limit) = ind_type else {
+            return Ok(());
+        };
+        // `Prop` may hold anything.
+        if limit.normalize().is_zero() {
+            return Ok(());
+        }
+
+        let mark = self.lctx.len();
+        let outcome = self.walk_field_universes(ctor, &inductive, &limit);
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    fn walk_field_universes(
+        &mut self,
+        ctor: &crate::ConstructorVal,
+        inductive: &InductiveVal,
+        limit: &Level,
+    ) -> TypeResult<()> {
+        let mut ty = ctor.ty.clone();
+        for _ in 0..ctor.num_params {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ty)?
+            else {
+                return Ok(());
+            };
+            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+        for field in 0..ctor.num_fields {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ty)?
+            else {
+                return Ok(());
+            };
+            let field_level = self.infer_sort(&binder_type)?;
+            if field_level.is_leq(limit) == Some(false) {
+                return Err(TypeError::FieldTooLarge {
+                    ctor: ctor.name.clone(),
+                    inductive: inductive.name.clone(),
+                    field,
+                    field_level: field_level.to_string(),
+                    limit: limit.to_string(),
+                });
+            }
+            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+        Ok(())
     }
 
     /// Removes every local variable added after `len`.
@@ -1130,42 +1254,101 @@ impl<'e> TypeChecker<'e> {
         if rec.num_motives == 0 {
             return Err(bad("a recursor needs at least one motive".to_string()));
         }
-        let [only] = rec.all.as_slice() else {
-            return Ok(());
-        };
-        let Some(Declaration::Inductive(ind)) = self.lookup(only) else {
-            // Without the inductive type there is nothing to check against.
-            return Ok(());
-        };
-        let ind = ind.clone();
-        if rec.num_motives != 1 {
+
+        // The mutual group, in the order the declaration gives.
+        let mut group: Vec<InductiveVal> = Vec::new();
+        for name in &rec.all {
+            let Some(Declaration::Inductive(found)) = self.lookup(name) else {
+                // Without the inductive type there is nothing to check against.
+                return Ok(());
+            };
+            group.push(found.clone());
+        }
+        if group.is_empty() {
             return Ok(());
         }
-        if rec.num_params != ind.num_params || rec.num_indices != ind.num_indices {
+        if rec.num_motives as usize != group.len() {
             return Err(bad(format!(
-                "it claims {} parameters and {} indices, and `{}` has {} and {}",
-                rec.num_params, rec.num_indices, ind.name, ind.num_params, ind.num_indices
+                "it has {} motives and its group has {} types",
+                rec.num_motives,
+                group.len()
             )));
         }
-        if rec.rules.len() != ind.ctors.len() {
+
+        // Which type does it take apart? The one that owns its rules. Reading
+        // it from the rules needs no naming convention.
+        let target = match rec.rules.first() {
+            Some(first) => {
+                let Some(Declaration::Constructor(owner)) = self.lookup(&first.ctor) else {
+                    return Err(bad(format!("`{}` is not a constructor", first.ctor)));
+                };
+                let target_name = owner.induct.clone();
+                let Some(index) = group.iter().position(|i| i.name == target_name) else {
+                    return Err(bad(format!(
+                        "its rules are for `{target_name}`, which is not in its own group"
+                    )));
+                };
+                group[index].clone()
+            }
+            None => {
+                // No rule at all. That is honest only for a type with no
+                // constructor, such as `False`.
+                let [only] = group.as_slice() else {
+                    return Ok(());
+                };
+                if !only.ctors.is_empty() {
+                    return Err(bad(format!(
+                        "it has no rules and `{}` has {} constructors",
+                        only.name,
+                        only.ctors.len()
+                    )));
+                }
+                only.clone()
+            }
+        };
+
+        if rec.num_params != target.num_params || rec.num_indices != target.num_indices {
+            return Err(bad(format!(
+                "it claims {} parameters and {} indices, and `{}` has {} and {}",
+                rec.num_params, rec.num_indices, target.name, target.num_params, target.num_indices
+            )));
+        }
+        // Only the target's constructors can be the major premise, so the
+        // rules must cover exactly those.
+        if rec.rules.len() != target.ctors.len() {
             return Err(bad(format!(
                 "it has {} rules and `{}` has {} constructors",
                 rec.rules.len(),
-                ind.name,
-                ind.ctors.len()
+                target.name,
+                target.ctors.len()
             )));
         }
-        for ctor in &ind.ctors {
+        for ctor in &target.ctors {
             if rec.rule_for(ctor).is_none() {
                 return Err(bad(format!("it has no rule for `{ctor}`")));
             }
         }
+        // The induction is simultaneous, so there is one minor premise per
+        // constructor of every type in the group.
+        let total: usize = group.iter().map(|i| i.ctors.len()).sum();
+        if rec.num_minors as usize != total {
+            return Err(bad(format!(
+                "it has {} minor premises and its group has {total} constructors",
+                rec.num_minors
+            )));
+        }
 
         let mark = self.lctx.len();
-        // The rules call the recursor again, so the check needs its type.
-        let previous = self.pending.replace(Declaration::Recursor(rec.clone()));
-        let outcome = self.check_recursor_rules(rec, &ind, &bad);
-        self.pending = previous;
+        // The rules call the recursor again, so the check needs its type. A
+        // group may already have put it there.
+        let seen = self.pending.iter().any(|decl| decl.name() == &rec.name);
+        if !seen {
+            self.pending.push(Declaration::Recursor(rec.clone()));
+        }
+        let outcome = self.check_recursor_rules(rec, &group, &target, &bad);
+        if !seen {
+            self.pending.pop();
+        }
         self.truncate_locals(mark);
         outcome
     }
@@ -1174,7 +1357,8 @@ impl<'e> TypeChecker<'e> {
     fn check_recursor_rules(
         &mut self,
         rec: &RecursorVal,
-        ind: &crate::InductiveVal,
+        group: &[InductiveVal],
+        target: &InductiveVal,
         bad: &dyn Fn(String) -> TypeError,
     ) -> TypeResult<()> {
         // Open the parameters, the motive and the minor premises.
@@ -1195,8 +1379,8 @@ impl<'e> TypeChecker<'e> {
             residual = body.instantiate(&Expr::FVar(id));
         }
 
-        self.check_elimination_universe(rec, ind, &prefix, bad)?;
-        self.check_minor_premises(rec, ind, &prefix, bad)?;
+        self.check_elimination_universe(rec, target, &prefix, bad)?;
+        self.check_minor_premises(rec, group, &prefix, bad)?;
 
         for rule in &rec.rules {
             let Some(Declaration::Constructor(ctor)) = self.lookup(&rule.ctor) else {
@@ -1352,49 +1536,54 @@ impl<'e> TypeChecker<'e> {
     fn check_minor_premises(
         &mut self,
         rec: &RecursorVal,
-        ind: &InductiveVal,
+        group: &[InductiveVal],
         prefix: &[Expr],
         bad: &dyn Fn(String) -> TypeError,
     ) -> TypeResult<()> {
-        if rec.num_minors as usize != ind.ctors.len() {
-            return Err(bad(format!(
-                "it has {} minor premises and `{}` has {} constructors",
-                rec.num_minors,
-                ind.name,
-                ind.ctors.len()
-            )));
-        }
         let params: Vec<Expr> = prefix
             .iter()
             .take(rec.num_params as usize)
             .cloned()
             .collect();
-        let Some(motive) = prefix.get(rec.num_params as usize).cloned() else {
-            return Err(bad("its type has no binder for the motive".to_string()));
-        };
+        // One motive per type in the group, in group order.
+        let motives: Vec<Expr> = prefix
+            .iter()
+            .skip(rec.num_params as usize)
+            .take(rec.num_motives as usize)
+            .cloned()
+            .collect();
+        if motives.len() != group.len() {
+            return Err(bad("its type has too few motive binders".to_string()));
+        }
+        let first_minor = rec.num_params as usize + rec.num_motives as usize;
 
-        for (index, ctor_name) in ind.ctors.iter().enumerate() {
-            let Some(Declaration::Constructor(ctor)) = self.lookup(ctor_name) else {
-                return Err(bad(format!("`{ctor_name}` is not a constructor")));
-            };
-            let ctor = ctor.clone();
-            let Some(Expr::FVar(declared_id)) = prefix.get(rec.num_params as usize + 1 + index)
-            else {
-                return Err(bad(format!(
-                    "its type has no binder for the minor premise of `{ctor_name}`"
-                )));
-            };
-            let Some(declared) = self.lctx.type_of(*declared_id).cloned() else {
-                return Err(bad("a minor premise left the context".to_string()));
-            };
-            let derived = self.derive_minor_premise(ind, &ctor, &params, &motive, bad)?;
-            if !self.is_def_eq(&declared, &derived)? {
-                return Err(bad(format!(
-                    "the minor premise for `{}` is `{}` and induction needs `{}`",
-                    ctor_name,
-                    self.lctx.pretty(&declared),
-                    self.lctx.pretty(&derived)
-                )));
+        // The minor premises run in group order, then constructor order.
+        let mut slot = 0usize;
+        for (group_index, inductive) in group.iter().enumerate() {
+            for ctor_name in &inductive.ctors {
+                let Some(Declaration::Constructor(ctor)) = self.lookup(ctor_name) else {
+                    return Err(bad(format!("`{ctor_name}` is not a constructor")));
+                };
+                let ctor = ctor.clone();
+                let Some(Expr::FVar(declared_id)) = prefix.get(first_minor + slot) else {
+                    return Err(bad(format!(
+                        "its type has no binder for the minor premise of `{ctor_name}`"
+                    )));
+                };
+                let Some(declared) = self.lctx.type_of(*declared_id).cloned() else {
+                    return Err(bad("a minor premise left the context".to_string()));
+                };
+                let derived =
+                    self.derive_minor_premise(group, group_index, &ctor, &params, &motives, bad)?;
+                if !self.is_def_eq(&declared, &derived)? {
+                    return Err(bad(format!(
+                        "the minor premise for `{}` is `{}` and induction needs `{}`",
+                        ctor_name,
+                        self.lctx.pretty(&declared),
+                        self.lctx.pretty(&derived)
+                    )));
+                }
+                slot += 1;
             }
         }
         Ok(())
@@ -1403,26 +1592,30 @@ impl<'e> TypeChecker<'e> {
     /// Builds the minor premise that induction over one constructor needs.
     fn derive_minor_premise(
         &mut self,
-        ind: &InductiveVal,
+        group: &[InductiveVal],
+        group_index: usize,
         ctor: &ConstructorVal,
         params: &[Expr],
-        motive: &Expr,
+        motives: &[Expr],
         bad: &dyn Fn(String) -> TypeError,
     ) -> TypeResult<Expr> {
         let mark = self.lctx.len();
-        let outcome = self.derive_minor_inner(ind, ctor, params, motive, bad);
+        let outcome = self.derive_minor_inner(group, group_index, ctor, params, motives, bad);
         self.truncate_locals(mark);
         outcome
     }
 
     fn derive_minor_inner(
         &mut self,
-        ind: &InductiveVal,
+        group: &[InductiveVal],
+        group_index: usize,
         ctor: &ConstructorVal,
         params: &[Expr],
-        motive: &Expr,
+        motives: &[Expr],
         bad: &dyn Fn(String) -> TypeError,
     ) -> TypeResult<Expr> {
+        let ind = &group[group_index];
+        let motive = &motives[group_index];
         // Fill the parameters from the recursor's own parameter binders.
         let mut ty = ctor.ty.clone();
         for param in params.iter().take(ctor.num_params as usize) {
@@ -1476,7 +1669,7 @@ impl<'e> TypeChecker<'e> {
         let mut hypotheses = Vec::new();
         for (_, field_type, id) in &fields {
             if let Some(hypothesis) =
-                self.induction_hypothesis(ind, field_type, &Expr::FVar(*id), motive)?
+                self.induction_hypothesis(group, field_type, &Expr::FVar(*id), motives)?
             {
                 hypotheses.push(hypothesis);
             }
@@ -1509,23 +1702,23 @@ impl<'e> TypeChecker<'e> {
     /// gives none.
     fn induction_hypothesis(
         &mut self,
-        ind: &InductiveVal,
+        group: &[InductiveVal],
         field_type: &Expr,
         field: &Expr,
-        motive: &Expr,
+        motives: &[Expr],
     ) -> TypeResult<Option<Expr>> {
         let mark = self.lctx.len();
-        let outcome = self.induction_hypothesis_inner(ind, field_type, field, motive);
+        let outcome = self.induction_hypothesis_inner(group, field_type, field, motives);
         self.truncate_locals(mark);
         outcome
     }
 
     fn induction_hypothesis_inner(
         &mut self,
-        ind: &InductiveVal,
+        group: &[InductiveVal],
         field_type: &Expr,
         field: &Expr,
-        motive: &Expr,
+        motives: &[Expr],
     ) -> TypeResult<Option<Expr>> {
         // Strip the field's own binders.
         let mut ty = field_type.clone();
@@ -1543,22 +1736,28 @@ impl<'e> TypeChecker<'e> {
             ty = body.instantiate(&Expr::FVar(id));
         }
 
-        // Is the result the inductive type again?
+        // Is the result one of the types in the group? A mutual group has one
+        // motive per type, and the hypothesis must use the right one.
         let (head, applied) = ty.unfold_apps();
-        let recursive = matches!(head, Expr::Const { name, .. } if ind.all.contains(name));
-        if !recursive {
+        let Expr::Const { name, .. } = head else {
             return Ok(None);
-        }
+        };
+        let Some(group_index) = group.iter().position(|i| i.name == *name) else {
+            return Ok(None);
+        };
         let indices: Vec<Expr> = applied
             .into_iter()
-            .skip(ind.num_params as usize)
+            .skip(group[group_index].num_params as usize)
             .cloned()
             .collect();
 
         let applied_field = field
             .clone()
             .apps(binders.iter().map(|(_, _, id)| Expr::FVar(*id)));
-        let mut result = motive.clone().apps(indices).app(applied_field);
+        let mut result = motives[group_index]
+            .clone()
+            .apps(indices)
+            .app(applied_field);
         for (name, binder_type, id) in binders.into_iter().rev() {
             result = Expr::Forall {
                 binder_name: name,

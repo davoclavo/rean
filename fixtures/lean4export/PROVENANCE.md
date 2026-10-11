@@ -73,3 +73,18 @@ So one of three steps is needed, and none is done yet:
 
 Until then, the committed example file is the ground truth. It is enough for
 chapters 3 and 4 of the roadmap.
+
+## What this fixture does not cover
+
+One real module exercises only the paths that one module needs. This one has:
+
+- no mutual inductive declaration, so the ordering of the motives and the minor
+  premises of a mutual recursor is **unvalidated**. See chapter 7, section 7.1.
+- no nested inductive declaration
+- no `Quot`
+- no `letE`, no `mdata`, no literal
+- no `axiom`, and no `opaque`
+
+The first item is the one worth chasing. Everything else has a written test.
+MDEOF
+echo ok

@@ -116,7 +116,8 @@ ours. Only the library comes from outside.
 | 4 | `Nat` literals, K-like ι, the quotient rules, strict positivity, coverage. **Done.** | a checker that handles what a beginner writes |
 | 5 | recursor shape and rule checking, large elimination, universe hygiene, structure eta. **Done.** | a checker that is hard to **lie to** |
 | 6 | derived minor premises, the axiom trust report, unsafe isolation. **Done.** | a plain declaration is hard to lie to |
-| 6b | mutual and nested inductives, the inductive universe constraint, `Quot` types | a **mutual** declaration is hard to lie to as well |
+| 7 | mutual groups, nested positivity, the inductive universe constraint. **Done.** | a mutual or nested declaration is hard to lie to as well |
+| 7b | a **mutual fixture**, full recursor re-derivation, `Quot` types | the ordering of chapter 7 validated against real Lean |
 | 5 | the Pratt parser, with the extensible precedence table | `Vec<Token>` becomes `Syntax` |
 | 6 | the elaborator: name resolution, implicit arguments, unification | **Level 2 opens** |
 | 7 | metavariables, instance search, tactics | real proofs from real text |
@@ -184,11 +185,16 @@ level 1   our kernel checks        32 of 32 declarations   <- as of 2026-10-10
 level 2   our elaborator inhabits   0 of 32 types          <- needs a parser
 level 3   our term matches Lean's    0 of 32 terms
 
-tests     364
-coverage  95.2% of regions, 96.8% of lines   (devbox run coverage)
-red team  24 lies refused, each one once accepted
+tests     375
+coverage  95.1% of regions, 96.7% of lines   (devbox run coverage)
+red team  38 lies refused, each one once accepted
 trust     every axiom reported, by name
 ```
+
+The first number cannot grow without a bigger fixture, and the ordering of a
+mutual recursor is still **unvalidated against real Lean**. Getting a mutual
+fixture is the highest value item left. See
+`fixtures/lean4export/PROVENANCE.md`.
 
 ## Three kinds of oracle
 

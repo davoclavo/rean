@@ -187,6 +187,58 @@ impl Level {
         }
     }
 
+    /// Returns whether `self` is at most `other`, when that can be decided.
+    ///
+    /// `None` means **undecided**, and a caller must then accept. An order on
+    /// open universe levels is hard, and a check that refuses what it does not
+    /// understand would refuse correct Lean. So this method only ever answers
+    /// `Some(false)` when both sides are closed numbers.
+    ///
+    /// The rules it does know:
+    ///
+    /// - two closed levels compare by value
+    /// - `u ≤ u`
+    /// - `u+1 ≤ v+1` when `u ≤ v`
+    /// - `u ≤ max a b` when `u ≤ a` or `u ≤ b`
+    /// - `max a b ≤ v` when both `a ≤ v` and `b ≤ v`
+    /// - `u ≤ v+1` when `u ≤ v`
+    pub fn is_leq(&self, other: &Level) -> Option<bool> {
+        let left = self.normalize();
+        let right = other.normalize();
+        if left == right {
+            return Some(true);
+        }
+        if let (Some(a), Some(b)) = (left.to_nat(), right.to_nat()) {
+            return Some(a <= b);
+        }
+        // `u+1 ≤ v+1` reduces to `u ≤ v`. Try it before the looser rules.
+        if let (Level::Succ(a), Level::Succ(b)) = (&left, &right)
+            && a.is_leq(b) == Some(true)
+        {
+            return Some(true);
+        }
+        // Every branch of a `max` on the left must fit.
+        if let Level::Max(a, b) = &left
+            && a.is_leq(&right) == Some(true)
+            && b.is_leq(&right) == Some(true)
+        {
+            return Some(true);
+        }
+        // One branch of a `max` on the right is enough.
+        if let Level::Max(a, b) = &right
+            && (left.is_leq(a) == Some(true) || left.is_leq(b) == Some(true))
+        {
+            return Some(true);
+        }
+        // Room to spare on the right.
+        if let Level::Succ(b) = &right
+            && left.is_leq(b) == Some(true)
+        {
+            return Some(true);
+        }
+        None
+    }
+
     /// Returns `true` if `self` and `other` mean the same level.
     ///
     /// Two closed levels compare by value, so `max 1 4` equals `4`.

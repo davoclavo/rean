@@ -98,6 +98,14 @@ pub struct Module {
     /// The order matters. A later declaration may use an earlier one, so a
     /// checker must walk the list front to back.
     pub order: Vec<Name>,
+    /// The declarations of each line, grouped.
+    ///
+    /// One line of the file can declare a whole mutual group: an `inductive`
+    /// line carries its types, its constructors and its recursors together.
+    /// Those members refer to each other, so a checker must see all of them at
+    /// once. Flattening the group would make `A.rec` unprovable until `B.rec`
+    /// arrived, and the other way round.
+    pub groups: Vec<Vec<Name>>,
 }
 
 /// Reads a file at `path`.
@@ -118,6 +126,9 @@ struct Reader {
     exprs: HashMap<i64, Expr>,
     env: Environment,
     order: Vec<Name>,
+    groups: Vec<Vec<Name>>,
+    /// The names of the line under read.
+    current: Vec<Name>,
 }
 
 impl Reader {
@@ -133,6 +144,8 @@ impl Reader {
             exprs: HashMap::new(),
             env: Environment::new(),
             order: Vec::new(),
+            groups: Vec::new(),
+            current: Vec::new(),
         }
     }
 
@@ -162,13 +175,19 @@ impl Reader {
             if meta.is_none() {
                 return Err(ExportError::NoMeta);
             }
+            self.current.clear();
             self.read_line(line, &value)?;
+            if !self.current.is_empty() {
+                let group = std::mem::take(&mut self.current);
+                self.groups.push(group);
+            }
         }
 
         Ok(Module {
             meta: meta.ok_or(ExportError::NoMeta)?,
             env: self.env,
             order: self.order,
+            groups: self.groups,
         })
     }
 
@@ -478,6 +497,7 @@ impl Reader {
                 for one in as_group(payload) {
                     let decl = read(self, line, one)?;
                     self.order.push(decl.name().clone());
+                    self.current.push(decl.name().clone());
                     self.env.add(decl);
                 }
                 return Ok(());
@@ -595,6 +615,7 @@ impl Reader {
                 is_reflexive: self.bool_or(&ind, "isReflexive", false),
             });
             self.order.push(decl.name().clone());
+            self.current.push(decl.name().clone());
             self.env.add(decl);
         }
 
@@ -610,6 +631,7 @@ impl Reader {
                 is_unsafe: self.bool_or(&ctor, "isUnsafe", false),
             });
             self.order.push(decl.name().clone());
+            self.current.push(decl.name().clone());
             self.env.add(decl);
         }
 
@@ -641,6 +663,7 @@ impl Reader {
                 is_unsafe: self.bool_or(&rec, "isUnsafe", false),
             });
             self.order.push(decl.name().clone());
+            self.current.push(decl.name().clone());
             self.env.add(decl);
         }
         Ok(())

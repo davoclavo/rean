@@ -87,6 +87,7 @@ must meet.
 | [4 — Making it work](docs/04-making-it-work.md) | `Nat` literals, K-like ι, the quotient rules, strict positivity, and coverage. |
 | [5 — What a checker must check](docs/05-what-a-checker-must-check.md) | red team. It accepted a proof of `False`. Recursor checking, large elimination, universe hygiene. |
 | [6 — What a theorem rests on](docs/06-what-a-theorem-rests-on.md) | derived minor premises, the axiom trust report, unsafe isolation. |
+| [7 — Mutual and nested](docs/07-mutual-and-nested.md) | mutual groups, nested positivity, the inductive universe constraint. |
 
 Every claim in a chapter has a test:
 
@@ -103,9 +104,9 @@ devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 | level 1 | **32 of 32** | our kernel checks the declarations that Lean wrote |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **364** | `devbox run test` |
-| coverage | **95.2% of regions, 96.8% of lines** | `devbox run coverage` |
-| red team | **24 lies refused** | `cargo test -p rean_kernel --test soundness` |
+| tests | **375** | `devbox run test` |
+| coverage | **95.1% of regions, 96.7% of lines** | `devbox run coverage` |
+| red team | **38 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 
 ```sh

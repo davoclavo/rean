@@ -736,6 +736,12 @@ fn a_reflexive_inductive_is_still_accepted() {
     // `inductive Good | mk : (Nat -> Good) -> Good` is sound, and the check
     // must not reject it. A check that refuses correct code is worse than none.
     let mut env = Environment::new();
+    env.add(Declaration::Axiom(rean_kernel::AxiomVal {
+        name: Name::from_dotted("Nat"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        is_unsafe: false,
+    }));
     let good = || Expr::const_("Good", vec![]);
     env.add(Declaration::Inductive(InductiveVal {
         name: Name::from_dotted("Good"),
@@ -753,7 +759,9 @@ fn a_reflexive_inductive_is_still_accepted() {
     let ctor = ConstructorVal {
         name: Name::from_dotted("Good.mk"),
         level_params: Vec::new(),
-        ty: Expr::arrow(Expr::arrow(Expr::type_(0), good()), good()),
+        // `(Nat -> Good) -> Good`. The field sits at the same level as `Good`,
+        // so it fits.
+        ty: Expr::arrow(Expr::arrow(Expr::const_("Nat", vec![]), good()), good()),
         induct: Name::from_dotted("Good"),
         cidx: 0,
         num_params: 0,
@@ -765,10 +773,17 @@ fn a_reflexive_inductive_is_still_accepted() {
 }
 
 #[test]
-fn a_nested_inductive_is_skipped_and_not_rejected() {
-    // Our check does not understand a nested inductive, so it must step aside
-    // rather than refuse a correct program.
+fn a_nested_inductive_gets_the_weaker_rule() {
+    // `List Tree -> Tree` puts `Tree` inside another type constructor, so the
+    // strict rule would refuse it. A nested declaration gets the weaker rule
+    // instead: nowhere in a domain, anywhere in the result.
     let mut env = Environment::new();
+    env.add(Declaration::Axiom(rean_kernel::AxiomVal {
+        name: Name::from_dotted("List"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::type_(0), Expr::type_(0)),
+        is_unsafe: false,
+    }));
     env.add(Declaration::Inductive(InductiveVal {
         name: Name::from_dotted("Tree"),
         level_params: Vec::new(),

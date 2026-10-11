@@ -173,57 +173,80 @@ pub fn check_export(path: &str) -> Result<CheckReport, String> {
     let mut rejected: Vec<rean_core::Name> = Vec::new();
     let mut outcomes = Vec::new();
 
-    for name in &module.order {
-        let Some(decl) = module.env.get(name) else {
+    // Walk the file one line at a time. One line can declare a whole mutual
+    // group, and the members of a group refer to each other, so the checker
+    // must see all of them at once.
+    for group in &module.groups {
+        let decls: Vec<Declaration> = group
+            .iter()
+            .filter_map(|name| module.env.get(name).cloned())
+            .collect();
+
+        let mut accepted: Vec<Declaration> = Vec::new();
+        for name in group {
+            let Some(decl) = module.env.get(name) else {
+                outcomes.push(DeclOutcome {
+                    name: name.to_string(),
+                    kind: "missing",
+                    verdict: Verdict::Failed("the reader lost this declaration".to_string()),
+                    axioms: Vec::new(),
+                });
+                rejected.push(name.clone());
+                continue;
+            };
+
+            // Does it rest on something that already failed?
+            let mut uses = Vec::new();
+            decl.collect_dependencies(&mut uses);
+            let blocker = uses
+                .iter()
+                .find(|used| rejected.contains(used) && !group.contains(used));
+
+            let verdict = match blocker {
+                Some(blocker) => Verdict::Blocked(format!("`{blocker}` did not check")),
+                None => {
+                    let mut tc = TypeChecker::new(&known);
+                    let outcome = tc.with_group(&decls, |tc| {
+                        tc.check_declaration(decl)
+                            .map_err(|err| err.render(tc.lctx()))
+                    });
+                    match outcome {
+                        Ok(()) => {
+                            accepted.push(decl.clone());
+                            Verdict::Ok
+                        }
+                        Err(message) => Verdict::Failed(message),
+                    }
+                }
+            };
+            if !matches!(verdict, Verdict::Ok) {
+                rejected.push(name.clone());
+            }
             outcomes.push(DeclOutcome {
                 name: name.to_string(),
-                kind: "missing",
-                verdict: Verdict::Failed("the reader lost this declaration".to_string()),
+                kind: decl.kind_label(),
+                verdict,
                 axioms: Vec::new(),
             });
-            continue;
-        };
-
-        // Does it rest on something that already failed?
-        let mut uses = Vec::new();
-        decl.ty().collect_constants(&mut uses);
-        if let Some(value) = declaration_value(decl) {
-            value.collect_constants(&mut uses);
         }
-        let blocker = uses.iter().find(|used| rejected.contains(used));
 
-        let verdict = match blocker {
-            Some(blocker) => Verdict::Blocked(format!("`{blocker}` did not check")),
-            None => {
-                let mut tc = TypeChecker::new(&known);
-                match tc.check_declaration(decl) {
-                    Ok(()) => {
-                        // Only a declaration that checks goes into the
-                        // environment. A bogus one would prove anything that
-                        // uses it.
-                        known.add(decl.clone());
-                        Verdict::Ok
-                    }
-                    Err(err) => Verdict::Failed(err.render(tc.lctx())),
-                }
-            }
-        };
-        if !matches!(verdict, Verdict::Ok) {
-            rejected.push(name.clone());
+        // Only a declaration that checks goes into the environment. A bogus
+        // one would prove anything that uses it.
+        for decl in accepted {
+            known.add(decl);
         }
-        // Ask the trusted environment, so a refused axiom is not reported as
-        // something we rest on.
-        let axioms = known
-            .axioms_of(name)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        outcomes.push(DeclOutcome {
-            name: name.to_string(),
-            kind: decl.kind_label(),
-            verdict,
-            axioms,
-        });
+    }
+
+    // The trust report asks the environment of accepted declarations only, so
+    // a refused axiom is never named as something we rest on.
+    for outcome in &mut outcomes {
+        if outcome.verdict == Verdict::Ok {
+            outcome.axioms = known
+                .axioms_of(&rean_core::Name::from_dotted(&outcome.name))
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+        }
     }
 
     Ok(CheckReport {
@@ -430,14 +453,4 @@ pub fn demo() -> String {
         Expr::sort(Level::param("u").succ()).pretty()
     );
     out
-}
-
-/// Returns the value that a declaration must be checked against, if it has one.
-fn declaration_value(decl: &Declaration) -> Option<&Expr> {
-    match decl {
-        Declaration::Definition(d) => Some(&d.value),
-        Declaration::Theorem(d) => Some(&d.value),
-        Declaration::Opaque(d) => Some(&d.value),
-        _ => None,
-    }
 }
