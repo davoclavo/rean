@@ -1025,8 +1025,8 @@ impl<'e> TypeChecker<'e> {
         // `congrArg` and `of_eq_true`, and reducing one of those drags in the
         // whole computation it speaks about.
         match self.proof_irrelevant(a, b) {
-            Ok(true) => return Ok(true),
-            Ok(false) => {}
+            Ok(Some(answer)) => return Ok(answer),
+            Ok(None) => {}
             // The budget is the one error that must not be hidden, because a
             // report that blames the wrong cause is worse than no report.
             Err(error @ TypeError::OutOfFuel(_)) => return Err(error),
@@ -1072,8 +1072,9 @@ impl<'e> TypeChecker<'e> {
         if self.unit_like_eq(&a, &b)? {
             return Ok(true);
         }
-        // Proof irrelevance: all proofs of one proposition are equal.
-        self.proof_irrelevant(&a, &b)
+        // Proof irrelevance again, now that both sides are reduced. A term
+        // whose type could not be read before may have a readable one now.
+        Ok(self.proof_irrelevant(&a, &b)?.unwrap_or(false))
     }
 
     /// Compares two terms of a type that has exactly one term.
@@ -1346,25 +1347,47 @@ impl<'e> TypeChecker<'e> {
         Ok(true)
     }
 
-    /// Returns `true` if `a` and `b` are two proofs of one proposition.
+    /// Decides `a` and `b` by proof irrelevance, or says the rule does not
+    /// apply.
+    ///
+    /// Three answers, not two, and the third one is the whole point:
+    ///
+    /// | Answer | Meaning |
+    /// |---|---|
+    /// | `None` | `a` is not a proof, so this rule has nothing to say. |
+    /// | `Some(true)` | both sides prove the same proposition, so they are equal. |
+    /// | `Some(false)` | `a` is a proof, and the two propositions are **not** equal. |
+    ///
+    /// That last row used to be `false`, which the caller read as "the rule did
+    /// not apply" and answered by **unfolding the two proofs**. A proof of the
+    /// Lean prelude is built on structural recursion, so unfolding one is
+    /// hundreds of thousands of ι steps, and all of them are wasted: no
+    /// reduction can make two different propositions equal.
+    ///
+    /// So once the kernel knows `a` is a proof, the comparison of the two
+    /// propositions **is** the answer, whichever way it goes. Lean's kernel
+    /// returns a three-valued `lbool` here for this reason, and the external
+    /// checker `nanoda` reported the same fault from the other direction.
     ///
     /// The test needs the type of each side, so it needs both sides to be
     /// closed. A loose bound variable has no type.
-    fn proof_irrelevant(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
+    fn proof_irrelevant(&mut self, a: &Expr, b: &Expr) -> TypeResult<Option<bool>> {
         if a.has_loose_bvars() || b.has_loose_bvars() {
-            return Ok(false);
+            return Ok(None);
         }
         let type_a = self.infer_type(a)?;
         // The type of the type must be `Sort 0`, which is `Prop`.
         let sort = self.infer_type(&type_a)?;
         let Expr::Sort(level) = self.whnf(&sort)? else {
-            return Ok(false);
+            return Ok(None);
         };
         if !level.normalize().is_zero() {
-            return Ok(false);
+            return Ok(None);
         }
+        // `a` is a proof. From here the comparison of the two propositions is
+        // the answer, and a `false` is as final as a `true`.
         let type_b = self.infer_type(b)?;
-        self.is_def_eq(&type_a, &type_b)
+        Ok(Some(self.is_def_eq(&type_a, &type_b)?))
     }
 
     // --- the type rules --------------------------------------------------
