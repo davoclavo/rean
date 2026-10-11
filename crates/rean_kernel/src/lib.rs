@@ -29,7 +29,7 @@ pub use environment::{
     InductiveVal, OpaqueVal, QuotKind, QuotVal, RecursorRule, RecursorVal, ReducibilityHints,
     TheoremVal,
 };
-pub use expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj};
+pub use expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj, Sub};
 pub use level::Level;
 pub use local::{LocalContext, LocalDecl};
 pub use typeck::{TypeChecker, TypeError, TypeResult};

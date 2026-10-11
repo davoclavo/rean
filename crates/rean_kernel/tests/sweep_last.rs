@@ -3,9 +3,8 @@
 use rean_core::Name;
 use rean_kernel::{
     AxiomVal, BinderInfo, ConstructorVal, Declaration, Environment, Expr, InductiveVal, Level,
-    Proj, TypeChecker, nat_lit,
+    Proj, Sub, TypeChecker, nat_lit,
 };
-use std::sync::Arc;
 
 fn prop() -> Expr {
     Expr::prop()
@@ -52,8 +51,8 @@ fn an_instance_binder_prints_square_brackets() {
     assert_eq!(BinderInfo::InstImplicit.brackets(), ("[", "]"));
     let term = Expr::Forall {
         binder_name: Name::from_dotted("inst"),
-        binder_type: Arc::new(Expr::const_("Add", vec![])),
-        body: Arc::new(Expr::bvar(0)),
+        binder_type: Sub::new(Expr::const_("Add", vec![])),
+        body: Sub::new(Expr::bvar(0)),
         info: BinderInfo::InstImplicit,
     };
     assert_eq!(term.pretty(), "[inst : Add] → inst");
@@ -216,7 +215,7 @@ fn a_later_field_can_mention_an_earlier_one() {
         Expr::Proj(Proj {
             structure: Name::from_dotted("Sig"),
             index,
-            value: Arc::new(p.clone()),
+            value: Sub::new(p.clone()),
         })
     };
     // The first field has the type `A`.

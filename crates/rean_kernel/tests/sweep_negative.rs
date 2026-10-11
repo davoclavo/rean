@@ -9,9 +9,8 @@ use rean_kernel::positivity::{self, PositivityError};
 use rean_kernel::{
     AxiomVal, ConstructorVal, Declaration, DefinitionSafety, DefinitionVal, Environment, Expr,
     InductiveVal, Level, Proj, QuotKind, QuotVal, RecursorRule, RecursorVal, ReducibilityHints,
-    TypeChecker, TypeError,
+    Sub, TypeChecker, TypeError,
 };
-use std::sync::Arc;
 
 fn prop() -> Expr {
     Expr::prop()
@@ -189,14 +188,14 @@ fn a_projection_waits_for_a_constructor() {
     let term = Expr::Proj(Proj {
         structure: Name::from_dotted("S"),
         index: 0,
-        value: Arc::new(Expr::const_("A", vec![])),
+        value: Sub::new(Expr::const_("A", vec![])),
     });
     assert!(tc.whnf(&term).unwrap().alpha_eq(&term));
     // A sort in the target is not a constructor either.
     let on_sort = Expr::Proj(Proj {
         structure: Name::from_dotted("S"),
         index: 0,
-        value: Arc::new(prop()),
+        value: Sub::new(prop()),
     });
     assert!(tc.whnf(&on_sort).unwrap().alpha_eq(&on_sort));
 }
@@ -285,12 +284,26 @@ fn k_like_reduction_needs_exactly_one_constructor_with_no_field() {
     let term = apply_rec(x);
     assert!(tc.whnf(&term).unwrap().alpha_eq(&term), "two constructors");
 
-    // One constructor with a field: the field value is unknown, so no.
+    // One constructor with a field: the K rule declines, because the field
+    // value is unknown. A **second** rule then applies, and it is not K.
+    // `I` has one constructor, no index and no recursion, so it is a structure,
+    // and `x` is definitionally `I.c0 x.0`. That is enough for ι to fire, so
+    // the term does reduce here. `reduction.rs` tests that rule by name.
     let with_field = k_env(1, 1);
     let mut tc = TypeChecker::new(&with_field);
     let x = Expr::FVar(tc.push_local("x", Expr::const_("I", vec![])));
     let term = apply_rec(x);
-    assert!(tc.whnf(&term).unwrap().alpha_eq(&term), "one field");
+    assert!(!tc.whnf(&term).unwrap().alpha_eq(&term), "one field");
+
+    // Two constructors and a field: neither rule applies.
+    let two_with_field = k_env(2, 1);
+    let mut tc = TypeChecker::new(&two_with_field);
+    let x = Expr::FVar(tc.push_local("x", Expr::const_("I", vec![])));
+    let term = apply_rec(x);
+    assert!(
+        tc.whnf(&term).unwrap().alpha_eq(&term),
+        "two constructors and a field"
+    );
 }
 
 #[test]
@@ -467,7 +480,7 @@ fn a_projection_whose_constructor_takes_no_parameter_fails_cleanly() {
     let term = Expr::Proj(Proj {
         structure: Name::from_dotted("S"),
         index: 0,
-        value: Arc::new(s),
+        value: Sub::new(s),
     });
     let err = tc.infer_type(&term).unwrap_err();
     assert!(matches!(err, TypeError::NotAStructure { .. }), "{err}");

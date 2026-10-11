@@ -170,7 +170,7 @@ fn a_projection_out_of_a_constructor_reduces() {
     let first = Expr::Proj(rean_kernel::Proj {
         structure: Name::from_dotted("PProd"),
         index: 0,
-        value: std::sync::Arc::new(pair),
+        value: rean_kernel::Sub::new(pair),
     });
     let reduced = tc.whnf(&first).expect("it must reduce");
     assert!(reduced.alpha_eq(&a), "got {}", tc.lctx().pretty(&reduced));

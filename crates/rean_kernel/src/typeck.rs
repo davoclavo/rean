@@ -34,14 +34,13 @@
 use crate::environment::{
     ConstructorVal, Declaration, Environment, InductiveVal, QuotKind, RecursorRule, RecursorVal,
 };
-use crate::expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj};
+use crate::expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj, Sub};
 use crate::level::Level;
 use crate::local::LocalContext;
 use crate::nat_lit::{self, NatShape};
 use crate::positivity::{self, PositivityError};
 use rean_core::Name;
 use std::fmt;
-use std::sync::Arc;
 
 /// The largest number of reduction steps that [`TypeChecker::whnf`] will take.
 ///
@@ -569,6 +568,13 @@ impl<'e> TypeChecker<'e> {
         if let Some(as_ctor) = nat_lit::to_ctor_if_lit(&value) {
             value = as_ctor;
         }
+        // The first field of a string literal is its byte array. The second is
+        // a proof, and no rule has to produce a proof.
+        if proj.index == 0
+            && let Some(text) = nat_lit::str_value(&value)
+        {
+            return Ok(Some(nat_lit::str_bytes(text)));
+        }
         let (head, args) = value.unfold_apps();
         let Expr::Const { name, .. } = head else {
             return Ok(None);
@@ -614,6 +620,11 @@ impl<'e> TypeChecker<'e> {
         if let Some(as_ctor) = self.ctor_when_k(&rec, &major)? {
             major = as_ctor;
         }
+        // A structure has one constructor and no index, so a term of that type
+        // is its own fields. Rebuilding it lets the ι rule fire on a variable.
+        if let Some(as_ctor) = self.ctor_when_struct(&rec, &major)? {
+            major = as_ctor;
+        }
         let (major_head, major_args) = major.unfold_apps();
         let Expr::Const { name: ctor, .. } = major_head else {
             return Ok(None);
@@ -637,6 +648,85 @@ impl<'e> TypeChecker<'e> {
                 .map(|field| (*field).clone()),
         );
         out = out.apps(args[major_index + 1..].iter().cloned());
+        Ok(Some(out))
+    }
+
+    /// Rebuilds the major premise as a constructor application, by eta for
+    /// structures.
+    ///
+    /// A **structure** is an inductive type with one constructor and no index.
+    /// Every term of such a type is the constructor applied to that term's own
+    /// fields, so
+    ///
+    /// ```text
+    /// x : ByteArray    ~>    ByteArray.mk x.0
+    /// ```
+    ///
+    /// holds for any `x`, even an opaque variable. The ι rule needs its major
+    /// premise in constructor form, and this rule supplies one. Without it the
+    /// kernel cannot reduce `ByteArray.push x b`, because `push` matches on
+    /// `⟨bs⟩` and `x` is not yet of that shape.
+    ///
+    /// Three conditions keep the rule sound, and Lean checks the same three:
+    ///
+    /// - **One constructor.** With two, the term could be either one.
+    /// - **No index.** An index can differ between the term and the rebuilt
+    ///   one, as it does for `Eq`, and then the two are not the same type.
+    /// - **Not recursive.** A field of the type itself would make the rebuilt
+    ///   term grow without end.
+    fn ctor_when_struct(&mut self, rec: &RecursorVal, major: &Expr) -> TypeResult<Option<Expr>> {
+        // The rule reads the type of the major premise, so the premise must be
+        // closed. See the guard in `struct_eta_eq` for why that matters.
+        if major.has_loose_bvars() {
+            return Ok(None);
+        }
+        // Already a constructor application, so there is nothing to do.
+        if let (Expr::Const { name, .. }, _) = major.unfold_apps()
+            && matches!(self.lookup(name), Some(Declaration::Constructor(_)))
+        {
+            return Ok(None);
+        }
+        let major_type = self.infer_type(major)?;
+        let major_type = self.whnf(&major_type)?;
+        let (head, type_args) = major_type.unfold_apps();
+        let Expr::Const {
+            name: inductive,
+            levels,
+        } = head
+        else {
+            return Ok(None);
+        };
+        // The type must be the one this recursor speaks about.
+        if !rec.all.contains(inductive) {
+            return Ok(None);
+        }
+        let Some(Declaration::Inductive(ind)) = self.lookup(inductive) else {
+            return Ok(None);
+        };
+        if ind.num_indices != 0 || ind.is_rec || ind.ctors.len() != 1 {
+            return Ok(None);
+        }
+        let num_params = ind.num_params as usize;
+        let Some(ctor) = self.env.sole_ctor(inductive) else {
+            return Ok(None);
+        };
+        let ctor_name = ctor.name.clone();
+        let num_fields = ctor.num_fields;
+        if type_args.len() < num_params {
+            return Ok(None);
+        }
+        let mut out = Expr::Const {
+            name: ctor_name,
+            levels: levels.clone(),
+        }
+        .apps(type_args[..num_params].iter().map(|arg| (*arg).clone()));
+        for index in 0..num_fields {
+            out = out.app(Expr::Proj(Proj {
+                structure: inductive.clone(),
+                index,
+                value: Sub::new(major.clone()),
+            }));
+        }
         Ok(Some(out))
     }
 
@@ -746,8 +836,58 @@ impl<'e> TypeChecker<'e> {
         if self.struct_eta_eq(&a, &b)? || self.struct_eta_eq(&b, &a)? {
             return Ok(true);
         }
+        // A type with one term has only one term, so any two of them are equal.
+        if self.unit_like_eq(&a, &b)? {
+            return Ok(true);
+        }
         // Proof irrelevance: all proofs of one proposition are equal.
         self.proof_irrelevant(&a, &b)
+    }
+
+    /// Compares two terms of a type that has exactly one term.
+    ///
+    /// `Unit` is the example. It is a structure with one constructor and no
+    /// field, so every term of it is `Unit.unit`, and
+    ///
+    /// ```text
+    /// (a : Unit)  ≡  (b : Unit)
+    /// ```
+    ///
+    /// holds for any `a` and `b`. This is η for a structure again, read on both
+    /// sides at once: `a ≡ ⟨⟩ ≡ b`. [`Self::struct_eta_eq`] cannot see it,
+    /// because that rule needs one side to be a constructor already, and here
+    /// neither side is. `Unit.ext` of the Lean prelude needs this rule.
+    ///
+    /// The two types must be the same. Without that test the rule would equate
+    /// terms of two different one-term types.
+    fn unit_like_eq(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
+        // The rule asks for a type, so both sides must be closed. See the guard
+        // in `struct_eta_eq` for why a comparison helper must decline and never
+        // error.
+        if a.has_loose_bvars() || b.has_loose_bvars() {
+            return Ok(false);
+        }
+        let a_type = self.infer_type(a)?;
+        let a_type = self.whnf(&a_type)?;
+        let (head, _) = a_type.unfold_apps();
+        let Expr::Const { name, .. } = head else {
+            return Ok(false);
+        };
+        let Some(Declaration::Inductive(ind)) = self.lookup(name) else {
+            return Ok(false);
+        };
+        if ind.num_indices != 0 || ind.is_rec || ind.ctors.len() != 1 {
+            return Ok(false);
+        }
+        let Some(ctor) = self.env.sole_ctor(name) else {
+            return Ok(false);
+        };
+        // One term exists only when the constructor carries nothing.
+        if ctor.num_fields != 0 {
+            return Ok(false);
+        }
+        let b_type = self.infer_type(b)?;
+        self.is_def_eq(&a_type, &b_type)
     }
 
     /// Compares a `Nat` literal with a constructor chain.
@@ -816,7 +956,7 @@ impl<'e> TypeChecker<'e> {
         // both sit under one binder. But it would leave a loose bound variable
         // in each body, and then nothing inside the comparison could infer a
         // type. Proof irrelevance needs that.
-        let id = self.lctx.push(name.clone(), (**left_type).clone());
+        let id = self.lctx.push(name.clone(), left_type.to_expr());
         let left = left_body.instantiate(&Expr::FVar(id));
         let right = right_body.instantiate(&Expr::FVar(id));
         let same = self.is_def_eq(&left, &right);
@@ -908,7 +1048,7 @@ impl<'e> TypeChecker<'e> {
         // This is the same lesson as chapter 2, section 2.7. A free variable is
         // not only an optimisation. It is what keeps a term closed, and a
         // closed term is what lets a later step ask for its type.
-        let id = self.lctx.push(binder_name.clone(), (**binder_type).clone());
+        let id = self.lctx.push(binder_name.clone(), binder_type.to_expr());
         let opened = body.instantiate(&Expr::FVar(id));
         let applied = other.clone().app(Expr::FVar(id));
         let same = self.is_def_eq(&opened, &applied);
@@ -968,7 +1108,7 @@ impl<'e> TypeChecker<'e> {
             let projected = Expr::Proj(Proj {
                 structure: ctor.induct.clone(),
                 index,
-                value: Arc::new(whole.clone()),
+                value: Sub::new(whole.clone()),
             });
             if !self.is_def_eq(field, &projected)? {
                 return Ok(false);
@@ -1044,7 +1184,7 @@ impl<'e> TypeChecker<'e> {
                 ..
             } => {
                 let u = self.infer_sort(binder_type)?;
-                let id = self.lctx.push(binder_name.clone(), (**binder_type).clone());
+                let id = self.lctx.push(binder_name.clone(), binder_type.to_expr());
                 let opened = body.instantiate(&Expr::FVar(id));
                 let v = self.infer_sort(&opened);
                 self.lctx.pop();
@@ -1059,14 +1199,14 @@ impl<'e> TypeChecker<'e> {
                 info,
             } => {
                 self.infer_sort(binder_type)?;
-                let id = self.lctx.push(binder_name.clone(), (**binder_type).clone());
+                let id = self.lctx.push(binder_name.clone(), binder_type.to_expr());
                 let opened = body.instantiate(&Expr::FVar(id));
                 let body_type = self.infer_type(&opened).map(|ty| ty.abstract_fvar(id));
                 self.lctx.pop();
                 Ok(Expr::Forall {
                     binder_name: binder_name.clone(),
                     binder_type: binder_type.clone(),
-                    body: Arc::new(body_type?),
+                    body: Sub::new(body_type?),
                     info: *info,
                 })
             }
@@ -1082,7 +1222,7 @@ impl<'e> TypeChecker<'e> {
                 };
                 let arg_type = self.infer_type(arg)?;
                 if !self.is_def_eq(&arg_type, &binder_type)? {
-                    return Err(TypeError::mismatch(arg, (*binder_type).clone(), arg_type));
+                    return Err(TypeError::mismatch(arg, binder_type.to_expr(), arg_type));
                 }
                 Ok(body.instantiate(arg))
             }
@@ -1099,7 +1239,7 @@ impl<'e> TypeChecker<'e> {
                 if !self.is_def_eq(&value_type, binder_type)? {
                     return Err(TypeError::mismatch(
                         value,
-                        (**binder_type).clone(),
+                        binder_type.to_expr(),
                         value_type,
                     ));
                 }
@@ -1127,6 +1267,16 @@ impl<'e> TypeChecker<'e> {
         else {
             return Err(TypeError::not_a_structure(whole, value_type.clone()));
         };
+        // A missing constructor is not the same fault as a type that is no
+        // structure, and saying so saves the reader a wrong hunt. The export is
+        // in topological order, so this happens when the constructor itself was
+        // rejected and never entered the environment.
+        if let Some(Declaration::Inductive(ind)) = self.lookup(inductive)
+            && let [only] = ind.ctors.as_slice()
+            && self.lookup(only).is_none()
+        {
+            return Err(TypeError::UnknownConstant(only.clone()));
+        }
         let ctor = self
             .env
             .sole_ctor(inductive)
@@ -1162,7 +1312,7 @@ impl<'e> TypeChecker<'e> {
                 index: proj.index,
             });
         };
-        Ok((*binder_type).clone())
+        Ok(binder_type.to_expr())
     }
 
     /// Returns the level of `e`, and fails if `e` is not a type.
@@ -1245,7 +1395,7 @@ impl<'e> TypeChecker<'e> {
         // The universe that the inductive type declares.
         let mut ind_type = inductive.ty.clone();
         while let Expr::Forall { body, .. } = self.whnf(&ind_type)? {
-            ind_type = (*body).clone();
+            ind_type = body.to_expr();
         }
         let Expr::Sort(limit) = ind_type else {
             return Ok(());
@@ -1278,7 +1428,7 @@ impl<'e> TypeChecker<'e> {
             else {
                 return Ok(());
             };
-            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
             ty = body.instantiate(&Expr::FVar(id));
         }
         for field in 0..ctor.num_fields {
@@ -1301,7 +1451,7 @@ impl<'e> TypeChecker<'e> {
                     limit: limit.to_string(),
                 });
             }
-            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
             ty = body.instantiate(&Expr::FVar(id));
         }
         Ok(())
@@ -1537,7 +1687,7 @@ impl<'e> TypeChecker<'e> {
             else {
                 return Err(bad("its type has too few binders".to_string()));
             };
-            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
             prefix.push(Expr::FVar(id));
             residual = body.instantiate(&Expr::FVar(id));
         }
@@ -1605,7 +1755,7 @@ impl<'e> TypeChecker<'e> {
                     ctor.name
                 )));
             };
-            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
             ctor_args.push(Expr::FVar(id));
             ctor_type = body.instantiate(&Expr::FVar(id));
         }
@@ -1800,7 +1950,7 @@ impl<'e> TypeChecker<'e> {
             else {
                 return Err(bad(format!("`{}` has too few binders", ctor.name)));
             };
-            let field_type = (*binder_type).clone();
+            let field_type = binder_type.to_expr();
             let id = self.lctx.push(binder_name.clone(), field_type.clone());
             fields.push((binder_name, field_type, id));
             ty = body.instantiate(&Expr::FVar(id));
@@ -1840,8 +1990,8 @@ impl<'e> TypeChecker<'e> {
         for hypothesis in hypotheses.into_iter().rev() {
             result = Expr::Forall {
                 binder_name: Name::from_dotted("ih"),
-                binder_type: Arc::new(hypothesis),
-                body: Arc::new(result),
+                binder_type: Sub::new(hypothesis),
+                body: Sub::new(result),
                 info: BinderInfo::Default,
             };
         }
@@ -1849,8 +1999,8 @@ impl<'e> TypeChecker<'e> {
         for (name, field_type, id) in fields.into_iter().rev() {
             result = Expr::Forall {
                 binder_name: name,
-                binder_type: Arc::new(field_type),
-                body: Arc::new(result.abstract_fvar(id)),
+                binder_type: Sub::new(field_type),
+                body: Sub::new(result.abstract_fvar(id)),
                 info: BinderInfo::Default,
             };
         }
@@ -1893,7 +2043,7 @@ impl<'e> TypeChecker<'e> {
             ..
         } = self.whnf(&ty)?
         {
-            let inner = (*binder_type).clone();
+            let inner = binder_type.to_expr();
             let id = self.lctx.push(binder_name.clone(), inner.clone());
             binders.push((binder_name, inner, id));
             ty = body.instantiate(&Expr::FVar(id));
@@ -1924,8 +2074,8 @@ impl<'e> TypeChecker<'e> {
         for (name, binder_type, id) in binders.into_iter().rev() {
             result = Expr::Forall {
                 binder_name: name,
-                binder_type: Arc::new(binder_type),
-                body: Arc::new(result.abstract_fvar(id)),
+                binder_type: Sub::new(binder_type),
+                body: Sub::new(result.abstract_fvar(id)),
                 info: BinderInfo::Default,
             };
         }
@@ -1955,7 +2105,7 @@ impl<'e> TypeChecker<'e> {
         // Is the inductive type a `Prop`?
         let mut ind_type = ind.ty.clone();
         while let Expr::Forall { body, .. } = self.whnf(&ind_type)? {
-            ind_type = (*body).clone();
+            ind_type = body.to_expr();
         }
         let Expr::Sort(level) = ind_type else {
             return Ok(());
@@ -1976,7 +2126,7 @@ impl<'e> TypeChecker<'e> {
         };
         let mut result = motive_type;
         while let Expr::Forall { body, .. } = self.whnf(&result)? {
-            result = (*body).clone();
+            result = body.to_expr();
         }
         if let Expr::Sort(motive_level) = result
             && !motive_level.normalize().is_zero()
@@ -2031,7 +2181,7 @@ impl<'e> TypeChecker<'e> {
             else {
                 return Ok(false);
             };
-            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
             ty = body.instantiate(&Expr::FVar(id));
         }
 
@@ -2048,7 +2198,7 @@ impl<'e> TypeChecker<'e> {
                 return Ok(false);
             };
             let level = self.infer_sort(&binder_type)?;
-            let id = self.lctx.push(binder_name, (*binder_type).clone());
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
             if !level.normalize().is_zero() {
                 data_fields.push(id);
             }

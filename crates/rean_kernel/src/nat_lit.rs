@@ -23,6 +23,7 @@
 //! that is too large stays stuck rather than give a wrong answer.
 
 use crate::expr::{Expr, Literal};
+use crate::level::Level;
 use rean_core::Name;
 
 /// Returns the value of `e`, if `e` is a natural number literal that fits.
@@ -53,6 +54,41 @@ pub fn to_ctor(n: u128) -> Expr {
 /// Returns the constructor form of `e`, if `e` is a natural number literal.
 pub fn to_ctor_if_lit(e: &Expr) -> Option<Expr> {
     value(e).map(to_ctor)
+}
+
+/// Returns the bytes of a string literal, as the term Lean means by them.
+///
+/// A `String` is a structure with two fields:
+///
+/// ```text
+/// String.ofByteArray (toByteArray : ByteArray) (isValidUTF8 : ...) : String
+/// ```
+///
+/// The kernel stores `"ab"` as a literal and never writes that pair out, so a
+/// projection of a literal has to produce the field itself:
+///
+/// ```text
+/// "ab".toByteArray  ~>  ByteArray.mk (Array.mk [UInt8.ofNat 97, UInt8.ofNat 98])
+/// ```
+///
+/// The numbers are **UTF-8 bytes** and not code points. A Rust `str` is UTF-8
+/// already, so its bytes are exactly the ones Lean means.
+///
+/// The second field is a proof, so no rule has to produce it. Proof irrelevance
+/// makes any two proofs of it equal.
+pub fn str_bytes(text: &str) -> Expr {
+    let byte_type = Expr::const_("UInt8", vec![]);
+    let mut list = Expr::const_("List.nil", vec![Level::Zero]).app(byte_type.clone());
+    for byte in text.bytes().rev() {
+        list = Expr::const_("List.cons", vec![Level::Zero])
+            .app(byte_type.clone())
+            .app(Expr::const_("UInt8.ofNat", vec![]).app(lit(byte as u128)))
+            .app(list);
+    }
+    let array = Expr::const_("Array.mk", vec![Level::Zero])
+        .app(byte_type)
+        .app(list);
+    Expr::const_("ByteArray.mk", vec![]).app(array)
 }
 
 /// Splits a constructor application of `Nat` into its shape.

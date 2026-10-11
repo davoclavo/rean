@@ -6,7 +6,28 @@
 use rean::{DeclOutcome, USAGE, Verdict, check_export_streaming, demo, lex_file, prove};
 use std::process::ExitCode;
 
+/// The stack the checker runs on.
+///
+/// The kernel walks a term by recursion, so the depth of the Rust stack follows
+/// the depth of the term. A term that a reduction built can be very deep, and
+/// the 8 MB that a main thread gets is not enough for the Lean prelude. The
+/// checker aborted with a stack overflow before this thread existed. `rustc`
+/// solves the same problem the same way.
+const STACK: usize = 512 * 1024 * 1024;
+
 fn main() -> ExitCode {
+    let child = std::thread::Builder::new()
+        .stack_size(STACK)
+        .spawn(run)
+        .expect("the main thread must start");
+    match child.join() {
+        Ok(code) => code,
+        // The child already printed the panic message.
+        Err(_) => ExitCode::FAILURE,
+    }
+}
+
+fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("lex") => match args.get(1) {

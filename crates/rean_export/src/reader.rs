@@ -4,12 +4,11 @@ use rean_core::Name;
 use rean_kernel::{
     AxiomVal, BinderInfo, ConstructorVal, Declaration, DefinitionSafety, DefinitionVal,
     Environment, Expr, InductiveVal, Level, OpaqueVal, Proj, QuotKind, QuotVal, RecursorRule,
-    RecursorVal, ReducibilityHints, TheoremVal,
+    RecursorVal, ReducibilityHints, Sub, TheoremVal,
 };
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
 /// The format versions that this reader knows.
 ///
@@ -404,8 +403,8 @@ impl Reader {
             let (binder_name, binder_type, inner, info) = self.read_binder(line, body)?;
             return Ok(Expr::Lam {
                 binder_name,
-                binder_type: Arc::new(binder_type),
-                body: Arc::new(inner),
+                binder_type: Sub::new(binder_type),
+                body: Sub::new(inner),
                 info,
             });
         }
@@ -413,24 +412,24 @@ impl Reader {
             let (binder_name, binder_type, inner, info) = self.read_binder(line, body)?;
             return Ok(Expr::Forall {
                 binder_name,
-                binder_type: Arc::new(binder_type),
-                body: Arc::new(inner),
+                binder_type: Sub::new(binder_type),
+                body: Sub::new(inner),
                 info,
             });
         }
         if let Some(body) = v.get("letE") {
             return Ok(Expr::Let {
                 binder_name: self.name(line, self.int(line, body, "name")?)?,
-                binder_type: Arc::new(self.expr(line, self.int(line, body, "type")?)?),
-                value: Arc::new(self.expr(line, self.int(line, body, "value")?)?),
-                body: Arc::new(self.expr(line, self.int(line, body, "body")?)?),
+                binder_type: Sub::new(self.expr(line, self.int(line, body, "type")?)?),
+                value: Sub::new(self.expr(line, self.int(line, body, "value")?)?),
+                body: Sub::new(self.expr(line, self.int(line, body, "body")?)?),
             });
         }
         if let Some(body) = v.get("proj") {
             return Ok(Expr::Proj(Proj {
                 structure: self.name(line, self.int(line, body, "typeName")?)?,
                 index: self.int(line, body, "idx")? as u32,
-                value: Arc::new(self.expr(line, self.int(line, body, "struct")?)?),
+                value: Sub::new(self.expr(line, self.int(line, body, "struct")?)?),
             }));
         }
         if let Some(digits) = v.get("natVal") {

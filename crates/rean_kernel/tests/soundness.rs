@@ -6,9 +6,8 @@
 use rean_core::Name;
 use rean_kernel::{
     AxiomVal, ConstructorVal, Declaration, Environment, Expr, InductiveVal, Level, Proj,
-    RecursorRule, RecursorVal, TheoremVal, TypeChecker, TypeError,
+    RecursorRule, RecursorVal, Sub, TheoremVal, TypeChecker, TypeError,
 };
-use std::sync::Arc;
 
 fn u() -> Expr {
     Expr::const_("U", vec![])
@@ -405,7 +404,7 @@ fn a_structure_is_the_same_as_its_fields_rebuilt() {
     let rebuilt = Expr::const_("S.mk", vec![]).app(Expr::Proj(Proj {
         structure: Name::from_dotted("S"),
         index: 0,
-        value: Arc::new(p.clone()),
+        value: Sub::new(p.clone()),
     }));
     assert!(tc.is_def_eq(&rebuilt, &p).unwrap());
     assert!(tc.is_def_eq(&p, &rebuilt).unwrap(), "and in either order");
@@ -440,7 +439,7 @@ fn a_projection_needs_a_type_with_one_constructor() {
     let projection = Expr::Proj(Proj {
         structure: Name::from_dotted("E"),
         index: 0,
-        value: Arc::new(p),
+        value: Sub::new(p),
     });
     let err = tc.infer_type(&projection).unwrap_err();
     assert!(matches!(err, TypeError::NotAStructure { .. }), "{err}");

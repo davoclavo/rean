@@ -9,9 +9,8 @@ use rean_kernel::positivity::{self, PositivityError};
 use rean_kernel::{
     AxiomVal, ConstructorVal, Declaration, DefinitionSafety, DefinitionVal, Environment, Expr,
     FVarId, InductiveVal, Level, Literal, LocalContext, MVarId, OpaqueVal, Proj, QuotKind, QuotVal,
-    RecursorRule, RecursorVal, ReducibilityHints, TheoremVal, TypeChecker, TypeError,
+    RecursorRule, RecursorVal, ReducibilityHints, Sub, TheoremVal, TypeChecker, TypeError,
 };
-use std::sync::Arc;
 
 /// One term of every `Expr` variant, in a term that holds them all.
 fn one_of_each() -> Vec<Expr> {
@@ -31,7 +30,7 @@ fn one_of_each() -> Vec<Expr> {
         Expr::Proj(Proj {
             structure: Name::from_dotted("Prod"),
             index: 1,
-            value: Arc::new(nat),
+            value: Sub::new(nat),
         }),
     ]
 }
@@ -108,7 +107,7 @@ fn alpha_eq_looks_inside_every_variant() {
         Expr::Proj(Proj {
             structure: Name::from_dotted("Prod"),
             index,
-            value: Arc::new(value),
+            value: Sub::new(value),
         })
     };
     assert!(!proj(0, nat.clone()).alpha_eq(&proj(1, nat.clone())));
@@ -135,7 +134,7 @@ fn instantiate_levels_reaches_every_variant() {
         Expr::Proj(Proj {
             structure: Name::from_dotted("S"),
             index: 0,
-            value: Arc::new(open.clone()),
+            value: Sub::new(open.clone()),
         }),
         Expr::const_("L", vec![Level::param("u")]),
     ] {
@@ -164,7 +163,7 @@ fn lift_and_instantiate_and_abstract_reach_every_binder() {
             Expr::Proj(Proj {
                 structure: Name::from_dotted("S"),
                 index: 0,
-                value: Arc::new(Expr::FVar(f)),
+                value: Sub::new(Expr::FVar(f)),
             }),
         ),
     );
@@ -506,7 +505,7 @@ fn a_projection_of_something_that_is_not_a_structure_fails() {
     let term = Expr::Proj(Proj {
         structure: Name::from_dotted("Prod"),
         index: 0,
-        value: Arc::new(Expr::prop()),
+        value: Sub::new(Expr::prop()),
     });
     // The type of `Prop` is `Type`, whose head is a sort and not a constant.
     let err = tc.infer_type(&term).unwrap_err();
@@ -545,7 +544,7 @@ fn a_projection_past_the_last_field_fails() {
     let term = Expr::Proj(Proj {
         structure: Name::from_dotted("U"),
         index: 0,
-        value: Arc::new(u),
+        value: Sub::new(u),
     });
     let err = tc.infer_type(&term).unwrap_err();
     assert!(matches!(err, TypeError::BadProjection { .. }), "{err}");
@@ -627,12 +626,12 @@ fn occurs_reaches_every_expr_variant() {
         Expr::Proj(Proj {
             structure: Name::from_dotted("I"),
             index: 0,
-            value: Arc::new(Expr::prop()),
+            value: Sub::new(Expr::prop()),
         }),
         Expr::Proj(Proj {
             structure: Name::from_dotted("S"),
             index: 0,
-            value: Arc::new(i),
+            value: Sub::new(i),
         }),
     ];
     for holder in &holders {

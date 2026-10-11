@@ -87,6 +87,7 @@ exercises and answers.
 | to see a checker **built**, step by step | chapters [1](docs/01-the-type-checker.md) and [2](docs/02-the-environment.md) |
 | to see it meet **real Lean** | [chapter 3](docs/03-the-ground-truth.md) |
 | to see what **breaks** and how it is found | chapters [4](docs/04-making-it-work.md) to [7](docs/07-mutual-and-nested.md) |
+| to see what a checker **costs**, measured | [chapter 9](docs/09-structures-and-cost.md) |
 | to see where a compiler **begins** | [chapter 8](docs/08-the-frontend.md), independent of the rest |
 | a word you do not know | [the glossary](docs/GLOSSARY.md) |
 
@@ -103,6 +104,7 @@ exercises and answers.
 | [6 — What a theorem rests on](docs/06-what-a-theorem-rests-on.md) | derived minor premises, the axiom trust report, unsafe isolation. |
 | [7 — Mutual and nested](docs/07-mutual-and-nested.md) | mutual groups, nested positivity, the inductive universe constraint. |
 | [8 — The frontend](docs/08-the-frontend.md) | `Name`, spans, diagnostics, the **extensible token table**, and the lossless tree. Independent of the kernel. |
+| [9 — Structures, and what the kernel costs](docs/09-structures-and-cost.md) | the three rules a structure needs, the two numbers every node caches, and why a faster kernel checked no more declarations. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use |
 
 Every claim in a chapter has a test:
@@ -111,6 +113,7 @@ Every claim in a chapter has a test:
 devbox run -- cargo test -p rean_kernel --test universes   # chapter 0
 devbox run -- cargo test -p rean_kernel --test typeck      # chapters 1 and 2
 devbox run -- cargo test -p rean_export                    # chapters 3 and 4
+devbox run -- cargo test -p rean_kernel --test structures  # chapter 9
 ```
 
 ## The scoreboard
@@ -118,11 +121,11 @@ devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, stress | **33,539 of 57,512** | the whole Lean prelude, in 198 seconds |
+| level 1, stress | **33,855 of 57,512** | the whole Lean prelude, in 185 seconds |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **388** | `devbox run test` |
-| coverage | **95.1% of regions, 96.7% of lines** | `devbox run coverage` |
+| tests | **399** | `devbox run test` |
+| coverage | `devbox run coverage` | measured, not claimed |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 

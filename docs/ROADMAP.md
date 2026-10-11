@@ -181,10 +181,10 @@ JSON key order also varies between lines, so the reader must not depend on it.
 The checker now runs the **whole Lean prelude** and finishes.
 
 ```
-level 1: checked 33539 of 57512 declarations (742 failed, 23231 blocked)
+level 1: checked 33855 of 57512 declarations (656 failed, 23001 blocked)
 trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
-real 198s
+real 185s
 ```
 
 Getting there took three measurements and one wrong guess.
@@ -240,33 +240,53 @@ own variable measures nothing, and three equal rows should have been the clue.
 
 ### What is left, and the honest fix
 
-Of 742 failures, **565 are out of budget** — `WellFounded.Nat.fix_eq`,
-`Nat.modCore_eq_mod`, and their relatives, all well founded recursion. More
-budget does not help; 200 million gave the same answer and did not finish. The
-work itself has to get cheaper, and the two ways are the ones Lean uses:
+Both caches named below are now **done**, and chapter 9 reports what each one
+bought. The summary:
 
-- **Cache the loose bound variable range in every node.** Then substitution
-  skips a closed subterm without walking it. `instantiate_at` is the top frame
-  and this removes most of it.
-- **Cache the result of `is_def_eq`.** Large terms share subterms, and without a
-  memo those get compared again and again.
+| change | checked | time |
+|---|---|---|
+| start | 33,539 | 198 s |
+| `loose` cached in every node | 33,539 | 181 s |
+| `size` cached too | 33,539 | 160 s |
+| three structure rules | **33,855** | 185 s |
 
-Both change every `Expr` construction site, so they are a chapter of work rather
-than a patch.
+The caches moved the **time** and not the **count**, because the budget is
+charged by work and the caches do not make the work smaller. That is worth
+reading twice before trusting any performance claim.
 
-## The one number## The one number
+Raising the budget then found a third fault that had nothing to do with either:
+a **stack overflow**. The kernel recurses over terms, a reduced term can be very
+deep, and 8 MB of main thread stack is not enough. The checker now runs on a
+thread with 512 MB, as `rustc` does.
+
+Of the 656 failures that remain, **648 are out of budget** —
+`WellFounded.Nat.fix_eq`, `Nat.modCore_eq_mod`, and their relatives, all well
+founded recursion. The other 8 are one cascade from a single rejected
+constructor, and not a gap in the rules.
+
+So one item is left, and it is the second cache Lean has:
+
+- **Cache the result of `is_def_eq`.** The checker compares the same pair of
+  terms many times while it unfolds one well founded definition, and it answers
+  from scratch every time. Large terms share subterms, so a memo pays twice.
+
+The leverage is high. In one measurement, 7 declarations that passed at a larger
+budget unblocked **686** dependents. A blocked declaration is not wrong, only
+unread.
+
+## The one number
 
 Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   33539 of 57512 of the Lean prelude, in 198 s
+          and                   33855 of 57512 of the Lean prelude, in 185 s
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     375
-coverage  95.1% of regions, 96.7% of lines   (devbox run coverage)
-red team  38 lies refused, each one once accepted
+tests     399
+coverage  see devbox run coverage
+red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name
 ```
 

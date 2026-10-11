@@ -81,7 +81,175 @@ pub struct Proj {
     /// The position of the field, counted from 0.
     pub index: u32,
     /// The term that the projection reads.
-    pub value: Arc<Expr>,
+    pub value: Sub,
+}
+
+/// A subterm, and the one fact about it that the kernel asks for most.
+///
+/// `loose` is one more than the largest **loose** bound variable index inside,
+/// or zero when there is none. So `loose == 0` means "closed", and
+/// `loose <= depth` means "nothing in here points at or past `depth`".
+///
+/// That one number turns the central operation of the kernel from a walk into a
+/// test. Substitution used to traverse a subterm to discover that nothing
+/// changed, and `Expr::instantiate_at` was the heaviest frame in a profile of
+/// the Lean prelude. Now it asks `loose` and stops.
+///
+/// The number costs nothing to keep. Every node computes it from its children
+/// in constant time, so building a term pays O(1) per node rather than O(size).
+/// The real Lean kernel stores the same number in every expression header.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Sub {
+    expr: Arc<Expr>,
+    loose: u32,
+    size: u32,
+}
+
+impl Sub {
+    /// Wraps a term, computing its loose range from its children.
+    pub fn new(expr: Expr) -> Sub {
+        let loose = loose_range(&expr);
+        let size = size_range(&expr);
+        Sub {
+            expr: Arc::new(expr),
+            loose,
+            size,
+        }
+    }
+
+    /// Returns one more than the largest loose bound variable index, or zero.
+    pub fn loose(&self) -> u32 {
+        self.loose
+    }
+
+    /// Returns the node count of the term, saturated at [`u32::MAX`].
+    pub fn size(&self) -> u32 {
+        self.size
+    }
+
+    /// Returns a copy of the term inside.
+    ///
+    /// `Sub` is `Clone`, so `(*sub).clone()` would copy the wrapper and not the
+    /// term. This method says which one is meant.
+    pub fn to_expr(&self) -> Expr {
+        (*self.expr).clone()
+    }
+
+    /// Returns `true` if nothing inside points at or past `depth`.
+    fn settled_at(&self, depth: u32) -> bool {
+        self.loose <= depth
+    }
+
+    /// [`Expr::lift_opt`] for a subterm, with the O(1) skip.
+    fn lift_opt(&self, cutoff: u32, amount: u32) -> Option<Sub> {
+        // Nothing in here points at or past the cutoff, so nothing moves.
+        if self.settled_at(cutoff) {
+            return None;
+        }
+        self.expr.lift_opt(cutoff, amount).map(Sub::new)
+    }
+
+    /// [`Expr::instantiate_at`] for a subterm, with the O(1) skip.
+    fn instantiate_at(&self, depth: u32, value: &Expr) -> Option<Sub> {
+        // The binder being discharged is at `depth`, and nothing in here
+        // reaches it. This test is why the cached range exists.
+        if self.settled_at(depth) {
+            return None;
+        }
+        self.expr.instantiate_at(depth, value).map(Sub::new)
+    }
+
+    /// [`Expr::abstract_at`] for a subterm.
+    ///
+    /// There is no skip here. The cached range says where the **bound**
+    /// variables reach, and this operation looks for a **free** one, so the
+    /// number says nothing about it.
+    fn abstract_at(&self, depth: u32, fvar: FVarId) -> Option<Sub> {
+        self.expr.abstract_at(depth, fvar).map(Sub::new)
+    }
+}
+
+impl std::ops::Deref for Sub {
+    type Target = Expr;
+
+    fn deref(&self) -> &Expr {
+        &self.expr
+    }
+}
+
+impl From<Expr> for Sub {
+    fn from(expr: Expr) -> Sub {
+        Sub::new(expr)
+    }
+}
+
+/// Computes the loose range of one node from its children, in constant time.
+///
+/// Going under a binder discharges index zero, so the body's range drops by
+/// one.
+fn loose_range(e: &Expr) -> u32 {
+    match e {
+        Expr::BVar(index) => index + 1,
+        Expr::App { fun, arg } => fun.loose.max(arg.loose),
+        Expr::Lam {
+            binder_type, body, ..
+        }
+        | Expr::Forall {
+            binder_type, body, ..
+        } => binder_type.loose.max(body.loose.saturating_sub(1)),
+        Expr::Let {
+            binder_type,
+            value,
+            body,
+            ..
+        } => binder_type
+            .loose
+            .max(value.loose)
+            .max(body.loose.saturating_sub(1)),
+        Expr::Proj(proj) => proj.value.loose,
+        Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Const { .. } | Expr::Lit(_) => 0,
+    }
+}
+
+/// Counts the nodes of a term, in constant time, from the counts of its
+/// children.
+///
+/// This is the second number every node caches, and it exists for the same
+/// reason as the first. The checker charges fuel by the size of each term a
+/// reduction produces, so it asks for this count after every single step.
+/// A walk of the term would make that accounting cost as much as the reduction.
+///
+/// The count saturates. A term that shares subterms through [`Arc`] is small in
+/// memory and can still be enormous as a tree, and the caller clamps the number
+/// to a limit anyway.
+fn size_range(e: &Expr) -> u32 {
+    match e {
+        Expr::App { fun, arg } => 1u32.saturating_add(fun.size).saturating_add(arg.size),
+        Expr::Lam {
+            binder_type, body, ..
+        }
+        | Expr::Forall {
+            binder_type, body, ..
+        } => 1u32
+            .saturating_add(binder_type.size)
+            .saturating_add(body.size),
+        Expr::Let {
+            binder_type,
+            value,
+            body,
+            ..
+        } => 1u32
+            .saturating_add(binder_type.size)
+            .saturating_add(value.size)
+            .saturating_add(body.size),
+        Expr::Proj(proj) => 1u32.saturating_add(proj.value.size),
+        Expr::BVar(_)
+        | Expr::FVar(_)
+        | Expr::MVar(_)
+        | Expr::Sort(_)
+        | Expr::Const { .. }
+        | Expr::Lit(_) => 1,
+    }
 }
 
 /// A kernel term.
@@ -98,28 +266,28 @@ pub enum Expr {
     /// A name from the environment, with its universe arguments.
     Const { name: Name, levels: Vec<Level> },
     /// An application of one argument. `f x y` is `App(App(f, x), y)`.
-    App { fun: Arc<Expr>, arg: Arc<Expr> },
+    App { fun: Sub, arg: Sub },
     /// A lambda, such as `fun (x : A) => b`.
     Lam {
         binder_name: Name,
-        binder_type: Arc<Expr>,
-        body: Arc<Expr>,
+        binder_type: Sub,
+        body: Sub,
         info: BinderInfo,
     },
     /// A function type, such as `(x : A) → B`. `A → B` is the case where `B`
     /// does not use `x`.
     Forall {
         binder_name: Name,
-        binder_type: Arc<Expr>,
-        body: Arc<Expr>,
+        binder_type: Sub,
+        body: Sub,
         info: BinderInfo,
     },
     /// A local definition, such as `let x : A := v; b`.
     Let {
         binder_name: Name,
-        binder_type: Arc<Expr>,
-        value: Arc<Expr>,
-        body: Arc<Expr>,
+        binder_type: Sub,
+        value: Sub,
+        body: Sub,
     },
     /// A literal.
     Lit(Literal),
@@ -161,8 +329,8 @@ impl Expr {
     /// Applies `self` to one argument.
     pub fn app(self, arg: Expr) -> Expr {
         Expr::App {
-            fun: Arc::new(self),
-            arg: Arc::new(arg),
+            fun: Sub::new(self),
+            arg: Sub::new(arg),
         }
     }
 
@@ -175,8 +343,8 @@ impl Expr {
     pub fn lam(binder_name: impl Into<Name>, binder_type: Expr, body: Expr) -> Expr {
         Expr::Lam {
             binder_name: binder_name.into(),
-            binder_type: Arc::new(binder_type),
-            body: Arc::new(body),
+            binder_type: Sub::new(binder_type),
+            body: Sub::new(body),
             info: BinderInfo::Default,
         }
     }
@@ -185,8 +353,8 @@ impl Expr {
     pub fn forall(binder_name: impl Into<Name>, binder_type: Expr, body: Expr) -> Expr {
         Expr::Forall {
             binder_name: binder_name.into(),
-            binder_type: Arc::new(binder_type),
-            body: Arc::new(body),
+            binder_type: Sub::new(binder_type),
+            body: Sub::new(body),
             info: BinderInfo::Default,
         }
     }
@@ -201,9 +369,9 @@ impl Expr {
     pub fn let_(binder_name: impl Into<Name>, binder_type: Expr, value: Expr, body: Expr) -> Expr {
         Expr::Let {
             binder_name: binder_name.into(),
-            binder_type: Arc::new(binder_type),
-            value: Arc::new(value),
-            body: Arc::new(body),
+            binder_type: Sub::new(binder_type),
+            value: Sub::new(value),
+            body: Sub::new(body),
         }
     }
 
@@ -240,47 +408,15 @@ impl Expr {
     /// steps does not bound the work. Charging a step by the size of what it
     /// produced does.
     ///
+    /// Every subterm caches its own count, so this costs O(1) and not a walk of
+    /// the term. The checker asks for the count after every reduction step, and
+    /// a walk made the accounting as expensive as the work it accounts for.
+    ///
     /// The count stops at `limit` for a reason. An `Expr` shares its subterms
     /// through [`Arc`], so a term that is small in memory can be enormous as a
-    /// tree, and counting every node of it would be the very blow up this is
-    /// meant to measure.
+    /// tree.
     pub fn size_up_to(&self, limit: u32) -> u32 {
-        fn walk(e: &Expr, limit: u32, seen: &mut u32) {
-            if *seen >= limit {
-                return;
-            }
-            *seen += 1;
-            match e {
-                Expr::App { fun, arg } => {
-                    walk(fun, limit, seen);
-                    walk(arg, limit, seen);
-                }
-                Expr::Lam {
-                    binder_type, body, ..
-                }
-                | Expr::Forall {
-                    binder_type, body, ..
-                } => {
-                    walk(binder_type, limit, seen);
-                    walk(body, limit, seen);
-                }
-                Expr::Let {
-                    binder_type,
-                    value,
-                    body,
-                    ..
-                } => {
-                    walk(binder_type, limit, seen);
-                    walk(value, limit, seen);
-                    walk(body, limit, seen);
-                }
-                Expr::Proj(proj) => walk(&proj.value, limit, seen),
-                _ => {}
-            }
-        }
-        let mut seen = 0;
-        walk(self, limit, &mut seen);
-        seen
+        size_range(self).min(limit)
     }
 
     /// Returns `true` if a bound variable in `self` points outside `self`.
@@ -378,8 +514,8 @@ impl Expr {
                 levels: levels.iter().map(|l| l.substitute(params, args)).collect(),
             },
             Expr::App { fun, arg } => Expr::App {
-                fun: Arc::new(fun.instantiate_levels(params, args)),
-                arg: Arc::new(arg.instantiate_levels(params, args)),
+                fun: Sub::new(fun.instantiate_levels(params, args)),
+                arg: Sub::new(arg.instantiate_levels(params, args)),
             },
             Expr::Lam {
                 binder_name,
@@ -388,8 +524,8 @@ impl Expr {
                 info,
             } => Expr::Lam {
                 binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.instantiate_levels(params, args)),
-                body: Arc::new(body.instantiate_levels(params, args)),
+                binder_type: Sub::new(binder_type.instantiate_levels(params, args)),
+                body: Sub::new(body.instantiate_levels(params, args)),
                 info: *info,
             },
             Expr::Forall {
@@ -399,8 +535,8 @@ impl Expr {
                 info,
             } => Expr::Forall {
                 binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.instantiate_levels(params, args)),
-                body: Arc::new(body.instantiate_levels(params, args)),
+                binder_type: Sub::new(binder_type.instantiate_levels(params, args)),
+                body: Sub::new(body.instantiate_levels(params, args)),
                 info: *info,
             },
             Expr::Let {
@@ -410,14 +546,14 @@ impl Expr {
                 body,
             } => Expr::Let {
                 binder_name: binder_name.clone(),
-                binder_type: Arc::new(binder_type.instantiate_levels(params, args)),
-                value: Arc::new(value.instantiate_levels(params, args)),
-                body: Arc::new(body.instantiate_levels(params, args)),
+                binder_type: Sub::new(binder_type.instantiate_levels(params, args)),
+                value: Sub::new(value.instantiate_levels(params, args)),
+                body: Sub::new(body.instantiate_levels(params, args)),
             },
             Expr::Proj(proj) => Expr::Proj(Proj {
                 structure: proj.structure.clone(),
                 index: proj.index,
-                value: Arc::new(proj.value.instantiate_levels(params, args)),
+                value: Sub::new(proj.value.instantiate_levels(params, args)),
             }),
             other => other.clone(),
         }
@@ -605,7 +741,7 @@ impl Expr {
     /// A term moves under a new binder. Its loose variables must then count one
     /// binder more. This method does that renumber.
     pub fn lift(&self, cutoff: u32, amount: u32) -> Expr {
-        if amount == 0 {
+        if amount == 0 || loose_range(self) <= cutoff {
             return self.clone();
         }
         self.lift_opt(cutoff, amount)
@@ -698,6 +834,10 @@ impl Expr {
     /// Call this method on the body of a binder, not on the binder. A beta
     /// step is `Lam(body).instantiate(arg)`, which [`Expr::beta`] does.
     pub fn instantiate(&self, value: &Expr) -> Expr {
+        if loose_range(self) == 0 {
+            // A closed term has no binder to discharge.
+            return self.clone();
+        }
         self.instantiate_at(0, value)
             .unwrap_or_else(|| self.clone())
     }
@@ -1058,12 +1198,7 @@ impl Expr {
 /// Rebuilds an application, reusing an unchanged side.
 ///
 /// `None` in, `None` out. See [`Expr::lift_opt`].
-fn rebuild_app(
-    fun: &Arc<Expr>,
-    arg: &Arc<Expr>,
-    new_fun: Option<Expr>,
-    new_arg: Option<Expr>,
-) -> Option<Expr> {
+fn rebuild_app(fun: &Sub, arg: &Sub, new_fun: Option<Sub>, new_arg: Option<Sub>) -> Option<Expr> {
     if new_fun.is_none() && new_arg.is_none() {
         return None;
     }
@@ -1077,11 +1212,11 @@ fn rebuild_app(
 fn rebuild_binder(
     lambda: bool,
     binder_name: &Name,
-    binder_type: &Arc<Expr>,
-    body: &Arc<Expr>,
+    binder_type: &Sub,
+    body: &Sub,
     info: BinderInfo,
-    new_type: Option<Expr>,
-    new_body: Option<Expr>,
+    new_type: Option<Sub>,
+    new_body: Option<Sub>,
 ) -> Option<Expr> {
     if new_type.is_none() && new_body.is_none() {
         return None;
@@ -1109,12 +1244,12 @@ fn rebuild_binder(
 /// Rebuilds a `let`, reusing an unchanged part.
 fn rebuild_let(
     binder_name: &Name,
-    binder_type: &Arc<Expr>,
-    value: &Arc<Expr>,
-    body: &Arc<Expr>,
-    new_type: Option<Expr>,
-    new_value: Option<Expr>,
-    new_body: Option<Expr>,
+    binder_type: &Sub,
+    value: &Sub,
+    body: &Sub,
+    new_type: Option<Sub>,
+    new_value: Option<Sub>,
+    new_body: Option<Sub>,
 ) -> Option<Expr> {
     if new_type.is_none() && new_value.is_none() && new_body.is_none() {
         return None;
@@ -1128,21 +1263,18 @@ fn rebuild_let(
 }
 
 /// Rebuilds a projection around a changed target.
-fn rebuild_proj(proj: &Proj, value: Expr) -> Expr {
+fn rebuild_proj(proj: &Proj, value: Sub) -> Expr {
     Expr::Proj(Proj {
         structure: proj.structure.clone(),
         index: proj.index,
-        value: Arc::new(value),
+        value,
     })
 }
 
 /// Keeps the existing `Arc` when nothing changed, so the cost is one reference
 /// count bump rather than a deep copy.
-fn keep(original: &Arc<Expr>, replacement: Option<Expr>) -> Arc<Expr> {
-    match replacement {
-        Some(changed) => Arc::new(changed),
-        None => Arc::clone(original),
-    }
+fn keep(original: &Sub, replacement: Option<Sub>) -> Sub {
+    replacement.unwrap_or_else(|| original.clone())
 }
 
 /// Returns a name that no name in `used` matches.
@@ -1171,10 +1303,9 @@ impl fmt::Display for Expr {
 
 #[cfg(test)]
 mod tests {
-    use super::{BinderInfo, Expr, FVarId, Proj};
+    use super::{BinderInfo, Expr, FVarId, Proj, Sub};
     use crate::level::Level;
     use rean_core::Name;
-    use std::sync::Arc;
 
     fn nat() -> Expr {
         Expr::const_("Nat", vec![])
@@ -1311,8 +1442,8 @@ mod tests {
     fn an_implicit_binder_prints_braces() {
         let term = Expr::Forall {
             binder_name: Name::from_dotted("α"),
-            binder_type: Arc::new(Expr::type_(0)),
-            body: Arc::new(Expr::bvar(0)),
+            binder_type: Sub::new(Expr::type_(0)),
+            body: Sub::new(Expr::bvar(0)),
             info: BinderInfo::Implicit,
         };
         assert_eq!(term.pretty(), "{α : Type} → α");
@@ -1372,7 +1503,7 @@ mod tests {
         let term = Expr::Proj(Proj {
             structure: Name::from_dotted("Prod"),
             index: 0,
-            value: Arc::new(Expr::FVar(FVarId(0))),
+            value: Sub::new(Expr::FVar(FVarId(0))),
         });
         assert_eq!(term.pretty(), "_f0.1");
     }
