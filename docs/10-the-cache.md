@@ -373,9 +373,13 @@ Do not compare this table with the one in chapter 9 §9.12. That measurement ran
 on an earlier binary, and a comparison across two binaries measures both
 changes at once.
 
-Both caches are in, so what remains is the deeper change: our `whnf` is
-**eager**, and it rebuilds a whole term for each step. Lean's is lazy, and that
-is why `drop_slow` sat at the top of our profile and not of theirs.
+Both caches are in, so what remains looked like the deeper change: our `whnf`
+is **eager**, and it rebuilds a whole term for each step. Lean's is lazy, and
+that is why `drop_slow` sat at the top of our profile and not of theirs.
+
+That plan was wrong, and [chapter 11](11-compare-before-you-unfold.md) is the
+one measurement that said so. The fix was three lines, and it took 455 of these
+676 failures away. Read chapter 11 before trusting any plan in this one.
 
 Neither is a soundness gap. The checker has every rule it needs for this input.
 What is left is the engineering, and the roadmap says so.

@@ -940,6 +940,24 @@ impl<'e> TypeChecker<'e> {
     /// Compares two terms, and asks no cache.
     fn is_def_eq_uncached(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
         self.spend()?;
+        // **Compare before you unfold.**
+        //
+        // `whnf` below unfolds the head of each side, and δ on a definition can
+        // replace a small term with an enormous one. But two terms with the
+        // same head and equal arguments are equal by congruence, and finding
+        // that out costs only the arguments.
+        //
+        // `Nat.div x y ≡ Nat.div x y` is the shape, and the Lean prelude is
+        // full of it. The old order unfolded `Nat.div` on both sides first, so
+        // one theorem of character validity asked for more than 32 **billion**
+        // units of work. Lean's kernel asks this question first for the same
+        // reason.
+        //
+        // A `false` answer proves nothing, so it falls through to the full
+        // comparison below. Only a `true` answer is a decision.
+        if self.spine_eq(a, b)? {
+            return Ok(true);
+        }
         let a = self.whnf(a)?;
         let b = self.whnf(b)?;
         if a.alpha_eq(&b) {
