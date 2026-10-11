@@ -221,6 +221,16 @@ fn mix(state: u64, value: u64) -> u64 {
     (state ^ value).wrapping_mul(0x0000_0100_0000_01b3)
 }
 
+/// Combines two hashes into one, for a cache whose key is a pair of terms.
+///
+/// The result depends on the order, which is right: [`TypeChecker::is_def_eq`]
+/// stores the two sides as it received them.
+///
+/// [`TypeChecker::is_def_eq`]: crate::typeck::TypeChecker::is_def_eq
+pub fn mix_hashes(first: u64, second: u64) -> u64 {
+    mix(mix(0xcbf2_9ce4_8422_2325, first), second)
+}
+
 /// Hashes a name by its last part and its length, and allocates nothing.
 fn hash_name(name: &Name) -> u64 {
     let mut state = mix(0xcbf2_9ce4_8422_2325, name.len() as u64);

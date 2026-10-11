@@ -184,18 +184,54 @@ attempting less.** Read it with the checked count or do not read it.
 
 ---
 
-## 10.6 What the cache bought
+## 10.6 The same cache on `is_def_eq`
+
+`whnf` is not the only place the checker answers the same question twice.
+`is_def_eq` is called on the same pair of terms again and again while one
+well-founded definition unfolds, and it starts from nothing every time.
+
+The cache is the same shape, with the key built from both sides:
+
+```rust
+let key = mix_hashes(a.hash_value(), b.hash_value());
+```
+
+and a hit confirmed against **both** questions:
+
+```rust
+.find(|(left, right, _)| left.alpha_eq(a) && right.alpha_eq(b))
+```
+
+Two differences from the `whnf` cache are worth naming.
+
+1. **A negative answer is kept.** `Ok(false)` means "these two are not equal",
+   and that is a decision worth remembering. A comparison that ran out of
+   budget returns `Err` instead, and no error is ever kept: it says nothing
+   about the terms, only about the budget that was left. If the kernel kept it,
+   one declaration with a small budget would poison every later comparison.
+2. **There is no size threshold.** `is_def_eq` already has a cheap test in
+   front of the cache, which is `alpha_eq` on the two terms as they arrived.
+   Past that test the work is unbounded, so every answer is worth keeping
+   whatever the size.
+
+Tests: `a_negative_answer_is_remembered_too`,
+`a_comparison_that_ran_out_of_budget_is_not_remembered`.
+
+---
+
+## 10.7 What the caches bought
 
 | | checked | failed | blocked | time |
 |---|---|---|---|---|
 | chapter 9 ended at | 33,862 | 650 | 23,000 | 163 s |
-| with the cache | **34,419** | 683 | 22,410 | **172 s** |
+| a cache on `whnf` | 34,419 | 683 | 22,410 | 172 s |
+| a cache on `is_def_eq` too | **35,115** | 684 | 21,713 | **190 s** |
 
-590 declarations moved out of **blocked**, and 557 of them passed. The cost is
-about 9 seconds, which is the hash in every node plus the lookups.
+1,287 declarations moved out of **blocked**, and 1,253 of them passed. The cost
+is 27 seconds, which is the hash in every node plus the lookups.
 
-The failure count rose by 33, and §10.5 is why that is not a regression. Those
-33 were blocked before. The checker had never asked them a question, so they
+The failure count rose by 34, and §10.5 is why that is not a regression. Those
+34 were blocked before. The checker had never asked them a question, so they
 could not fail. Now it asks, and they run out of budget like their 642
 relatives.
 
@@ -203,14 +239,14 @@ Every failure is still one of the two kinds chapter 9 named:
 
 | kind | count |
 |---|---|
-| out of budget | 675 |
+| out of budget | 676 |
 | unknown constant, from one rejected constructor | 8 |
 
 So the checker still refuses no correct Lean on this input for want of a rule.
 
 ---
 
-## 10.7 The honest summary of three chapters of speed
+## 10.8 The honest summary of three chapters of speed
 
 Four changes, each measured, each with a different lesson:
 
@@ -221,21 +257,21 @@ Four changes, each measured, each with a different lesson:
 | cheap test before `infer_type` | 185 s → 171 s | a new rule has a cost, and the profile names it |
 | `Name::two_parts` | 171 s → 163 s | do not allocate inside the loop |
 | cache `whnf` | **+557 declarations**, 163 s → 172 s | the first one that moved the real number |
+| cache `is_def_eq` | **+696 declarations**, 172 s → 190 s | the same idea pays twice |
 
-Only the last one moved the number the project reports, and it is the only one
-that made the **work smaller** rather than the same work faster.
+Only the last two moved the number the project reports, and they are the only
+two that made the **work smaller** rather than the same work faster.
 
 ---
 
-## 10.8 What is left
+## 10.9 What is left
 
-**675 declarations out of budget.** Still well-founded recursion, and still the
+**676 declarations out of budget.** Still well-founded recursion, and still the
 whole gap.
 
-The next cache is `is_def_eq`, keyed the same way and confirmed the same way.
-After that the deeper change: our `whnf` is **eager**, and it rebuilds a whole
-term for each step. Lean's is lazy, and that is why `drop_slow` sits at the top
-of our profile and not of theirs.
+Both caches are in, so what remains is the deeper change: our `whnf` is
+**eager**, and it rebuilds a whole term for each step. Lean's is lazy, and that
+is why `drop_slow` sat at the top of our profile and not of theirs.
 
 Neither is a soundness gap. The checker has every rule it needs for this input.
 What is left is the engineering, and the roadmap says so.

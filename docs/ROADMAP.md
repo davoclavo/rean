@@ -181,10 +181,10 @@ JSON key order also varies between lines, so the reader must not depend on it.
 The checker now runs the **whole Lean prelude** and finishes.
 
 ```
-level 1: checked 34419 of 57512 declarations (683 failed, 22410 blocked)
+level 1: checked 35115 of 57512 declarations (684 failed, 21713 blocked)
 trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
-real 172s
+real 190s
 ```
 
 Getting there took three measurements and one wrong guess.
@@ -251,39 +251,40 @@ bought. The summary:
 | three structure rules | 33,855 | 185 s |
 | a cheap guard before `infer_type` | 33,862 | 171 s |
 | a name compared without a `String` | 33,862 | 163 s |
-| a cache on `whnf` | **34,419** | **172 s** |
+| a cache on `whnf` | 34,419 | 172 s |
+| a cache on `is_def_eq` | **35,115** | **190 s** |
 
 Read the first three rows together. The `loose` and `size` caches moved the
 **time** and not the **count**, because the budget is charged by work and a
 faster kernel does the same work faster. That is worth reading twice before
 trusting any performance claim.
 
-The last row is the one that moved the count, and it is the only change of the
-five that made the work **smaller** rather than quicker.
+The last two rows are the ones that moved the count, and they are the only
+changes of the six that made the work **smaller** rather than quicker.
 
 Raising the budget then found a third fault that had nothing to do with either:
 a **stack overflow**. The kernel recurses over terms, a reduced term can be very
 deep, and 8 MB of main thread stack is not enough. The checker now runs on a
 thread with 512 MB, as `rustc` does.
 
-Of the 683 failures that remain, **675 are out of budget** —
+Of the 684 failures that remain, **676 are out of budget** —
 `WellFounded.Nat.fix_eq`, `Nat.modCore_eq_mod`, and their relatives, all well
 founded recursion. The other 8 are one cascade from a single rejected
 constructor, and not a gap in the rules.
 
-The cache is now **done**, and it is the first change of the three that moved
-the declaration count rather than only the time. It took 590 declarations out of
-`blocked`, and 557 of those passed. Chapter 10 reports it, including the
-threshold sweep and the one rule that keeps a cache in a proof checker honest:
-a hash **finds** an answer, and `alpha_eq` **decides** whether to trust it,
-because two terms can share a hash and a checker may not be probably right.
+Both caches are now **done**, and they are the first changes that moved the
+declaration count rather than only the time. Together they took 1,287
+declarations out of `blocked`, and 1,253 of those passed. Chapter 10 reports
+them, including the threshold sweep and the one rule that keeps a cache in a
+proof checker honest: a hash **finds** an answer, and `alpha_eq` **decides**
+whether to trust it, because two terms can share a hash and a checker may not be
+probably right.
 
-So the items left are:
+So one item is left, and it is a change of shape rather than a cache:
 
-- **Cache `is_def_eq`**, keyed the same way and confirmed the same way.
-- Then the deeper change: our `whnf` is **eager** and rebuilds a whole term for
-  each step, which is why `drop_slow` sits at the top of our profile and not of
-  Lean's. Lean's `whnf` is lazy.
+- Our `whnf` is **eager** and rebuilds a whole term for each step, which is why
+  `drop_slow` sat at the top of our profile and not of Lean's. Lean's `whnf` is
+  lazy.
 
 A bigger budget is not the fix. Five times the number bought three declarations.
 
@@ -297,11 +298,11 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   34419 of 57512 of the Lean prelude, in 172 s
+          and                   35115 of 57512 of the Lean prelude, in 190 s
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     409
+tests     411
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name

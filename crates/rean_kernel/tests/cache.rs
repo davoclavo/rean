@@ -5,8 +5,8 @@
 
 use rean_core::Name;
 use rean_kernel::{
-    Declaration, DefinitionSafety, DefinitionVal, Environment, Expr, Level, ReducibilityHints,
-    TypeChecker,
+    AxiomVal, Declaration, DefinitionSafety, DefinitionVal, Environment, Expr, Level,
+    ReducibilityHints, TypeChecker,
 };
 
 /// The invariant a hash must keep: equal terms hash equally.
@@ -92,6 +92,14 @@ fn a_different_term_usually_hashes_differently() {
 /// An environment with `D := Nat`, so that δ has something to unfold.
 fn with_a_definition() -> Environment {
     let mut env = Environment::new();
+    for name in ["Nat", "Int"] {
+        env.add(Declaration::Axiom(AxiomVal {
+            name: Name::from_dotted(name),
+            level_params: Vec::new(),
+            ty: Expr::type_(0),
+            is_unsafe: false,
+        }));
+    }
     env.add(Declaration::Definition(DefinitionVal {
         name: Name::from_dotted("D"),
         all: vec![Name::from_dotted("D")],
@@ -149,4 +157,40 @@ fn a_cached_answer_does_not_outlive_its_declaration() {
     });
     tc.check_declaration(&decl).unwrap();
     assert_eq!(tc.whnf(&term).unwrap().pretty(), "Nat D D");
+}
+
+// --- the cache on `is_def_eq` --------------------------------------------
+
+#[test]
+fn a_negative_answer_is_remembered_too() {
+    // "These two are not equal" is a decision, so it is worth keeping. A
+    // comparison that ran out of budget returns an error instead, and §10.4
+    // says why no error may be kept.
+    let env = with_a_definition();
+    let mut tc = TypeChecker::new(&env);
+    let nat = Expr::const_("Nat", vec![]);
+    let int = Expr::const_("Int", vec![]);
+    assert!(!tc.is_def_eq(&nat, &int).unwrap());
+    // The second call reads the cache and must say the same.
+    assert!(!tc.is_def_eq(&nat, &int).unwrap());
+    // And a true answer is still true.
+    assert!(tc.is_def_eq(&Expr::const_("D", vec![]), &nat).unwrap());
+    assert!(tc.is_def_eq(&Expr::const_("D", vec![]), &nat).unwrap());
+}
+
+#[test]
+fn a_comparison_that_ran_out_of_budget_is_not_remembered() {
+    // An error is not an answer. If the kernel kept it, a declaration with a
+    // small budget would poison the cache for every later comparison.
+    let env = with_a_definition();
+    let mut tc = TypeChecker::new(&env);
+    let d = Expr::const_("D", vec![]);
+    let nat = Expr::const_("Nat", vec![]);
+    tc.set_fuel(0);
+    assert!(tc.is_def_eq(&d, &nat).is_err(), "no budget, so no answer");
+    tc.set_fuel(1_000_000);
+    assert!(
+        tc.is_def_eq(&d, &nat).unwrap(),
+        "`D` unfolds to `Nat`, so the two are equal"
+    );
 }

@@ -34,7 +34,7 @@
 use crate::environment::{
     ConstructorVal, Declaration, Environment, InductiveVal, QuotKind, RecursorRule, RecursorVal,
 };
-use crate::expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj, Sub};
+use crate::expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj, Sub, mix_hashes};
 use crate::level::Level;
 use crate::local::LocalContext;
 use crate::nat_lit::{self, NatShape};
@@ -344,6 +344,15 @@ pub struct TypeChecker<'e> {
     /// lookup compares the question with [`Expr::alpha_eq`] before it trusts
     /// the answer. A proof checker may not be probably right.
     whnf_cache: HashMap<u64, Vec<(Expr, Expr)>>,
+    /// Answers that [`Self::is_def_eq`] already found.
+    ///
+    /// The same discipline as [`Self::whnf_cache`]. The key mixes the hash of
+    /// both sides, and a hit is confirmed against both questions.
+    ///
+    /// A **negative** answer is cached as well as a positive one. `Ok(false)`
+    /// means the two terms are not equal, which is a decision; a comparison
+    /// that ran out of budget returns `Err` instead, and no error is cached.
+    def_eq_cache: HashMap<u64, Vec<(Expr, Expr, bool)>>,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -366,6 +375,7 @@ impl<'e> TypeChecker<'e> {
             fuel: FUEL,
             budget: FUEL,
             whnf_cache: HashMap::new(),
+            def_eq_cache: HashMap::new(),
         }
     }
 
@@ -386,11 +396,11 @@ impl<'e> TypeChecker<'e> {
     pub fn with_group<R>(&mut self, group: &[Declaration], body: impl FnOnce(&mut Self) -> R) -> R {
         // δ reads the declarations under check, so an answer from before this
         // group may rest on a different set of them.
-        self.whnf_cache.clear();
+        self.clear_caches();
         let saved = std::mem::replace(&mut self.pending, group.to_vec());
         let out = body(self);
         self.pending = saved;
-        self.whnf_cache.clear();
+        self.clear_caches();
         out
     }
 
@@ -897,6 +907,40 @@ impl<'e> TypeChecker<'e> {
         if a.alpha_eq(b) {
             return Ok(true);
         }
+        // Past that test the work can be unbounded, so the answer is worth
+        // keeping whatever the size of the two terms. See chapter 10.
+        let key = mix_hashes(a.hash_value(), b.hash_value());
+        if let Some(bucket) = self.def_eq_cache.get(&key)
+            && let Some((.., answer)) = bucket
+                .iter()
+                .find(|(left, right, _)| left.alpha_eq(a) && right.alpha_eq(b))
+        {
+            return Ok(*answer);
+        }
+        let answer = self.is_def_eq_uncached(a, b)?;
+        self.remember_def_eq(key, a, b, answer);
+        Ok(answer)
+    }
+
+    /// Clears every cache. See [`Self::whnf_cache`].
+    fn clear_caches(&mut self) {
+        self.whnf_cache.clear();
+        self.def_eq_cache.clear();
+    }
+
+    /// Stores one answer of [`Self::is_def_eq`].
+    fn remember_def_eq(&mut self, key: u64, a: &Expr, b: &Expr, answer: bool) {
+        if self.def_eq_cache.len() >= CACHE_CAP {
+            self.def_eq_cache.clear();
+        }
+        self.def_eq_cache
+            .entry(key)
+            .or_default()
+            .push((a.clone(), b.clone(), answer));
+    }
+
+    /// Compares two terms, and asks no cache.
+    fn is_def_eq_uncached(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
         self.spend()?;
         let a = self.whnf(a)?;
         let b = self.whnf(b)?;
@@ -2322,9 +2366,10 @@ impl<'e> TypeChecker<'e> {
         // Every declaration gets the whole budget, so one heavy neighbour does
         // not starve the rest of the file.
         self.fuel = self.budget;
-        // And a fresh cache. An answer about a free variable of the last
+        // And fresh caches. An answer about a free variable of the last
         // declaration means nothing here.
         self.whnf_cache.clear();
+        self.def_eq_cache.clear();
         if self.env.contains(decl.name()) {
             return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }
