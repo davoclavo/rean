@@ -178,11 +178,18 @@ JSON key order also varies between lines, so the reader must not depend on it.
 
 ## Speed, measured
 
-The two committed fixtures check in well under a second. A 340 MB export of the
-whole Lean prelude, 57,512 declarations, runs at about **750 declarations a
-minute**, so a full pass is over an hour rather than minutes.
+The checker now runs the **whole Lean prelude** and finishes.
 
-A profile named the cost precisely, and it was not where anyone would guess:
+```
+level 1: checked 33539 of 57512 declarations (742 failed, 23231 blocked)
+trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
+                   Lean.trustCompiler, Quot.sound, propext, sorryAx
+real 198s
+```
+
+Getting there took three measurements and one wrong guess.
+
+### What the profile said, and what it did not
 
 | Frame | Before | After |
 |---|---|---|
@@ -193,31 +200,69 @@ A profile named the cost precisely, and it was not where anyone would guess:
 Substitution rebuilt every node of every subterm, even where nothing changed,
 and then dropped the lot. `instantiate_at`, `lift` and `abstract_fvar` now
 return `None` for "nothing changed", so an unchanged subterm keeps its existing
-`Arc` and costs one reference count bump. That removed the dominant frame.
+`Arc` and costs one reference count bump.
 
-What is left is `instantiate_at`'s **traversal**: it still walks a subterm to
-discover that nothing changed. The principled fix is the one Lean uses, and it
-is a real refactor rather than a tweak:
+Then I guessed. `instantiate` lifts the substituted value once **per
+occurrence**, so I made it compute "is this value closed" up front and skip the
+lift. That is a real quadratic in theory and it was not the one being paid: the
+profile had `lift_opt` at 4,790 against `instantiate_at` at 41,436. The change
+took a 487 declaration slice from under a second to **88 seconds**, because the
+up front check costs the size of the value on every call while the lift it
+replaced was already free at depth zero.
+
+**Measure the thing you are about to change, not the thing next to it.**
+
+### Fuel must pay for work, not for steps
+
+A budget of two million steps still let one `BitVec` theorem reduce for minutes.
+The reason is that an ι step **makes the term larger**, so one step can cost
+unboundedly much. A budget that counts steps does not bound anything.
+
+So a step is now charged the size of the term it produced, and
+[`Expr::size_up_to`] caps that count, because an `Expr` shares its subterms and
+counting every node of the tree would be the very blow up this measures.
+
+The budget itself comes from a sweep, not from taste:
+
+| budget | the 487 slice | the prelude | time |
+|---|---|---|---|
+| 2 million | 465 of 487 | 31,426 | 115 s |
+| **20 million** | **483 of 487** | **33,539** | **196 s** |
+| 200 million | 483 of 487 | did not finish | |
+
+`REAN_FUEL` overrides it, so a reader can see for themselves what a smaller one
+gives up.
+
+One bug in that sweep is worth recording: the first run of it reported
+**identical** numbers for every budget, because `check_declaration` reset the
+fuel to the constant and overwrote the override. A sweep that cannot move its
+own variable measures nothing, and three equal rows should have been the clue.
+
+### What is left, and the honest fix
+
+Of 742 failures, **565 are out of budget** — `WellFounded.Nat.fix_eq`,
+`Nat.modCore_eq_mod`, and their relatives, all well founded recursion. More
+budget does not help; 200 million gave the same answer and did not finish. The
+work itself has to get cheaper, and the two ways are the ones Lean uses:
 
 - **Cache the loose bound variable range in every node.** Then substitution
-  skips a closed subterm without walking it at all.
-- **Cache the result of `is_def_eq`.** Two large terms share subterms, and
-  without a memo those get compared again and again.
+  skips a closed subterm without walking it. `instantiate_at` is the top frame
+  and this removes most of it.
+- **Cache the result of `is_def_eq`.** Large terms share subterms, and without a
+  memo those get compared again and again.
 
-Until then the checker carries **fuel**: each reduction step and each
-comparison spends a unit, the budget resets per declaration, and a declaration
-that runs out is reported as unchecked. So the checker can never hang. At a
-budget of forty million, three of the first 3,202 prelude declarations ran out,
-all of them theorems about division that reduce through well founded recursion.
+Both change every `Expr` construction site, so they are a chapter of work rather
+than a patch.
 
-## The one number
+## The one number## The one number
 
 Each level reports one number. Put all three in the README and move them up.
 
 ```
-level 1   our kernel checks        32 of 32 declarations   <- as of 2026-10-10
-level 2   our elaborator inhabits   0 of 32 types          <- needs a parser
-level 3   our term matches Lean's    0 of 32 terms
+level 1   our kernel checks        95 of 95 on the two committed fixtures
+          and                   33539 of 57512 of the Lean prelude, in 198 s
+level 2   our elaborator inhabits     0 types              <- needs a parser
+level 3   our term matches Lean's     0 terms
 
 tests     375
 coverage  95.1% of regions, 96.7% of lines   (devbox run coverage)

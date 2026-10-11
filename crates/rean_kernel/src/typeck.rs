@@ -54,7 +54,12 @@ use std::sync::Arc;
 /// the main one. It is generous because a real declaration can need it: a
 /// theorem of the Lean prelude about character validity reduces through more
 /// than a hundred thousand steps and is perfectly correct.
-const REDUCTION_LIMIT: u32 = 10_000_000;
+const REDUCTION_LIMIT: u32 = 100_000;
+
+/// How much of a term one reduction step may be charged for.
+///
+/// See [`Expr::size_up_to`] for why the count has a cap at all.
+const SIZE_CAP: u32 = 100_000;
 
 /// How much work one declaration may take.
 ///
@@ -73,7 +78,7 @@ const REDUCTION_LIMIT: u32 = 10_000_000;
 /// loose bound variable range in every node so substitution can skip a closed
 /// subterm without walking it, and cache the result of a comparison. Both are
 /// in the roadmap.
-const FUEL: u64 = 40_000_000;
+const FUEL: u64 = 20_000_000;
 
 /// Why a term failed to check.
 ///
@@ -312,8 +317,10 @@ pub struct TypeChecker<'e> {
     /// make sense together. The export format puts a whole mutual group on one
     /// line for exactly this reason.
     pending: Vec<Declaration>,
-    /// What is left of the work budget. See [`FUEL`].
+    /// What is left of the work budget for the declaration under check.
     fuel: u64,
+    /// The budget that each declaration starts with. See [`FUEL`].
+    budget: u64,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -323,6 +330,7 @@ impl<'e> TypeChecker<'e> {
     /// heavy declaration costs seconds rather than minutes. A smaller budget
     /// reports more declarations as unchecked, which is the honest trade.
     pub fn set_fuel(&mut self, fuel: u64) {
+        self.budget = fuel;
         self.fuel = fuel;
     }
 
@@ -333,6 +341,7 @@ impl<'e> TypeChecker<'e> {
             lctx: LocalContext::new(),
             pending: Vec::new(),
             fuel: FUEL,
+            budget: FUEL,
         }
     }
 
@@ -359,12 +368,20 @@ impl<'e> TypeChecker<'e> {
 
     /// Spends one unit of the work budget.
     fn spend(&mut self) -> TypeResult<()> {
-        match self.fuel.checked_sub(1) {
+        self.spend_many(1)
+    }
+
+    /// Spends `units` of the work budget.
+    fn spend_many(&mut self, units: u32) -> TypeResult<()> {
+        match self.fuel.checked_sub(u64::from(units)) {
             Some(left) => {
                 self.fuel = left;
                 Ok(())
             }
-            None => Err(TypeError::OutOfFuel),
+            None => {
+                self.fuel = 0;
+                Err(TypeError::OutOfFuel)
+            }
         }
     }
 
@@ -392,11 +409,21 @@ impl<'e> TypeChecker<'e> {
     pub fn whnf(&mut self, e: &Expr) -> TypeResult<Expr> {
         let mut current = e.clone();
         for _ in 0..REDUCTION_LIMIT {
-            if let Some(next) = self.whnf_step(&current)? {
-                current = next;
-                continue;
+            match self.whnf_step(&current)? {
+                Some(next) => {
+                    // A step can make the term larger, and the ι rule often
+                    // does. So the budget pays for the **size of what the step
+                    // produced**, not merely for the step.
+                    //
+                    // Counting steps alone makes the budget meaningless: one
+                    // `BitVec` theorem of the Lean prelude reduced for minutes
+                    // inside a budget of two million steps, because every step
+                    // substituted a bigger term than the last.
+                    self.spend_many(next.size_up_to(SIZE_CAP))?;
+                    current = next;
+                }
+                None => return Ok(current),
             }
-            return Ok(current);
         }
         Err(TypeError::ReductionLimit)
     }
@@ -2051,7 +2078,7 @@ impl<'e> TypeChecker<'e> {
     pub fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
         // Every declaration gets the whole budget, so one heavy neighbour does
         // not starve the rest of the file.
-        self.fuel = FUEL;
+        self.fuel = self.budget;
         if self.env.contains(decl.name()) {
             return Err(TypeError::DuplicateDeclaration(decl.name().clone()));
         }

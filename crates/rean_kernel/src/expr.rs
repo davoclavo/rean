@@ -234,6 +234,55 @@ impl Expr {
         (head, args)
     }
 
+    /// Counts the nodes of `self`, and stops at `limit`.
+    ///
+    /// A reduction step can make a term **larger**, so a budget that counts
+    /// steps does not bound the work. Charging a step by the size of what it
+    /// produced does.
+    ///
+    /// The count stops at `limit` for a reason. An `Expr` shares its subterms
+    /// through [`Arc`], so a term that is small in memory can be enormous as a
+    /// tree, and counting every node of it would be the very blow up this is
+    /// meant to measure.
+    pub fn size_up_to(&self, limit: u32) -> u32 {
+        fn walk(e: &Expr, limit: u32, seen: &mut u32) {
+            if *seen >= limit {
+                return;
+            }
+            *seen += 1;
+            match e {
+                Expr::App { fun, arg } => {
+                    walk(fun, limit, seen);
+                    walk(arg, limit, seen);
+                }
+                Expr::Lam {
+                    binder_type, body, ..
+                }
+                | Expr::Forall {
+                    binder_type, body, ..
+                } => {
+                    walk(binder_type, limit, seen);
+                    walk(body, limit, seen);
+                }
+                Expr::Let {
+                    binder_type,
+                    value,
+                    body,
+                    ..
+                } => {
+                    walk(binder_type, limit, seen);
+                    walk(value, limit, seen);
+                    walk(body, limit, seen);
+                }
+                Expr::Proj(proj) => walk(&proj.value, limit, seen),
+                _ => {}
+            }
+        }
+        let mut seen = 0;
+        walk(self, limit, &mut seen);
+        seen
+    }
+
     /// Returns `true` if a bound variable in `self` points outside `self`.
     ///
     /// A closed term has no loose variable. The kernel only accepts closed

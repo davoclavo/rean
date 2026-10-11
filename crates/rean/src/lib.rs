@@ -221,6 +221,9 @@ pub fn check_export_streaming(
                 Some(blocker) => Verdict::Blocked(format!("`{blocker}` did not check")),
                 None => {
                     let mut tc = TypeChecker::new(&known);
+                    if let Some(fuel) = fuel_from_env() {
+                        tc.set_fuel(fuel);
+                    }
                     let outcome = tc.with_group(&decls, |tc| {
                         tc.check_declaration(decl)
                             .map_err(|err| err.render(tc.lctx()))
@@ -470,4 +473,13 @@ pub fn demo() -> String {
         Expr::sort(Level::param("u").succ()).pretty()
     );
     out
+}
+
+/// Reads a work budget from `REAN_FUEL`, if it is set.
+///
+/// The default lives in `rean_kernel`. This override exists so that a budget
+/// can be chosen by measurement over a real file rather than by taste, and so
+/// that a reader can see for themselves what a smaller one gives up.
+fn fuel_from_env() -> Option<u64> {
+    std::env::var("REAN_FUEL").ok()?.parse().ok()
 }

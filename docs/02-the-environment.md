@@ -167,17 +167,42 @@ earlier field and substitutes it in.
 
 ```rust
 fn eta_eq(&mut self, lam: &Expr, other: &Expr) -> TypeResult<bool> {
-    let Expr::Lam { body, .. } = lam else { return Ok(false) };
+    let Expr::Lam { binder_name, binder_type, body, .. } = lam else { return Ok(false) };
     if matches!(other, Expr::Lam { .. }) { return Ok(false) }
-    let applied = other.lift(0, 1).app(Expr::bvar(0));
-    self.is_def_eq(body, &applied)
+    // Open the binder, then compare `body` with `other x`.
+    let id = self.lctx.push(binder_name.clone(), (**binder_type).clone());
+    let opened = body.instantiate(&Expr::FVar(id));
+    let applied = other.clone().app(Expr::FVar(id));
+    let same = self.is_def_eq(&opened, &applied);
+    self.lctx.pop();
+    same
 }
 ```
 
-`fun x => f x` and `f` are the same function. The `lift` is there because the
-built term sits under one new binder. That is chapter 0, section 0.5 again.
+`fun x => f x` and `f` are the same function. `is_def_eq` tries it in both
+directions, since either side may be the lambda.
 
-`is_def_eq` tries it in both directions, since either side may be the lambda.
+### Why it opens the binder
+
+The first version of this method stayed in de Bruijn:
+
+```rust
+let applied = other.lift(0, 1).app(Expr::bvar(0));
+self.is_def_eq(body, &applied)
+```
+
+That is correct about the shapes, and it leaves **both sides open**. So nothing
+inside the comparison can ask for a type, and proof irrelevance needs a type.
+
+It cost a real theorem. `Option.pbind_join` of the Lean prelude is eta on a
+dependent function whose second argument matches **only** because all proofs of
+one proposition are equal. With both sides open, proof irrelevance declined and
+a correct term was refused.
+
+This is the third time the same lesson has come up in this project, and it is
+worth saying once more. **A free variable is not only an optimisation. It is
+what keeps a term closed, and a closed term is what lets a later step ask for
+its type.** Section 2.7 found it first.
 
 ---
 
