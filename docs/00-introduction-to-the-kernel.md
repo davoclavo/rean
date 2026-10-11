@@ -924,20 +924,39 @@ The environment is a map from `Name` to one of these:
 | `inductive` | constructors | a type, the constructors, a recursor, and the ι rule |
 
 Lean adds one more primitive that you cannot build from the list above:
-**quotient types**. The kernel knows four constants and one computation rule for
-them. `Quot` lets you build the rationals out of pairs of integers.
+**quotient types**. The kernel knows four constants, `Quot`, `Quot.mk`,
+`Quot.lift` and `Quot.ind`, and a computation rule for each of the last two.
+`Quot` lets you build the rationals out of pairs of integers.
 
-### Layer 4: three trusted axioms
+### Layer 4: the trusted axioms
 
 These are not kernel primitives. They are `axiom` declarations in the library.
-They are still where real trust sits:
+They are still where real trust sits, because an axiom is the one thing the
+kernel does not check.
+
+Three are the mathematical ones:
 
 - `propext` — if two propositions imply each other, they are equal.
 - `Quot.sound` — two equivalent elements have the same quotient.
-- `Classical.choice` — you can pick an element out of a non-empty type.
+- `Classical.choice` — you can pick an element out of a non-empty type. This is
+  what gives Lean the law of the excluded middle.
 
-`Classical.choice` is what gives Lean the law of the excluded middle. The command
-`#print axioms myTheorem` lists which of the three a theorem uses.
+And the real Lean prelude holds four more. This chapter said "three" until we
+ran the checker over the prelude and the trust report printed them all:
+
+```
+trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
+                   Lean.trustCompiler, Quot.sound, propext, sorryAx
+```
+
+- `sorryAx` — what `sorry` becomes. A proof that reaches it is not a proof, and
+  this is why a report that names the axioms matters.
+- `Lean.ofReduceBool`, `Lean.ofReduceNat`, `Lean.trustCompiler` — these trust
+  the compiler's own evaluation rather than the kernel's. `native_decide` uses
+  them, and a proof that rests on one asks you to trust the compiler too.
+
+`#print axioms myTheorem` lists which ones a theorem uses. Chapter 6 adds the
+same report here, as `Environment::axioms_of`.
 
 ---
 
@@ -981,39 +1000,47 @@ criterion, and it is the reason the design splits the way it does.
 
 | Layer | Status |
 |---|---|
-| 0, levels | done. All five formers, with tests. |
-| 1, term formers | done. All eleven, with tests. |
-| 2, the type rules | done in chapter 1. See `infer_type`. |
-| 2, the equations | β and ζ only. No δ, no ι, no η, no proof irrelevance. |
-| 3, declarations | none. There is no `Environment`. |
-| 4, axioms | none |
+| 0, levels | done. All five formers, with a canonical normal form. |
+| 1, term formers | done. All eleven. |
+| 2, the type rules | done. See `infer_type`. |
+| 2, the equations | β, ζ, δ, ι, η, plus proof irrelevance and projection |
+| 3, declarations | done. All eight kinds, and `Quot` computes. |
+| 4, axioms | reported, by name, for every declaration |
 
-`Level::IMax` is live now. `infer_type` calls it on every `Forall`, so the
+`Level::IMax` is live. `infer_type` calls it on every `Forall`, so the
 impredicativity of section 0.10 is a running computation and not only a claim.
 
-### Chapter 1 added
+The kernel also checks what a kernel must check, and not only what a term is:
+strict positivity, the recursor shape with derived minor premises, the
+restriction on eliminating out of `Prop`, universe hygiene, one name per
+declaration, and that no safe declaration rests on an unsafe one.
 
-1. `alpha_eq`, which is `==` but which skips `binder_name`.
-2. `LocalContext`, which holds `Γ` and opens a binder into an `FVar`.
-3. `infer_type` for the rules of section 0.6.
-4. `is_def_eq` and `whnf`, with the β and ζ equations.
-
-See [chapter 1](01-the-type-checker.md). Run it:
+### The scoreboard
 
 ```sh
-devbox run -- cargo run -p rean -- prove
+devbox run -- cargo run -p rean -- check fixtures/lean4export/shapes.ndjson
 ```
 
-It checks this proof:
-
 ```
-fun (α : Prop) (h : α) => h    against    (α : Prop) → α → α
+level 1: checked 63 of 63 declarations
+trust: no accepted declaration rests on an axiom
 ```
 
-So the kernel now proves every theorem of implicational logic: the identity, the
-K combinator, the S combinator, and transitivity of implication. It still says
-nothing about `Nat`, `=`, `∧`, or `∨`. Those need the environment and inductive
-types, and chapter 2 adds both.
+Two fixtures, 95 declarations of real Lean, every one checked. See
+[the roadmap](ROADMAP.md) for what is still missing, and
+[chapter 7](07-mutual-and-nested.md) section 7.5 for the inventory.
+
+### Where to read next
+
+| Chapter | What it adds |
+|---|---|
+| [1](01-the-type-checker.md) | `infer_type`, `is_def_eq`, `whnf`. The first real proof. |
+| [2](02-the-environment.md) | the environment, and the rest of the reduction rules |
+| [3](03-the-ground-truth.md) | reading a real Lean export file |
+| [4](04-making-it-work.md) | `Nat` literals, K-like ι, quotients, positivity, coverage |
+| [5](05-what-a-checker-must-check.md) | the red team. It accepted a proof of `False`. |
+| [6](06-what-a-theorem-rests-on.md) | derived premises, the axiom report, unsafe isolation |
+| [7](07-mutual-and-nested.md) | mutual groups, nesting, field universes |
 
 ---
 

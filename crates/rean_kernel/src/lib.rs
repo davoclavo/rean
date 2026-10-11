@@ -4,7 +4,8 @@
 //!
 //! - `rean_syntax::Syntax` is what the user wrote. It keeps every bracket, it
 //!   has one node kind for every notation, and a user can add new kinds.
-//! - [`Expr`] is what the type checker reads. It has ten variants and no more.
+//! - [`Expr`] is what the type checker reads. It has eleven variants and no
+//!   more.
 //!   A user cannot add a variant.
 //!
 //! The elaborator turns the first into the second. It resolves names, it fills
