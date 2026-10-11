@@ -8,6 +8,8 @@ use rean_core::{DiagnosticBag, SourceMap};
 use rean_kernel::{Declaration, Environment, Expr, Level, TypeChecker};
 use rean_lexer::{TokenKind, TokenTable, tokenize};
 use rean_syntax::{Syntax, kind};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 pub const USAGE: &str = "\
 rean - a Lean compiler in Rust
@@ -190,8 +192,13 @@ pub fn check_export_streaming(
         rean_export::read_module(path).map_err(|err| format!("cannot read {path}: {err}"))?;
 
     let mut known = Environment::new();
-    let mut rejected: Vec<rean_core::Name> = Vec::new();
+    // A set and not a list. `rejected.contains` runs for every dependency of
+    // every declaration, and a list made that a walk of every failure so far.
+    let mut rejected: HashSet<rean_core::Name> = HashSet::new();
     let mut outcomes = Vec::new();
+    // The axioms that each accepted declaration rests on, built as the file is
+    // read. See `axioms_of_group` for why that order is enough.
+    let mut rests_on: HashMap<rean_core::Name, Arc<[rean_core::Name]>> = HashMap::new();
 
     // Walk the file one line at a time. One line can declare a whole mutual
     // group, and the members of a group refer to each other, so the checker
@@ -213,7 +220,7 @@ pub fn check_export_streaming(
                 };
                 report(&lost);
                 outcomes.push(lost);
-                rejected.push(name.clone());
+                rejected.insert(name.clone());
                 continue;
             };
 
@@ -245,7 +252,7 @@ pub fn check_export_streaming(
                 }
             };
             if !matches!(verdict, Verdict::Ok) {
-                rejected.push(name.clone());
+                rejected.insert(name.clone());
             }
             let outcome = DeclOutcome {
                 name: name.to_string(),
@@ -259,7 +266,9 @@ pub fn check_export_streaming(
 
         // Only a declaration that checks goes into the environment. A bogus
         // one would prove anything that uses it.
+        let group_axioms = axioms_of_group(&accepted, &rests_on);
         for decl in accepted {
+            rests_on.insert(decl.name().clone(), Arc::clone(&group_axioms));
             known.add(decl);
         }
     }
@@ -267,12 +276,10 @@ pub fn check_export_streaming(
     // The trust report asks the environment of accepted declarations only, so
     // a refused axiom is never named as something we rest on.
     for outcome in &mut outcomes {
-        if outcome.verdict == Verdict::Ok {
-            outcome.axioms = known
-                .axioms_of(&rean_core::Name::from_dotted(&outcome.name))
-                .iter()
-                .map(ToString::to_string)
-                .collect();
+        if outcome.verdict == Verdict::Ok
+            && let Some(axioms) = rests_on.get(&rean_core::Name::from_dotted(&outcome.name))
+        {
+            outcome.axioms = axioms.iter().map(ToString::to_string).collect();
         }
     }
 
@@ -510,7 +517,53 @@ pub fn stack_bytes(setting: Option<&str>) -> usize {
     mib * 1024 * 1024
 }
 
-/// Reads a work budget from `REAN_FUEL`, if it is set.
+/// Returns the axioms that a whole mutual group rests on.
+///
+/// [`Environment::axioms_of`] answers the same question for one declaration by
+/// walking its entire transitive closure. That is the right definition and the
+/// wrong algorithm to call 48,804 times: it re-walks the term of every
+/// declaration it meets, once per caller, and on the Lean prelude the **report**
+/// then cost more than the check. A profile of the run that would not finish
+/// showed `Expr::collect_constants` all the way down.
+///
+/// The export is **topologically ordered**, so every dependency outside this
+/// group is already answered. The answer here is therefore the union of those
+/// answers, plus any member of this group that is itself an axiom. That is one
+/// pass over the file rather than one pass per declaration.
+///
+/// A whole group shares one answer, and that is correct rather than a
+/// shortcut: the members of a mutual group refer to each other, so they rest on
+/// exactly the same things.
+///
+/// A dependency that is absent contributes nothing, which matches
+/// [`Environment::axioms_of`]: a declaration the kernel refused never entered
+/// the environment, so nothing may be said to rest on it.
+fn axioms_of_group(
+    group: &[Declaration],
+    rests_on: &HashMap<rean_core::Name, Arc<[rean_core::Name]>>,
+) -> Arc<[rean_core::Name]> {
+    let mut found: HashSet<rean_core::Name> = HashSet::new();
+    let mut uses = Vec::new();
+    for decl in group {
+        if matches!(decl, Declaration::Axiom(_)) {
+            found.insert(decl.name().clone());
+        }
+        uses.clear();
+        decl.collect_dependencies(&mut uses);
+        for used in &uses {
+            if let Some(axioms) = rests_on.get(used) {
+                found.extend(axioms.iter().cloned());
+            }
+        }
+    }
+    // Sorted by name, as [`Environment::axioms_of`] does, so the report reads
+    // the same whichever way it was computed.
+    let mut sorted: Vec<rean_core::Name> = found.into_iter().collect();
+    sorted.sort_by_key(rean_core::Name::to_string);
+    sorted.into()
+}
+
+/// Reads a work budget from `REAN_FUEL`, if it is set./// Reads a work budget from `REAN_FUEL`, if it is set.
 ///
 /// The default lives in `rean_kernel`. This override exists so that a budget
 /// can be chosen by measurement over a real file rather than by taste, and so

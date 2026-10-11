@@ -43,10 +43,6 @@ use rean_core::Name;
 use std::collections::HashMap;
 use std::fmt;
 
-/// The largest number of reduction steps that [`TypeChecker::whnf`] will take.
-///
-/// The theory says that reduction terminates. A corrupt input file does not
-/// have to obey the theory, so the loop needs a bound.
 /// How much of a term one reduction step may be charged for.
 ///
 /// See [`Expr::size_up_to`] for why the count has a cap at all.
@@ -579,9 +575,7 @@ impl<'e> TypeChecker<'e> {
         if nat_lit::returns_bool(name) && !self.env.contains(&Name::from_dotted("Bool.true")) {
             return Ok(None);
         }
-        let left = self.whnf(&args[0])?;
-        let right = self.whnf(&args[1])?;
-        let (Some(a), Some(b)) = (nat_lit::value(&left), nat_lit::value(&right)) else {
+        let (Some(a), Some(b)) = (self.read_nat(&args[0])?, self.read_nat(&args[1])?) else {
             return Ok(None);
         };
         let Some(out) = nat_lit::binop(name, a, b) else {
@@ -589,6 +583,49 @@ impl<'e> TypeChecker<'e> {
             return Ok(None);
         };
         Ok(Some(out.apps(args[2..].iter().cloned())))
+    }
+
+    /// Reads a number out of `e`, in either of the two forms it can take.
+    ///
+    /// `2`, `Nat.succ 1` and `Nat.succ (Nat.succ Nat.zero)` are the same
+    /// number. A literal was enough for a **comparison**, because `is_def_eq`
+    /// has [`Self::nat_lit_eq`] for the other form.
+    ///
+    /// It was not enough for **computation**, and the cost was extreme. The
+    /// kernel computes `Nat.ble a b` in one step only when it can read both
+    /// numbers. Given `Nat.ble Nat.Linear.fixedVar (Nat.succ 1)` it read the
+    /// second argument as "not a number", declined, and δ then unfolded
+    /// `Nat.ble` into the structural recursion that defines it. That recursion
+    /// walks its **first** argument through `Nat.brecOn`, and
+    /// `Nat.Linear.fixedVar` is 100,000,000. So the checker counted down from a
+    /// hundred million, one `Nat.succ` at a time, to answer a comparison that
+    /// one machine instruction settles. Chapter 13 has the measurement.
+    ///
+    /// The reduction has to happen **inside** the loop. `whnf` is weak head
+    /// only, so `Nat.succ (OfNat.ofNat Nat 1 ..)` keeps an unreduced argument,
+    /// and a reader that only looked at the surface stopped one layer in.
+    ///
+    /// The loop ends because each step takes a strictly smaller term.
+    fn read_nat(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
+        let mut extra: u128 = 0;
+        let mut current = self.whnf(e)?;
+        loop {
+            if let Some(found) = nat_lit::value(&current) {
+                return Ok(found.checked_add(extra));
+            }
+            match nat_lit::shape(&current) {
+                Some(NatShape::Zero) => return Ok(Some(extra)),
+                Some(NatShape::Succ(inner)) => {
+                    let Some(next) = extra.checked_add(1) else {
+                        return Ok(None);
+                    };
+                    extra = next;
+                    let inner = inner.clone();
+                    current = self.whnf(&inner)?;
+                }
+                None => return Ok(None),
+            }
+        }
     }
 
     /// Computes a function of one string literal.

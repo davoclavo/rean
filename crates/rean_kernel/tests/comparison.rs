@@ -5,8 +5,8 @@
 
 use rean_core::Name;
 use rean_kernel::{
-    AxiomVal, Declaration, DefinitionSafety, DefinitionVal, Environment, Expr, ReducibilityHints,
-    TypeChecker, TypeError,
+    AxiomVal, ConstructorVal, Declaration, DefinitionSafety, DefinitionVal, Environment, Expr,
+    InductiveVal, ReducibilityHints, TypeChecker, TypeError,
 };
 
 /// A well-formed term of about `3 * depth` nodes.
@@ -187,4 +187,124 @@ fn two_terms_of_one_type_do_need_reduction() {
         tc.is_def_eq(&slow, &plain),
         Err(TypeError::OutOfFuel(SMALL))
     );
+}
+
+// --- reading a number in either of its two forms -------------------------
+
+/// `Nat`, its two constructors, `Bool`, and `Big : Nat` as a definition.
+///
+/// `Nat.ble` is deliberately **not** declared, so the only way to answer a
+/// comparison here is the kernel's own rule for two numbers. If the rule
+/// declines, the term is stuck, and the test sees it.
+///
+/// `Big` is a definition rather than a literal on purpose, because
+/// `Nat.Linear.fixedVar` of the Lean prelude is one too, and δ has to run
+/// before the number can be read.
+fn env_with_nat_ble(size: u128) -> Environment {
+    let mut env = Environment::new();
+    let nat = Expr::const_("Nat", vec![]);
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("Nat"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("Nat")],
+        ctors: vec![Name::from_dotted("Nat.zero"), Name::from_dotted("Nat.succ")],
+        num_nested: 0,
+        is_rec: true,
+        is_unsafe: false,
+        is_reflexive: false,
+    }));
+    env.add(Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("Nat.zero"),
+        level_params: Vec::new(),
+        ty: nat.clone(),
+        induct: Name::from_dotted("Nat"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 0,
+        is_unsafe: false,
+    }));
+    env.add(Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("Nat.succ"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(nat.clone(), nat.clone()),
+        induct: Name::from_dotted("Nat"),
+        cidx: 1,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    }));
+    for part in ["Bool.true", "Bool.false"] {
+        env.add(Declaration::Axiom(AxiomVal {
+            name: Name::from_dotted(part),
+            level_params: Vec::new(),
+            ty: Expr::const_("Bool", vec![]),
+            is_unsafe: false,
+        }));
+    }
+    // `Big` is a definition, exactly as `Nat.Linear.fixedVar` is.
+    env.add(Declaration::Definition(DefinitionVal {
+        name: Name::from_dotted("Big"),
+        all: vec![Name::from_dotted("Big")],
+        level_params: Vec::new(),
+        ty: nat,
+        value: Expr::nat(size.to_string().as_str()),
+        hints: ReducibilityHints::Regular(0),
+        safety: DefinitionSafety::Safe,
+    }));
+    env
+}
+
+#[test]
+fn a_number_is_read_through_the_constructor_form() {
+    // `Nat.ble Big (Nat.succ 1)` is a comparison of two numbers, and the kernel
+    // computes it in one step. The second argument is in **constructor** form,
+    // and a reader that accepts only a literal declines here, leaving the term
+    // stuck.
+    //
+    // In the prelude the cost of declining was far worse than a stuck term. δ
+    // unfolded the real `Nat.ble` into the structural recursion that defines
+    // it, that recursion walks its **first** argument through `Nat.brecOn`,
+    // and `Nat.Linear.fixedVar` is 100,000,000. The checker counted down from
+    // a hundred million. See chapter 13.
+    let env = env_with_nat_ble(100_000_000);
+    let mut tc = TypeChecker::new(&env);
+    tc.set_fuel(SMALL);
+    let term = Expr::const_("Nat.ble", vec![]).apps([
+        Expr::const_("Big", vec![]),
+        Expr::const_("Nat.succ", vec![]).app(Expr::nat("1")),
+    ]);
+    // 100000000 <= 2 is false.
+    assert_eq!(tc.whnf(&term).unwrap().pretty(), "Bool.false");
+}
+
+#[test]
+fn a_number_is_read_through_a_chain_of_constructors() {
+    // The chain can be more than one deep, and the innermost end can be either
+    // `Nat.zero` or a literal.
+    let env = env_with_nat_ble(2);
+    let mut tc = TypeChecker::new(&env);
+    let succ = Expr::const_("Nat.succ", vec![]);
+    let three = succ.clone().app(
+        succ.clone()
+            .app(succ.clone().app(Expr::const_("Nat.zero", vec![]))),
+    );
+    let term = Expr::const_("Nat.ble", vec![]).apps([Expr::const_("Big", vec![]), three]);
+    // 2 <= 3 is true.
+    assert_eq!(tc.whnf(&term).unwrap().pretty(), "Bool.true");
+}
+
+#[test]
+fn something_that_is_not_a_number_is_not_read_as_one() {
+    // A free variable is not a number, so the rule must decline rather than
+    // invent an answer.
+    let env = env_with_nat_ble(2);
+    let mut tc = TypeChecker::new(&env);
+    let x = Expr::FVar(tc.push_local("x", Expr::const_("Nat", vec![])));
+    let term = Expr::const_("Nat.ble", vec![]).apps([Expr::const_("Big", vec![]), x]);
+    // `Nat.ble` has no value in this environment, so the term is stuck, and
+    // being stuck is the right answer.
+    assert!(tc.whnf(&term).unwrap().alpha_eq(&term));
 }

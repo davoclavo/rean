@@ -181,10 +181,10 @@ JSON key order also varies between lines, so the reader must not depend on it.
 The checker now runs the **whole Lean prelude** and finishes.
 
 ```
-level 1: checked 39244 of 57512 declarations (115 failed, 18153 blocked)
+level 1: checked 48804 of 57512 declarations (536 failed, 8172 blocked)
 trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
-real 192s
+real 141s
 ```
 
 Getting there took three measurements and one wrong guess.
@@ -254,7 +254,8 @@ bought. The summary:
 | a cache on `whnf` | 34,419 | 172 s |
 | a cache on `is_def_eq` | 35,115 | 190 s |
 | compare before you unfold | 39,066 | 205 s |
-| **proof irrelevance first, and an `infer_type` cache** | **39,244** | **192 s** |
+| proof irrelevance first, and an `infer_type` cache | 39,244 | 192 s |
+| **read a number in constructor form, and a linear trust report** | **48,804** | **141 s** |
 
 Read the first three rows together. The `loose` and `size` caches moved the
 **time** and not the **count**, because the budget is charged by work and a
@@ -271,7 +272,7 @@ a **stack overflow**. The kernel recurses over terms, a reduced term can be very
 deep, and 8 MB of main thread stack is not enough. The checker now runs on a
 thread with 512 MB, as `rustc` does.
 
-Of the 115 failures that remain, **107 are out of budget** —
+Of the 536 failures that remain, **533 are out of budget** —
 `WellFounded.Nat.fix_eq`, `Nat.modCore_eq_mod`, and their relatives, all well
 founded recursion. The other 8 are one cascade from a single rejected
 constructor, and not a gap in the rules.
@@ -303,39 +304,39 @@ One item is left:
   `drop_slow` sat at the top of our profile and not of Lean's. Lean's `whnf` is
   lazy. This is a change to every rule.
 
-**The budget is no longer the lever.** Five times the default now buys 74
-declarations, where before chapters 11 and 12 it bought 1,094. The checker is
-work-bound, and the work is real.
+**The budget is no longer the lever.** The default budget now reaches further
+than a budget a **thousand times** larger did before chapter 13: 48,804 against
+51,504, in 141 seconds against 3 hours 44 minutes.
 
-**And the failures are not equal.** `tools/roots.py` follows every blocked
-chain to its root and counts the leaves:
+**And the failures are not equal.** `tools/roots.py` follows every blocked chain
+to its root and counts the leaves. The tail has flattened, which is itself the
+result of chapter 13:
 
 ```text
-115 failures block 18153 declarations
+536 failures block 8172 declarations
 
 blocked  root failure
-  15272  _private.Init.Prelude.0.isValidChar_UInt32
-   1810  Nat.mul_add_div._f
-    323  Lean.Grind.CommRing.Mon.revlexWF._unary._proof_2
-    221  Char.utf8Size._proof_2
+   2593  ..Nat.Bitwise.Lemmas.0.Nat.testBit_two_pow_sub_succ._proof_1_3
+    894  ..Array.Extract.0.Array.extract_eq_self_iff._proof_1_1
+    554  ..Std.PRange.instLawfulHasSizeNat._proof_2
+    488  ..Nat.Div.Lemmas.0.Nat.div_mul_self_eq_mod_sub_self._proof_1_1
 ```
 
-One declaration holds up **84%** of everything unread, and it is ninth in the
-failure list. Rank before you choose. Those four together are worth about
-17,600 declarations, which is nearly all that remains, and all four are the
-same shape of work.
+The worst root used to hold up **15,272** declarations. It now holds up 2,593,
+and no single declaration dominates. Rank before you choose, every time, because
+the ranking changes under you.
 
-Then do what chapters 11 and 12 did: take that one, cut its slice with
-`tools/slice.py`, and sweep `REAN_FUEL`. Passes at a larger budget in a second:
-the budget was the fault. Wants twenty **billion** units: the kernel is.
-`isValidChar_UInt32` is the second kind, and that is what the eager `whnf`
-costs.
+Then do what chapters 11 to 13 did: take that one, cut its slice with
+`tools/slice.py`, sweep `REAN_FUEL`, read the stack, and if the profile has
+nothing to say, **count things in the language of the problem** — which
+recursor, which number, which definition. Eleven lines of counter found in one
+run what four profiles could not say.
 
-A bigger budget is not the fix. Five times the number bought three declarations.
+One item is still named and still deferred:
 
-The leverage is high. In one measurement, 7 declarations that passed at a larger
-budget unblocked **686** dependents. A blocked declaration is not wrong, only
-unread.
+- Our `whnf` is **eager** and rebuilds a whole term for each step, where Lean's
+  rebuilds nothing. It is a change to every rule. Three chapters have pointed at
+  it and three chapters have found something smaller and better first.
 
 ## The one number
 
@@ -343,11 +344,11 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   39244 of 57512 of the Lean prelude, in 192 s
+          and                   48804 of 57512 of the Lean prelude, in 141 s
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     421
+tests     424
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name
