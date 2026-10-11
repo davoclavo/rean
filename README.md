@@ -256,8 +256,8 @@ must check the shape itself.
 
 See `crates/rean_kernel/src/expr.rs`.
 
-`Expr` has ten variants and a user cannot add one. It is the input of the type
-checker.
+`Expr` has eleven variants and a user cannot add one. It is the input of the
+type checker.
 
 A bound variable has no name. It has a de Bruijn index, which is the count of
 binders between the use and the binder that owns it.
@@ -278,6 +278,20 @@ The cost is that substitution must renumber. Three operations do that work:
 - `instantiate` replaces index 0 with a term. A beta step is one `instantiate`.
 - `abstract_fvar` is the reverse. The elaborator opens a binder, works with a
   free variable that never changes number, and then closes the binder again.
+
+Every subterm is a `Sub`, which is an `Arc<Expr>` and **three cached numbers**.
+Each one is computed from the children in constant time, so building a term pays
+O(1) per node, and the real Lean kernel caches the same three.
+
+| Number | What it saves |
+|---|---|
+| `loose` | one more than the largest loose index, or zero. Substitution asks it and skips a closed subterm instead of walking it. |
+| `size` | the node count. The work budget asks for it after **every** reduction step, so a walk would cost as much as the work it charges for. |
+| `hash` | the key of every cache. It must ignore what `alpha_eq` ignores, and a cache hit is **confirmed** with `alpha_eq` before it is trusted. |
+
+Chapters [9](docs/09-structures-and-cost.md) and [10](docs/10-the-cache.md) are
+those three numbers and what each one bought. One of them bought nothing, and
+the chapter says which.
 
 ### 7. `Level`: universes
 

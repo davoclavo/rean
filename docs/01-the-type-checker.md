@@ -59,9 +59,15 @@ computes it.
 | `whnf` and `is_def_eq` | `crates/rean_kernel/src/typeck.rs` | the relation `≡` |
 | `infer_type` | `crates/rean_kernel/src/typeck.rs` | the judgment `Γ ⊢ e : A` |
 
-Together they are 381 lines of code, inside 619 lines of file. That is the
-whole trusted core of this chapter. My earlier estimate was 250 lines, and the
-extra 130 are the error type and its messages.
+At the end of this chapter they **were** 381 lines of code, inside 619 lines of
+file. That was the whole trusted core here. My earlier estimate was 250 lines,
+and the extra 130 were the error type and its messages.
+
+The past tense is the point. Twelve chapters later the kernel crate is **4,115
+lines of code inside 5,864 lines of file**, and every one of those lines is
+trusted. Chapters 2 to 7 added the rules, and chapters 9 to 12 added the cost.
+A checker that reads the Lean prelude is not a 250-line program, and anybody who
+tells you so has not read one.
 
 ---
 
