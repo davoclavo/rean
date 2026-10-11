@@ -181,10 +181,10 @@ JSON key order also varies between lines, so the reader must not depend on it.
 The checker now runs the **whole Lean prelude** and finishes.
 
 ```
-level 1: checked 48804 of 57512 declarations (536 failed, 8172 blocked)
+level 1: checked 54308 of 57512 declarations (115 failed, 3089 blocked)
 trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
-real 141s
+real 252s
 ```
 
 Getting there took three measurements and one wrong guess.
@@ -255,7 +255,9 @@ bought. The summary:
 | a cache on `is_def_eq` | 35,115 | 190 s |
 | compare before you unfold | 39,066 | 205 s |
 | proof irrelevance first, and an `infer_type` cache | 39,244 | 192 s |
-| **read a number in constructor form, and a linear trust report** | **48,804** | **141 s** |
+| read a number in constructor form, and a linear trust report | 48,804 | 141 s |
+| charge a step for what it adds, and charge for inference | 54,187 | 291 s |
+| **a batched β spine, and a cap on reading successors** | **54,308** | **252 s** |
 
 Read the first three rows together. The `loose` and `size` caches moved the
 **time** and not the **count**, because the budget is charged by work and a
@@ -272,7 +274,7 @@ a **stack overflow**. The kernel recurses over terms, a reduced term can be very
 deep, and 8 MB of main thread stack is not enough. The checker now runs on a
 thread with 512 MB, as `rustc` does.
 
-Of the 536 failures that remain, **533 are out of budget** —
+Of the 115 failures that remain, **112 are out of budget** —
 `WellFounded.Nat.fix_eq`, `Nat.modCore_eq_mod`, and their relatives, all well
 founded recursion. The other 8 are one cascade from a single rejected
 constructor, and not a gap in the rules.
@@ -304,39 +306,49 @@ One item is left:
   `drop_slow` sat at the top of our profile and not of Lean's. Lean's `whnf` is
   lazy. This is a change to every rule.
 
-**The budget is no longer the lever.** The default budget now reaches further
-than a budget a **thousand times** larger did before chapter 13: 48,804 against
-51,504, in 141 seconds against 3 hours 44 minutes.
+**The budget matters again, and that is because the work got cheaper.** Chapter
+12 recorded "the budget is no longer the lever" and that sentence was true for
+the code it was measured on. After chapter 13 it was false: a larger budget buys
+real work once the waste is gone. A conclusion about a knob is only true for the
+code you measured it on.
 
-**And the failures are not equal.** `tools/roots.py` follows every blocked chain
-to its root and counts the leaves. The tail has flattened, which is itself the
-result of chapter 13:
+| budget | checked | failed | time |
+|---|---|---|---|
+| 20,000,000, the default | 54,308 | 115 | 252 s |
+| 100,000,000 | see chapter 14 | | |
+
+**And one declaration blocks 2,690 of the 3,089 that remain**, which is 87% of
+them. `tools/roots.py` says so, and it keeps saying something different each
+time, so run it again rather than trusting the last answer:
 
 ```text
-536 failures block 8172 declarations
+115 failures block 3089 declarations
 
 blocked  root failure
-   2593  ..Nat.Bitwise.Lemmas.0.Nat.testBit_two_pow_sub_succ._proof_1_3
-    894  ..Array.Extract.0.Array.extract_eq_self_iff._proof_1_1
-    554  ..Std.PRange.instLawfulHasSizeNat._proof_2
-    488  ..Nat.Div.Lemmas.0.Nat.div_mul_self_eq_mod_sub_self._proof_1_1
+   2690  ..String.Decode.0.ByteArray.utf8DecodeChar?.assemble₄._proof_3
+     57  Lean.Grind.Ring.OfSemiring.mul_helper
+     45  ..String.Decode.0.String.utf8EncodeChar_eq_utf8EncodeCharFast._proof_1_12
 ```
 
-The worst root used to hold up **15,272** declarations. It now holds up 2,593,
-and no single declaration dominates. Rank before you choose, every time, because
-the ranking changes under you.
+That one passes at a budget of **800,000,000**, in thirty seconds. So the
+remaining question is the budget and the time it costs, not whether the kernel
+can do it.
 
-Then do what chapters 11 to 13 did: take that one, cut its slice with
-`tools/slice.py`, sweep `REAN_FUEL`, read the stack, and if the profile has
-nothing to say, **count things in the language of the problem** — which
-recursor, which number, which definition. Eleven lines of counter found in one
-run what four profiles could not say.
+**What chapter 14 took from the other external checkers**, and what it did not:
 
-One item is still named and still deferred:
+- **Taken:** three-valued proof irrelevance, from a `nanoda` bug report. It
+  bought nothing on our input and is right anyway.
+- **Taken:** a batched β spine, from `nanoclo`'s delayed instantiation. Our step
+  was the O(n²) version it names.
+- **Not taken:** a term as a pointer **plus a shift**, as `nanobruijn` does, so
+  that lifting is O(1) and one cache entry serves every shifted variant.
+- **Not taken:** normalisation by evaluation, which the fastest checker in the
+  arena uses.
 
-- Our `whnf` is **eager** and rebuilds a whole term for each step, where Lean's
-  rebuilds nothing. It is a change to every rule. Three chapters have pointed at
-  it and three chapters have found something smaller and better first.
+The last two change the representation of a term, which is the one change that
+would cost this project its ergonomics. Neither is needed to read the prelude.
+The current profile says where they would pay: the drop of terms the kernel
+built and discarded is the heaviest frame, with `infer_type` behind it.
 
 ## The one number
 
@@ -344,11 +356,11 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   48804 of 57512 of the Lean prelude, in 141 s
+          and                   54308 of 57512 of the Lean prelude, in 252 s
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     424
+tests     429
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name
