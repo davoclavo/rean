@@ -43,11 +43,6 @@ use rean_core::Name;
 use std::collections::HashMap;
 use std::fmt;
 
-/// How much of a term one reduction step may be charged for.
-///
-/// See [`Expr::size_up_to`] for why the count has a cap at all.
-const SIZE_CAP: u32 = 100_000;
-
 /// How large a term must be before the `whnf` cache takes an interest in it.
 ///
 /// A lookup costs a hash and then an [`Expr::alpha_eq`] against each answer in
@@ -490,15 +485,31 @@ impl<'e> TypeChecker<'e> {
         loop {
             match self.whnf_step(&current)? {
                 Some(next) => {
-                    // A step can make the term larger, and the ι rule often
-                    // does. So the budget pays for the **size of what the step
-                    // produced**, not merely for the step.
+                    // A step costs **one, plus whatever it added**.
                     //
-                    // Counting steps alone makes the budget meaningless: one
-                    // `BitVec` theorem of the Lean prelude reduced for minutes
-                    // inside a budget of two million steps, because every step
-                    // substituted a bigger term than the last.
-                    self.spend_many(next.size_up_to(SIZE_CAP))?;
+                    // Each half of that answers a way of getting this wrong.
+                    //
+                    // The `one` is there because counting only growth would
+                    // let a reduction run for ever as long as the term never
+                    // grew. So the budget bounds the number of steps too.
+                    //
+                    // The `added` is there because an ι step can make a term
+                    // **larger**, and one step can then cost unboundedly much.
+                    // One `BitVec` theorem of the prelude reduced for minutes
+                    // inside a budget of two million steps. Summed over a
+                    // reduction, the added parts telescope, so the budget
+                    // bounds the total growth from the first term to the last.
+                    //
+                    // The earlier version charged the **whole size** of each
+                    // term produced. That reads as caution and is really a
+                    // mistake: an `Expr` shares its subterms through `Arc`, so
+                    // one subterm counts once per place it appears, and a
+                    // reduction of a thousand steps charged the same shared
+                    // structure a thousand times over. The checker was paying
+                    // for a tree it never built.
+                    let before = current.size_up_to(u32::MAX);
+                    let after = next.size_up_to(u32::MAX);
+                    self.spend_many(1 + after.saturating_sub(before))?;
                     current = next;
                     steps = steps.saturating_add(1);
                 }
@@ -1386,6 +1397,17 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns the type of `e`, and asks no cache.
     fn infer_type_uncached(&mut self, e: &Expr) -> TypeResult<Expr> {
+        // Reading a type is work, so the budget pays for it.
+        //
+        // It did not, for twelve chapters, and nothing showed because `whnf`
+        // was charged so heavily that the budget always ran out there first.
+        // The moment a step was charged for what it **adds**, inference became
+        // the unbounded half: the type of a term with six hundred binders is
+        // six hundred nested calls, and the budget had nothing to say about it.
+        //
+        // A guard that only works because another guard is too strict is not a
+        // guard. Both halves of the kernel now pay for what they do.
+        self.spend()?;
         match e {
             Expr::BVar(index) => Err(TypeError::LooseBVar(*index)),
 

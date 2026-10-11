@@ -9,10 +9,14 @@ use rean_kernel::{
     InductiveVal, ReducibilityHints, TypeChecker, TypeError,
 };
 
-/// A well-formed term of about `3 * depth` nodes.
+/// A well-formed term of about `2 * depth` nodes.
 ///
-/// `fun x => fun x => ... => Nat`, so unfolding it is expensive and reading its
-/// head is not.
+/// `fun x => fun x => ... => Nat`, so unfolding it adds a lot and reading its
+/// head adds nothing.
+///
+/// The depth is small on purpose. A deep term makes `is_def_eq` recurse once
+/// per binder through η, and these tests then measure the stack of the test
+/// thread rather than the order of the rules.
 fn big(depth: usize) -> Expr {
     let nat = Expr::const_("Nat", vec![]);
     let mut term = nat.clone();
@@ -32,16 +36,16 @@ fn env() -> Environment {
         is_unsafe: false,
     }));
     let nat = Expr::const_("Nat", vec![]);
-    let mut ty = Expr::type_(0);
-    for _ in 0..600 {
-        ty = Expr::arrow(nat.clone(), ty);
-    }
+    // A shallow declared type on purpose. Nothing here checks `Big` against
+    // it, and a type with six hundred binders would make these tests measure
+    // the depth of `infer_type` rather than the order of `is_def_eq`.
+    let ty = Expr::arrow(nat.clone(), Expr::type_(0));
     env.add(Declaration::Definition(DefinitionVal {
         name: Name::from_dotted("Big"),
         all: vec![Name::from_dotted("Big")],
         level_params: Vec::new(),
         ty,
-        value: big(600),
+        value: big(40),
         hints: ReducibilityHints::Regular(0),
         safety: DefinitionSafety::Safe,
     }));
@@ -59,7 +63,12 @@ fn env() -> Environment {
 
 /// The budget is the measure. It is a count and not a clock, so it is the same
 /// on every machine and in every run.
+///
+/// A step costs one, plus whatever it added. So `SMALL` is enough for a few
+/// hundred steps that add nothing, and `TINY` is not enough to unfold `Big`
+/// even once, because that one step adds about 1,200 nodes.
 const SMALL: u64 = 2_000;
+const TINY: u64 = 20;
 
 #[test]
 fn the_same_head_is_compared_before_it_is_unfolded() {
@@ -85,13 +94,10 @@ fn a_different_head_still_costs_the_unfolding() {
     // are cheap rather than because the order is right.
     let env = env();
     let mut tc = TypeChecker::new(&env);
-    tc.set_fuel(SMALL);
+    tc.set_fuel(TINY);
     let left = Expr::const_("Big", vec![]).app(Expr::const_("E", vec![]));
     let right = Expr::const_("Nat", vec![]);
-    assert_eq!(
-        tc.is_def_eq(&left, &right),
-        Err(TypeError::OutOfFuel(SMALL))
-    );
+    assert_eq!(tc.is_def_eq(&left, &right), Err(TypeError::OutOfFuel(TINY)));
 }
 
 #[test]
@@ -110,9 +116,9 @@ fn a_shared_head_with_unequal_arguments_falls_through() {
 
 /// Adds `T : <sort>`, `t : T`, and `Slow : T` whose reduction is expensive.
 ///
-/// `Slow` unfolds to `Wrap Big`, and `Big` is about 1,200 nodes, so each step
-/// of that reduction is charged for a term of that size. Reading the **type**
-/// of `Slow` costs nothing, because a declaration states its own type.
+/// `Slow` unfolds to `Wrap <a term of about 80 nodes>`, so that reduction adds
+/// far more than `TINY` allows. Reading the **type** of `Slow` adds nothing,
+/// because a declaration states its own type.
 fn with_a_slow_proof(env: &mut Environment, sort: Expr, prefix: &str) {
     let name = |part: &str| Name::from_dotted(&format!("{prefix}{part}"));
     let ty = Expr::const_(name("T").to_string().as_str(), vec![]);
@@ -147,7 +153,7 @@ fn with_a_slow_proof(env: &mut Environment, sort: Expr, prefix: &str) {
         all: vec![name("Slow")],
         level_params: Vec::new(),
         ty,
-        value: Expr::const_(name("Wrap").to_string().as_str(), vec![]).app(big(600)),
+        value: Expr::const_(name("Wrap").to_string().as_str(), vec![]).app(big(40)),
         hints: ReducibilityHints::Regular(0),
         safety: DefinitionSafety::Safe,
     }));
@@ -180,13 +186,10 @@ fn two_terms_of_one_type_do_need_reduction() {
     let mut env = env();
     with_a_slow_proof(&mut env, Expr::type_(0), "Type");
     let mut tc = TypeChecker::new(&env);
-    tc.set_fuel(SMALL);
+    tc.set_fuel(TINY);
     let slow = Expr::const_("TypeSlow", vec![]);
     let plain = Expr::const_("Typet", vec![]);
-    assert_eq!(
-        tc.is_def_eq(&slow, &plain),
-        Err(TypeError::OutOfFuel(SMALL))
-    );
+    assert_eq!(tc.is_def_eq(&slow, &plain), Err(TypeError::OutOfFuel(TINY)));
 }
 
 // --- reading a number in either of its two forms -------------------------
