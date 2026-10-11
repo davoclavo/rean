@@ -651,6 +651,23 @@ impl<'e> TypeChecker<'e> {
         Ok(Some(out))
     }
 
+    /// Returns the number of parameters of `name`, if `name` is a structure.
+    ///
+    /// Three conditions decide that, and Lean's kernel asks for the same three.
+    /// See [`Self::ctor_when_struct`] for what each one prevents. The method
+    /// returns the parameter count rather than a `bool`, so that a caller which
+    /// needs the count does not have to look the declaration up twice.
+    fn structure_params(&self, name: &Name) -> Option<u32> {
+        match self.lookup(name) {
+            Some(Declaration::Inductive(ind))
+                if ind.num_indices == 0 && !ind.is_rec && ind.ctors.len() == 1 =>
+            {
+                Some(ind.num_params)
+            }
+            _ => None,
+        }
+    }
+
     /// Rebuilds the major premise as a constructor application, by eta for
     /// structures.
     ///
@@ -686,6 +703,18 @@ impl<'e> TypeChecker<'e> {
         {
             return Ok(None);
         }
+        // This test is cheap, and the next step is not. Most recursors of the
+        // prelude are over a type that is no structure, such as `Nat` or
+        // `List`, and for those the rule can never fire. Asking first keeps the
+        // call to `infer_type` out of the common path. It was the heaviest
+        // frame in a profile once this rule existed.
+        if !rec
+            .all
+            .iter()
+            .any(|name| self.structure_params(name).is_some())
+        {
+            return Ok(None);
+        }
         let major_type = self.infer_type(major)?;
         let major_type = self.whnf(&major_type)?;
         let (head, type_args) = major_type.unfold_apps();
@@ -696,17 +725,15 @@ impl<'e> TypeChecker<'e> {
         else {
             return Ok(None);
         };
-        // The type must be the one this recursor speaks about.
+        // The type must be the one this recursor speaks about, and it must be
+        // the structure itself, not a sibling in the same mutual group.
         if !rec.all.contains(inductive) {
             return Ok(None);
         }
-        let Some(Declaration::Inductive(ind)) = self.lookup(inductive) else {
+        let Some(num_params) = self.structure_params(inductive) else {
             return Ok(None);
         };
-        if ind.num_indices != 0 || ind.is_rec || ind.ctors.len() != 1 {
-            return Ok(None);
-        }
-        let num_params = ind.num_params as usize;
+        let num_params = num_params as usize;
         let Some(ctor) = self.env.sole_ctor(inductive) else {
             return Ok(None);
         };
@@ -873,10 +900,7 @@ impl<'e> TypeChecker<'e> {
         let Expr::Const { name, .. } = head else {
             return Ok(false);
         };
-        let Some(Declaration::Inductive(ind)) = self.lookup(name) else {
-            return Ok(false);
-        };
-        if ind.num_indices != 0 || ind.is_rec || ind.ctors.len() != 1 {
+        if self.structure_params(name).is_none() {
             return Ok(false);
         }
         let Some(ctor) = self.env.sole_ctor(name) else {

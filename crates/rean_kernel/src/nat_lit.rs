@@ -105,9 +105,9 @@ pub fn shape<'e>(e: &'e Expr) -> Option<NatShape<'e>> {
     let Expr::Const { name, .. } = head else {
         return None;
     };
-    match (name.to_string().as_str(), args.as_slice()) {
-        ("Nat.zero", []) => Some(NatShape::Zero),
-        ("Nat.succ", [inner]) => Some(NatShape::Succ(inner)),
+    match (name.two_parts()?, args.as_slice()) {
+        (("Nat", "zero"), []) => Some(NatShape::Zero),
+        (("Nat", "succ"), [inner]) => Some(NatShape::Succ(inner)),
         _ => None,
     }
 }
@@ -124,22 +124,25 @@ pub fn binop(name: &Name, a: u128, b: u128) -> Option<Expr> {
             vec![],
         ))
     };
-    match name.to_string().as_str() {
-        "Nat.add" => number(a.checked_add(b)?),
-        "Nat.sub" => number(a.saturating_sub(b)),
-        "Nat.mul" => number(a.checked_mul(b)?),
+    let ("Nat", op) = name.two_parts()? else {
+        return None;
+    };
+    match op {
+        "add" => number(a.checked_add(b)?),
+        "sub" => number(a.saturating_sub(b)),
+        "mul" => number(a.checked_mul(b)?),
         // Lean defines division and modulo by zero to give zero.
-        "Nat.div" => number(a.checked_div(b).unwrap_or(0)),
-        "Nat.mod" => number(a.checked_rem(b).unwrap_or(a)),
-        "Nat.pow" => number(a.checked_pow(u32::try_from(b).ok()?)?),
-        "Nat.gcd" => number(gcd(a, b)),
-        "Nat.land" => number(a & b),
-        "Nat.lor" => number(a | b),
-        "Nat.xor" => number(a ^ b),
-        "Nat.shiftLeft" => number(a.checked_shl(u32::try_from(b).ok()?)?),
-        "Nat.shiftRight" => number(a.checked_shr(u32::try_from(b).ok()?)?),
-        "Nat.beq" => boolean(a == b),
-        "Nat.ble" => boolean(a <= b),
+        "div" => number(a.checked_div(b).unwrap_or(0)),
+        "mod" => number(a.checked_rem(b).unwrap_or(a)),
+        "pow" => number(a.checked_pow(u32::try_from(b).ok()?)?),
+        "gcd" => number(gcd(a, b)),
+        "land" => number(a & b),
+        "lor" => number(a | b),
+        "xor" => number(a ^ b),
+        "shiftLeft" => number(a.checked_shl(u32::try_from(b).ok()?)?),
+        "shiftRight" => number(a.checked_shr(u32::try_from(b).ok()?)?),
+        "beq" => boolean(a == b),
+        "ble" => boolean(a <= b),
         _ => None,
     }
 }
@@ -151,7 +154,7 @@ pub fn is_binop(name: &Name) -> bool {
 
 /// Returns `true` if the result of [`binop`] is a `Bool` and not a `Nat`.
 pub fn returns_bool(name: &Name) -> bool {
-    matches!(name.to_string().as_str(), "Nat.beq" | "Nat.ble")
+    matches!(name.two_parts(), Some(("Nat", "beq" | "ble")))
 }
 
 /// Returns the value of `e`, if `e` is a string literal.
@@ -170,12 +173,12 @@ pub fn str_value(e: &Expr) -> Option<&str> {
 /// these three are computed directly instead, and the limit is named rather
 /// than hidden.
 pub fn string_op(name: &Name, text: &str) -> Option<Expr> {
-    match name.to_string().as_str() {
+    match name.two_parts()? {
         // The number of characters, not bytes.
-        "String.length" => Some(lit(text.chars().count() as u128)),
+        ("String", "length") => Some(lit(text.chars().count() as u128)),
         // The number of bytes in the UTF-8 encoding. A Rust `str` is already
         // UTF-8, so this is its length.
-        "String.utf8ByteSize" => Some(lit(text.len() as u128)),
+        ("String", "utf8ByteSize") => Some(lit(text.len() as u128)),
         _ => None,
     }
 }

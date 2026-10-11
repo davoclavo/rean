@@ -121,11 +121,11 @@ devbox run -- cargo test -p rean_kernel --test structures  # chapter 9
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, stress | **33,855 of 57,512** | the whole Lean prelude, in 185 seconds |
+| level 1, stress | **33,862 of 57,512** | the whole Lean prelude, in 163 seconds |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **399** | `devbox run test` |
-| coverage | `devbox run coverage` | measured, not claimed |
+| tests | **404** | `devbox run test` |
+| coverage | **94.4% of regions, 96.3% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 

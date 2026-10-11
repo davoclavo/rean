@@ -308,64 +308,174 @@ one whole measurement. **Read the exit code and the stderr, not the clock.**
 
 ---
 
-## 9.9 Where the prelude stands
+## 9.9 A new rule has a cost, and the profile named it
 
-| | checked | failed | blocked |
-|---|---|---|---|
-| start of this chapter | 33,539 | 742 | 23,231 |
-| after the three rules | **33,855** | **656** | 23,001 |
+The three rules bought 159 declarations and **lost 25 seconds**: 160 s became
+185 s. The profile said why in one line.
+
+```text
+infer_type   29,569 samples
+drop_slow    11,678
+is_def_eq     9,001
+```
+
+`ctor_when_struct` reads the **type** of the major premise, and it ran on every
+recursor application in the prelude. Most of those are over `Nat` or `List`,
+which are no structures, so the answer was almost always "no" and the cost of
+asking was a full `infer_type`.
+
+The fix is to ask a cheap question first:
+
+```rust
+if !rec.all.iter().any(|name| self.structure_params(name).is_some()) {
+    return Ok(None);
+}
+```
+
+That test reads one declaration out of the environment. It does not infer
+anything. `infer_type` fell from 29,569 samples to 8,126, and the prelude went
+from 185 s to 171 s.
+
+**Put the cheap test before the expensive one, and let the profile tell you
+which is which.**
+
+---
+
+## 9.10 The kernel asked a question by building a string
+
+With `infer_type` down, a frame appeared that is not a rule at all:
+
+```text
+rean_core::Name   2,196 samples
+```
+
+`Name` is a list of parts. The readable way to ask whether a name is `Nat.add`
+was
+
+```rust
+match name.to_string().as_str() {
+    "Nat.add" => ...,
+```
+
+and `whnf` asks that on nearly every step whose head is a constant, which is
+most steps. Each ask built a `String`, compared it, and dropped it.
+
+`Name::two_parts` answers the same question with no allocation, by comparing two
+string slices that already exist:
+
+```rust
+let ("Nat", op) = name.two_parts()? else { return None };
+match op {
+    "add" => number(a.checked_add(b)?),
+```
+
+171 s became 163 s. The reading is the same every time: **the kernel is a loop,
+so anything inside it that allocates is worth looking at.**
+
+---
+
+## 9.11 Where the prelude stands
+
+| | checked | failed | blocked | time |
+|---|---|---|---|---|
+| start of this chapter | 33,539 | 742 | 23,231 | 198 s |
+| after everything here | **33,862** | **650** | 23,000 | **163 s** |
 
 And the failures, by kind:
 
 | kind | before | after |
 |---|---|---|
-| out of budget | 565 | 648 |
+| out of budget | 565 | 642 |
 | type mismatch | 168 | **0** |
-| not a structure | 9 | 8 |
-| unknown constant | 0 | 0 |
+| not a structure | 9 | **0** |
+| unknown constant | 0 | 8 |
 
-Read the second row first. **Every type mismatch is gone.** On this input the
-checker no longer refuses correct Lean for a rule it does not have.
+Read the middle rows first. **Every type mismatch is gone, and so is every
+"not a structure".** On this input the checker no longer refuses correct Lean
+for a rule it does not have.
 
-Read the first row next, and do not read it as a regression. Those 83
+Read the first row next, and do not read it as a regression. Those 77
 declarations did not get worse. They used to fail **earlier**, for a missing
-rule; now they get past that rule and run into the budget instead. Progress
-moves a declaration from one failure to a later one before it removes it.
+rule; now they get past that rule and reach the budget instead. Progress moves a
+declaration from one failure to a later one before it removes it.
 
-The third row is not a kernel gap at all. All 8 are one cascade: a constructor
-that the checker rejected never entered the environment, so a later projection
-could not find it. The message said "is not a structure", which sent the reader
-after the wrong fault, so the checker now says what is true:
+The last row is the same 8 declarations that used to say "not a structure", and
+they are not a kernel gap. All 8 are one cascade: a constructor that the checker
+rejected never entered the environment, so a later projection could not find it.
+The old message sent the reader after the wrong fault. The checker now says what
+is true:
 
 ```text
 unknown constant `String.Slice.Pos.Splits.mk`
 ```
 
-Test: `a_missing_constructor_is_named_as_missing`.
+Tests: `a_missing_constructor_is_named_as_missing`,
+`both_rules_decline_when_the_constructor_is_missing`.
 
 ---
 
-## 9.10 What is left, and it is one thing
+## 9.12 A bigger budget, measured
 
-**648 declarations out of budget.** That is the whole remaining gap on this
+The budget is a real knob, and `REAN_FUEL` exposes it.
+
+| budget | checked | failed | blocked | time |
+|---|---|---|---|---|
+| 20,000,000 | 33,862 | 650 | 23,000 | 163 s |
+| 100,000,000 | 34,629 | 647 | 22,236 | 477 s |
+
+Five times the budget bought **three** fewer failures, and **767** more
+declarations checked. That ratio is the lesson.
+
+A failed declaration blocks every declaration that depends on it, and the
+blocked ones are not wrong, only unread. So three root fixes released 764
+leaves. The leverage of one hard declaration is enormous, and it means the right
+place to look is always the **first** failure in the chain, never the last.
+
+Our own report helps with that, because it names what each blocked declaration
+waited for:
+
+```text
+block def   instAppendString
+              `String.append` did not check
+```
+
+Follow that chain far enough and it ends at one real failure. For the whole
+`String.append` tower of the prelude, it ended at
+`List.toList_data_toByteArray`, and that one declaration is what §9.3 fixed.
+
+---
+
+## 9.13 What is left, and it is one thing
+
+**642 declarations out of budget.** That is the whole remaining gap on this
 input, and the cause is **well-founded recursion**. `WellFounded.fix` unfolds
 through `Acc.rec`, each step grows the term, and the growth is what the budget
 measures.
 
-A bigger budget does help, and the leverage is worth seeing:
+A bigger budget is not the honest fix, as §9.12 shows: five times the number
+bought three declarations. The honest fix is the cache the real kernel has and
+we do not.
 
-| budget | checked | failed |
-|---|---|---|
-| 20,000,000 | 33,855 | 656 |
-| 100,000,000 | see §9.11 | |
+The profile now says where it would go:
 
-Seven declarations passing at the larger budget unblocked **686** dependents in
-an earlier measurement. A blocked declaration is not wrong, only unread, and one
-root failure blocks a hundred leaves.
+```text
+drop_slow    9,677     dropping terms a reduction built and discarded
+whnf         8,606
+iota_step    8,107
+infer_type   8,126
+is_def_eq    6,123
+```
 
-The honest fix is not a bigger number. It is the cache the real kernel has and
-we do not: **memoize `is_def_eq`**. The checker compares the same pair of terms
-many times while unfolding one well-founded definition, and it answers from
-scratch every time.
+`drop_slow` at the top means the checker spends its time **building terms and
+throwing them away**. Every one of those frames is the same shape of waste: the
+checker reduces a subterm, compares it, drops it, and later reduces the same
+subterm again from scratch.
+
+So the next step is a **cache on `whnf`**, and after it one on `is_def_eq`. Lean
+has both. Caching needs a third number in every node, a structural hash, which
+is exactly the pattern of §9.6 for a third time. And it needs one discipline the
+first two caches did not: a cached answer must be **confirmed**, not trusted,
+because two different terms can share a hash. A proof checker may not be
+probably right.
 
 That is the next chapter.

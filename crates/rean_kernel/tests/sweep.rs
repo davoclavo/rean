@@ -176,6 +176,45 @@ fn lift_and_instantiate_and_abstract_reach_every_binder() {
     // `lift` walks the same shapes.
     assert!(!holder.lift(0, 2).pretty().is_empty());
     assert!(!nat.lift(0, 2).pretty().is_empty());
+
+    // `holder` is closed, so `lift` answers "nothing changed" before it reaches
+    // the `let` or the projection. A term with a **loose** variable in each of
+    // those places makes it walk them.
+    let open = Expr::let_(
+        "x",
+        Expr::bvar(0),
+        Expr::bvar(0),
+        Expr::Proj(Proj {
+            structure: Name::from_dotted("S"),
+            index: 0,
+            value: Sub::new(Expr::bvar(1)),
+        }),
+    );
+    // Index 0 of the value becomes 2. The body is under the `let` binder, so
+    // its index 1 counts from one deeper and becomes 3.
+    assert_eq!(open.lift(0, 2).pretty(), "let x : #2 := #2; #3.1");
+}
+
+#[test]
+fn a_subterm_reports_its_cached_numbers() {
+    // Every subterm carries two numbers, and both come from its children. See
+    // chapter 9.
+    let nat = Expr::const_("Nat", vec![]);
+    let leaf = Sub::new(nat.clone());
+    assert_eq!(leaf.loose(), 0, "a constant has no loose variable");
+    assert_eq!(leaf.size(), 1, "a constant is one node");
+
+    // `fun x => #1` has one loose index, and the binder discharges index 0, so
+    // the range of the whole term is 1.
+    let under = Sub::new(Expr::lam("x", nat.clone(), Expr::bvar(1)));
+    assert_eq!(under.loose(), 1);
+    // The lambda, its binder type, and the body.
+    assert_eq!(under.size(), 3);
+
+    // An application takes the larger range and the sum of the sizes.
+    let app = Sub::new(Expr::bvar(4).app(Expr::bvar(2)));
+    assert_eq!(app.loose(), 5);
+    assert_eq!(app.size(), 3);
 }
 
 // --- Level ---------------------------------------------------------------

@@ -97,6 +97,24 @@ impl Name {
         }
     }
 
+    /// Returns the two parts of a two part name, and allocates nothing.
+    ///
+    /// `Nat.add` gives `Some(("Nat", "add"))`. Any other shape gives `None`.
+    ///
+    /// The kernel asks "is this name `Nat.add`" on nearly every reduction step,
+    /// and the readable way to ask was `name.to_string() == "Nat.add"`. That
+    /// built a `String` every time, and `Name` then showed up in a profile of
+    /// the Lean prelude. This method answers the same question by comparing two
+    /// string slices that already exist.
+    pub fn two_parts(&self) -> Option<(&str, &str)> {
+        let last = self.last_str()?;
+        let prefix = self.prefix()?;
+        if prefix.len() != 1 {
+            return None;
+        }
+        Some((prefix.last_str()?, last))
+    }
+
     /// Appends every part of `other` to `self`.
     pub fn append(&self, other: &Name) -> Name {
         match other {

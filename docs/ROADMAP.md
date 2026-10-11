@@ -181,10 +181,10 @@ JSON key order also varies between lines, so the reader must not depend on it.
 The checker now runs the **whole Lean prelude** and finishes.
 
 ```
-level 1: checked 33855 of 57512 declarations (656 failed, 23001 blocked)
+level 1: checked 33862 of 57512 declarations (650 failed, 23000 blocked)
 trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
-real 185s
+real 163s
 ```
 
 Getting there took three measurements and one wrong guess.
@@ -248,7 +248,9 @@ bought. The summary:
 | start | 33,539 | 198 s |
 | `loose` cached in every node | 33,539 | 181 s |
 | `size` cached too | 33,539 | 160 s |
-| three structure rules | **33,855** | 185 s |
+| three structure rules | 33,855 | 185 s |
+| a cheap guard before `infer_type` | 33,862 | 171 s |
+| a name compared without a `String` | **33,862** | **163 s** |
 
 The caches moved the **time** and not the **count**, because the budget is
 charged by work and the caches do not make the work smaller. That is worth
@@ -259,16 +261,24 @@ a **stack overflow**. The kernel recurses over terms, a reduced term can be very
 deep, and 8 MB of main thread stack is not enough. The checker now runs on a
 thread with 512 MB, as `rustc` does.
 
-Of the 656 failures that remain, **648 are out of budget** —
+Of the 650 failures that remain, **642 are out of budget** —
 `WellFounded.Nat.fix_eq`, `Nat.modCore_eq_mod`, and their relatives, all well
 founded recursion. The other 8 are one cascade from a single rejected
 constructor, and not a gap in the rules.
 
-So one item is left, and it is the second cache Lean has:
+So one item is left, and the profile says where it goes. `drop_slow` is now the
+top frame, which means the checker spends its time **building terms and throwing
+them away**:
 
-- **Cache the result of `is_def_eq`.** The checker compares the same pair of
-  terms many times while it unfolds one well founded definition, and it answers
-  from scratch every time. Large terms share subterms, so a memo pays twice.
+- **Cache `whnf`, then `is_def_eq`.** The checker reduces a subterm, compares
+  it, drops it, and later reduces the same subterm again from scratch. Lean
+  caches both.
+- The cache needs a third number in every node, a structural hash, which is the
+  pattern of the first two caches again. It also needs one new discipline: a
+  cached answer must be **confirmed** and not trusted, because two terms can
+  share a hash, and a proof checker may not be probably right.
+
+A bigger budget is not the fix. Five times the number bought three declarations.
 
 The leverage is high. In one measurement, 7 declarations that passed at a larger
 budget unblocked **686** dependents. A blocked declaration is not wrong, only
@@ -280,11 +290,11 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   33855 of 57512 of the Lean prelude, in 185 s
+          and                   33862 of 57512 of the Lean prelude, in 163 s
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     399
+tests     404
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name

@@ -177,12 +177,6 @@ impl std::ops::Deref for Sub {
     }
 }
 
-impl From<Expr> for Sub {
-    fn from(expr: Expr) -> Sub {
-        Sub::new(expr)
-    }
-}
-
 /// Computes the loose range of one node from its children, in constant time.
 ///
 /// Going under a binder discharges index zero, so the body's range drops by
