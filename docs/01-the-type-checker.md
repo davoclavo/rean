@@ -451,9 +451,15 @@ rule needed a tool, and now it has one:
 python3 tools/cite.py
 ```
 
-It reads every `snake_case` name in backticks in every document and fails if the
-code defines no such function. `devbox run check` runs it, so a chapter that
-names a test nobody wrote, or that somebody removed, now fails the gate.
+It checks two kinds of citation, because both rot the same way and neither is
+visible:
+
+- a **name** in backticks must be a `fn` or a `def` somewhere in the code;
+- a **section** a document points at, as "chapter 9, section 9.6" or as `§9.6`,
+  must be a heading of that chapter.
+
+`devbox run check` runs it, so a chapter that names a test nobody wrote, or a
+section somebody renumbered, now fails the gate.
 
 It found these six citations the day it was written. That is the only reason
 this section is honest today.

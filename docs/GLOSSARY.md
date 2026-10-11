@@ -113,3 +113,23 @@ where to read more.
 | **tactic** | a program that builds a proof term. Untrusted. |
 | **`lean4export`** | the tool that writes Lean's elaborated declarations to a file, so another checker can read them. Chapter 3. |
 | **level 1, 2, 3** | the three checkpoints of `ROADMAP.md`. Level 1 is "our kernel checks Lean's terms". |
+
+## What a check costs
+
+Chapters 9 to 12 are about cost, and these are the terms they add.
+
+| Term | Meaning |
+|---|---|
+| **budget** | a count of **work** that each declaration may use, `REAN_FUEL`. The kernel has no such limit; ours exists so that a corrupt file cannot hang us. Chapter 9, section 9.7. |
+| **unit of work** | what the budget counts. A reduction step is charged the **size of the term it produced**, because an ι step can make a term larger, so counting steps bounds nothing. |
+| **out of budget** | the verdict when a declaration wants more work than the budget holds. It is **not** a claim that the declaration is wrong. |
+| **blocked** | the verdict when a declaration waits on another that did not check. Also not wrong, only unread. One root failure of the prelude blocked 15,272 of them. Chapter 12, section 12.8. |
+| **`loose`** | the first number every node caches: one more than the largest loose bound variable index inside, or zero. `loose == 0` means closed. It turns substitution from a walk into a test. Chapter 9, section 9.6. |
+| **`size`** | the second cached number, the node count. The budget asks for it after every step, so a walk would cost as much as the work it charges for. |
+| **`hash`** | the third cached number, and the key of every cache. It must ignore whatever `alpha_eq` ignores: binder names, and the **shape** of a universe level. Chapter 10, section 10.2. |
+| **confirm** | what a cache must do with a hit before it trusts it. Two terms can share a hash, so `alpha_eq` makes the decision. A proof checker may not be probably right. Chapter 10, section 10.3. |
+| **spine** | a head and the arguments applied to it. `f x y` is the spine `(f, [x, y])`. |
+| **congruence** | the rule that lets a spine be compared without reduction: same head and equal arguments means equal terms. Asking this **before** unfolding was the largest single win of the project. Chapter 11. |
+| **eager** | our `whnf`: each step builds a whole new term and drops the old one. Lean's is **lazy** and rebuilds nothing. This is the one job left. Chapter 12, section 12.10. |
+| **slice** | a prefix of a `lean4export` file, cut after one declaration. Valid because the format is topologically ordered. `tools/slice.py`. Chapter 11, section 11.1. |
+| **root failure** | the failure at the end of a chain of blocked declarations. `tools/roots.py` ranks them by how many leaves each one holds up. |

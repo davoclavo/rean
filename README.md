@@ -109,7 +109,7 @@ exercises and answers.
 | [10 — The cache](docs/10-the-cache.md) | the third number, a cache on `whnf` and on `is_def_eq`, and the rule that keeps a cache honest: a hash **finds** an answer, equality **decides** whether to trust it. |
 | [11 — Compare before you unfold](docs/11-compare-before-you-unfold.md) | one moved line, 3,951 declarations. How to take one failing case out of 676 and let the measurement overrule your plan. |
 | [12 — Ask the cheapest question first](docs/12-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, why a pair of changes is one unit of measurement, and how to rank 107 failures so you work on the one worth 15,272. |
-| [Glossary](docs/GLOSSARY.md) | every term the chapters use |
+| [Glossary](docs/GLOSSARY.md) | every term the chapters use, including what a check **costs** |
 
 Every claim in a chapter has a test:
 
