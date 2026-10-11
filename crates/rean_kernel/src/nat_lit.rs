@@ -118,6 +118,37 @@ pub fn returns_bool(name: &Name) -> bool {
     matches!(name.to_string().as_str(), "Nat.beq" | "Nat.ble")
 }
 
+/// Returns the value of `e`, if `e` is a string literal.
+pub fn str_value(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Lit(Literal::Str(text)) => Some(text),
+        _ => None,
+    }
+}
+
+/// A function on string literals that the kernel computes directly.
+///
+/// The general rule would be the one `Nat` gets: a literal behaves like the
+/// constructor form, here `String.mk` of a list of characters. Building that
+/// list needs `Char`, which needs `UInt32`, which is another layer again. So
+/// these three are computed directly instead, and the limit is named rather
+/// than hidden.
+pub fn string_op(name: &Name, text: &str) -> Option<Expr> {
+    match name.to_string().as_str() {
+        // The number of characters, not bytes.
+        "String.length" => Some(lit(text.chars().count() as u128)),
+        // The number of bytes in the UTF-8 encoding. A Rust `str` is already
+        // UTF-8, so this is its length.
+        "String.utf8ByteSize" => Some(lit(text.len() as u128)),
+        _ => None,
+    }
+}
+
+/// Returns `true` if `name` is a function that [`string_op`] computes.
+pub fn is_string_op(name: &Name) -> bool {
+    string_op(name, "").is_some()
+}
+
 fn gcd(mut a: u128, mut b: u128) -> u128 {
     while b != 0 {
         let next = a % b;

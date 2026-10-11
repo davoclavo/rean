@@ -120,9 +120,9 @@ devbox run -- cargo test -p rean_export                    # chapters 3 and 4
 | level 1 | **95 of 95** | our kernel checks the declarations that Lean wrote, across two fixtures |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **383** | `devbox run test` |
+| tests | **387** | `devbox run test` |
 | coverage | **95.1% of regions, 96.7% of lines** | `devbox run coverage` |
-| red team | **38 lies refused** | `cargo test -p rean_kernel --test soundness` |
+| red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 
 ```sh

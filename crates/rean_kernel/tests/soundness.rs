@@ -1125,3 +1125,163 @@ fn the_level_order_decides_what_it_can_and_accepts_the_rest() {
     // Two unrelated parameters cannot be ordered, and the answer is honest.
     assert_eq!(u.is_leq(&v), None);
 }
+
+// --- eta on a dependent function, found in the Lean prelude --------------
+
+/// An environment with `A : Type`, `P : A → Prop`, and `B : Type`.
+fn dependent_env() -> Environment {
+    let mut env = Environment::new();
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("A"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        is_unsafe: false,
+    }));
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("B"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        is_unsafe: false,
+    }));
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("P"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::const_("A", vec![]), Expr::prop()),
+        is_unsafe: false,
+    }));
+    env
+}
+
+#[test]
+fn eta_works_together_with_proof_irrelevance() {
+    // `f` and `fun a h => f a (g a h)` are the same function.
+    //
+    // Eta strips the two binders, and then the second argument matches only
+    // because `P a` is a proposition and all its proofs are equal. So this
+    // needs **both** rules at once, and it needs them to work under a binder.
+    //
+    // The first version of `eta_eq` stayed in de Bruijn and left both sides
+    // open, so proof irrelevance could not ask for a type and declined. That
+    // made `Option.pbind_join` of the Lean prelude fail on a term that is
+    // perfectly correct. `eta_eq` now opens the binder into a free variable.
+    let env = dependent_env();
+    let mut tc = TypeChecker::new(&env);
+    let a_ty = || Expr::const_("A", vec![]);
+    let p_of = |x: Expr| Expr::const_("P", vec![]).app(x);
+
+    // `f : (a : A) → P a → B`
+    let f = Expr::FVar(tc.push_local(
+        "f",
+        Expr::forall(
+            "a",
+            a_ty(),
+            Expr::arrow(p_of(Expr::bvar(0)), Expr::const_("B", vec![])),
+        ),
+    ));
+    // `g : (a : A) → P a → P a`, some other way to make the same proof.
+    let g = Expr::FVar(tc.push_local(
+        "g",
+        Expr::forall(
+            "a",
+            a_ty(),
+            Expr::arrow(p_of(Expr::bvar(0)), p_of(Expr::bvar(0))),
+        ),
+    ));
+
+    // `fun a h => f a (g a h)`
+    let wrapped = Expr::lam(
+        "a",
+        a_ty(),
+        Expr::lam(
+            "h",
+            p_of(Expr::bvar(0)),
+            f.clone()
+                .app(Expr::bvar(1))
+                .app(g.app(Expr::bvar(1)).app(Expr::bvar(0))),
+        ),
+    );
+
+    assert!(
+        tc.is_def_eq(&wrapped, &f).unwrap(),
+        "eta and proof irrelevance together"
+    );
+    assert!(tc.is_def_eq(&f, &wrapped).unwrap(), "and in either order");
+}
+
+#[test]
+fn eta_still_says_no_for_a_different_function() {
+    let env = dependent_env();
+    let mut tc = TypeChecker::new(&env);
+    let a_ty = || Expr::const_("A", vec![]);
+    let fun_ty = || Expr::arrow(a_ty(), Expr::const_("B", vec![]));
+    let f = Expr::FVar(tc.push_local("f", fun_ty()));
+    let other = Expr::FVar(tc.push_local("other", fun_ty()));
+    // `fun a => f a` is `f`, and it is not `other`.
+    let wrapped = Expr::lam("a", a_ty(), f.clone().app(Expr::bvar(0)));
+    assert!(tc.is_def_eq(&wrapped, &f).unwrap());
+    assert!(!tc.is_def_eq(&wrapped, &other).unwrap());
+}
+
+#[test]
+fn a_comparison_helper_declines_rather_than_errors_on_an_open_term() {
+    // `struct_eta_eq` asks for the type of one side, and a loose bound variable
+    // has no type. Without a guard it returned an error, and that error left
+    // `is_def_eq` entirely, so a whole declaration failed for a rule that did
+    // not even apply.
+    let mut env = Environment::new();
+    env.add(inductive("S", Expr::type_(0), &["S.mk"]));
+    env.add(Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("S.mk"),
+        level_params: Vec::new(),
+        ty: Expr::arrow(Expr::prop(), Expr::const_("S", vec![])),
+        induct: Name::from_dotted("S"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    }));
+    let mut tc = TypeChecker::new(&env);
+    // A constructor application against an open term. The rule cannot apply,
+    // and the answer must be `false` rather than an error.
+    let built = Expr::const_("S.mk", vec![]).app(Expr::prop());
+    let open = Expr::bvar(0);
+    assert_eq!(tc.is_def_eq(&built, &open), Ok(false));
+    assert_eq!(tc.is_def_eq(&open, &built), Ok(false));
+}
+
+// --- string literals -----------------------------------------------------
+
+#[test]
+fn the_kernel_computes_on_a_string_literal() {
+    // `String.utf8ByteSize "" ≡ 0` is what `String.utf8ByteSize_empty` of the
+    // Lean prelude needs.
+    let env = Environment::new();
+    let mut tc = TypeChecker::new(&env);
+    let call = |name: &str, text: &str| Expr::const_(name, vec![]).app(Expr::str(text));
+    assert_eq!(
+        tc.whnf(&call("String.utf8ByteSize", "")).unwrap().pretty(),
+        "0"
+    );
+    assert_eq!(
+        tc.whnf(&call("String.utf8ByteSize", "abc"))
+            .unwrap()
+            .pretty(),
+        "3"
+    );
+    // A character counts once and its bytes count separately. `α` is two bytes.
+    assert_eq!(
+        tc.whnf(&call("String.utf8ByteSize", "α")).unwrap().pretty(),
+        "2"
+    );
+    assert_eq!(tc.whnf(&call("String.length", "α")).unwrap().pretty(), "1");
+    assert_eq!(
+        tc.whnf(&call("String.length", "abc")).unwrap().pretty(),
+        "3"
+    );
+    // A function we do not compute stays stuck.
+    let other = call("String.wat", "abc");
+    assert!(tc.whnf(&other).unwrap().alpha_eq(&other));
+    // And so does a call whose argument is not a literal.
+    let open = Expr::const_("String.length", vec![]).app(Expr::prop());
+    assert!(tc.whnf(&open).unwrap().alpha_eq(&open));
+}

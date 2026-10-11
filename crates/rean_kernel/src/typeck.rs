@@ -47,7 +47,14 @@ use std::sync::Arc;
 ///
 /// The theory says that reduction terminates. A corrupt input file does not
 /// have to obey the theory, so the loop needs a bound.
-const REDUCTION_LIMIT: u32 = 100_000;
+/// How many steps one call of [`TypeChecker::whnf`] may take.
+///
+/// The budget in [`FUEL`] bounds a whole declaration, and every step here
+/// spends a unit of it, so this limit is a second line of defence rather than
+/// the main one. It is generous because a real declaration can need it: a
+/// theorem of the Lean prelude about character validity reduces through more
+/// than a hundred thousand steps and is perfectly correct.
+const REDUCTION_LIMIT: u32 = 10_000_000;
 
 /// How much work one declaration may take.
 ///
@@ -426,6 +433,10 @@ impl<'e> TypeChecker<'e> {
             if let Some(next) = self.nat_step(name, &args)? {
                 return Ok(Some(next));
             }
+            // And on a string literal.
+            if let Some(next) = self.string_step(name, &args)? {
+                return Ok(Some(next));
+            }
             // ι: a recursor applied to a constructor rewrites to its rule.
             if let Some(next) = self.iota_step(name, levels, &args)? {
                 return Ok(Some(next));
@@ -468,6 +479,21 @@ impl<'e> TypeChecker<'e> {
             return Ok(None);
         };
         Ok(Some(out.apps(args[2..].iter().cloned())))
+    }
+
+    /// Computes a function of one string literal.
+    fn string_step(&mut self, name: &Name, args: &[Expr]) -> TypeResult<Option<Expr>> {
+        if !nat_lit::is_string_op(name) || args.is_empty() {
+            return Ok(None);
+        }
+        let only = self.whnf(&args[0])?;
+        let Some(text) = nat_lit::str_value(&only) else {
+            return Ok(None);
+        };
+        let Some(out) = nat_lit::string_op(name, text) else {
+            return Ok(None);
+        };
+        Ok(Some(out.apps(args[1..].iter().cloned())))
     }
 
     /// Applies a quotient rule.
@@ -600,6 +626,11 @@ impl<'e> TypeChecker<'e> {
     /// mismatch cannot slip through.
     fn ctor_when_k(&mut self, rec: &RecursorVal, major: &Expr) -> TypeResult<Option<Expr>> {
         if !rec.k {
+            return Ok(None);
+        }
+        // The rule reads the type of the major premise, so the premise must be
+        // closed. See the guard in `struct_eta_eq` for why that matters.
+        if major.has_loose_bvars() {
             return Ok(None);
         }
         // Already a constructor application, so there is nothing to do.
@@ -824,15 +855,38 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns `true` if `lam` is `fun x => f x` and `other` is `f`.
     fn eta_eq(&mut self, lam: &Expr, other: &Expr) -> TypeResult<bool> {
-        let Expr::Lam { body, .. } = lam else {
+        let Expr::Lam {
+            binder_name,
+            binder_type,
+            body,
+            ..
+        } = lam
+        else {
             return Ok(false);
         };
         if matches!(other, Expr::Lam { .. }) {
             return Ok(false);
         }
-        // Build `other x` under one new binder, then compare the bodies.
-        let applied = other.lift(0, 1).app(Expr::bvar(0));
-        self.is_def_eq(body, &applied)
+        // Open the binder into a free variable, then compare `body` with
+        // `other x`.
+        //
+        // The first version stayed in de Bruijn and compared `body` with
+        // `other` lifted and applied to `BVar 0`. That is correct as far as the
+        // shapes go, and it leaves **both sides open**, so nothing inside the
+        // comparison can ask for a type. Proof irrelevance needs a type, and
+        // without it `Option.pbind_join` of the Lean prelude fails: it is eta
+        // on a dependent function whose second argument matches only because
+        // all proofs of one proposition are equal.
+        //
+        // This is the same lesson as chapter 2, section 2.7. A free variable is
+        // not only an optimisation. It is what keeps a term closed, and a
+        // closed term is what lets a later step ask for its type.
+        let id = self.lctx.push(binder_name.clone(), (**binder_type).clone());
+        let opened = body.instantiate(&Expr::FVar(id));
+        let applied = other.clone().app(Expr::FVar(id));
+        let same = self.is_def_eq(&opened, &applied);
+        self.lctx.pop();
+        same
     }
 
     /// Returns `true` if `built` rebuilds `whole` field by field.
@@ -841,6 +895,21 @@ impl<'e> TypeChecker<'e> {
     /// fully determined by its fields. `S.mk p.1 p.2` and `p` are therefore the
     /// same term. Lean calls this eta for structures.
     fn struct_eta_eq(&mut self, built: &Expr, whole: &Expr) -> TypeResult<bool> {
+        // The rule asks for the type of `whole`, so `whole` must be closed. A
+        // loose bound variable has no type.
+        //
+        // This guard is not decoration. `eta_eq` builds `other x` under a new
+        // binder, which is open on purpose, and hands it to `is_def_eq`. Without
+        // the guard, `infer_type` returns `LooseBVar` and the error leaves
+        // `is_def_eq` entirely, so a whole declaration fails for a rule that
+        // simply did not apply. `Option.pbind_join` of the Lean prelude is one
+        // such declaration: its term is closed, and we made the loose variable
+        // ourselves.
+        //
+        // A comparison helper must decline, never error.
+        if built.has_loose_bvars() || whole.has_loose_bvars() {
+            return Ok(false);
+        }
         let (head, args) = built.unfold_apps();
         let Expr::Const { name, .. } = head else {
             return Ok(false);

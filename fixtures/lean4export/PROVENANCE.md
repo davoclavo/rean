@@ -173,3 +173,36 @@ lake env <path>/lean4export Probe -- Tree Forest Rose Point Q withLet twoAddThre
 Without the list it exports the whole transitive closure. For this probe that is
 340 MB and 6.4 million lines, which is a fine test input and far too big to
 commit.
+
+---
+
+## A bigger input, for finding bugs rather than guarding them
+
+The two fixtures above are committed because they are small and they guard
+behaviour. A much bigger input is better for **finding** behaviour, and it is
+not committed because it is 757 KB.
+
+Take the declarations that a full prelude run reported as failures, and export
+exactly those with their closure:
+
+```sh
+lake env <path>/lean4export Probe -- \
+  Option.pbind_join DecidableEq Nat.noConfusionType Rat.den FloatSpec.float \
+  String.utf8ByteSize_empty
+```
+
+That gives 487 declarations in 13,469 lines, and it runs in under a second. It
+found three real problems in one sitting:
+
+| Failure | Cause |
+|---|---|
+| `Option.pbind_join`, "bound variable #1 points outside the term" | **our bug.** The term as read is closed. `struct_eta_eq` asked for the type of an open term and the error escaped `is_def_eq`. |
+| the same, after that guard | **our bug.** `eta_eq` left both sides open, so proof irrelevance could not fire. It now opens the binder into a free variable. |
+| `String.utf8ByteSize_empty` | a **missing feature**: the kernel did not compute on a string literal. |
+
+Each one now has a unit test in `crates/rean_kernel/tests/soundness.rs`, so the
+757 KB file is not needed to keep them fixed.
+
+A note on the method. Exporting a name that does not exist makes the exporter
+**panic** part way through, leaving a truncated file with dangling indices. The
+error names the constant, so take it out and run again.
