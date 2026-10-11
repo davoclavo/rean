@@ -43,6 +43,22 @@ use rean_core::Name;
 use std::collections::HashMap;
 use std::fmt;
 
+/// How many `Nat.succ` layers [`TypeChecker::read_nat`] will peel.
+///
+/// Reading a number through its constructor form is what chapter 13 is about,
+/// and the case that needed it was one layer deep:
+/// `Nat.succ (OfNat.ofNat Nat 1 ..)`.
+///
+/// Without a limit the reader walks the whole tower, reducing as it goes, and
+/// `nat_step` tries it on **every** step whose head is a `Nat` operation. The
+/// same tower is then walked again and again, and `read_nat` became the
+/// heaviest frame in a profile of the prelude, level with `whnf` itself.
+///
+/// So read a few layers and give up. Giving up is only slower, never wrong:
+/// the kernel falls back to unfolding the definition, which is what it did
+/// before chapter 13.
+const SUCC_LIMIT: u32 = 16;
+
 /// How large a term must be before the `whnf` cache takes an interest in it.
 ///
 /// A lookup costs a hash and then an [`Expr::alpha_eq`] against each answer in
@@ -620,7 +636,7 @@ impl<'e> TypeChecker<'e> {
     fn read_nat(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
         let mut extra: u128 = 0;
         let mut current = self.whnf(e)?;
-        loop {
+        for _ in 0..SUCC_LIMIT {
             if let Some(found) = nat_lit::value(&current) {
                 return Ok(found.checked_add(extra));
             }
@@ -637,6 +653,8 @@ impl<'e> TypeChecker<'e> {
                 None => return Ok(None),
             }
         }
+        // A tower taller than `SUCC_LIMIT` is not a numeral anyone wrote.
+        Ok(None)
     }
 
     /// Computes a function of one string literal.

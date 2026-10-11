@@ -167,6 +167,14 @@ impl Sub {
         self.expr.instantiate_at(depth, value).map(Sub::new)
     }
 
+    /// [`Expr::instantiate_many_at`] for a subterm, with the same O(1) skip.
+    fn instantiate_many_at(&self, depth: u32, values: &[&Expr]) -> Option<Sub> {
+        if self.settled_at(depth) {
+            return None;
+        }
+        self.expr.instantiate_many_at(depth, values).map(Sub::new)
+    }
+
     /// [`Expr::abstract_at`] for a subterm.
     ///
     /// There is no skip here. The cached range says where the **bound**
@@ -938,6 +946,123 @@ impl Expr {
             .unwrap_or_else(|| self.clone())
     }
 
+    /// Discharges **several** binders at once.
+    ///
+    /// `values[0]` belongs to the outermost of them, so for
+    /// `(fun a => fun b => body) x y` the call is
+    /// `body.instantiate_many(&[x, y])`.
+    ///
+    /// # Why this exists
+    ///
+    /// [`Expr::instantiate`] discharges one binder and rebuilds every node of
+    /// the body that mentions it. A β step on a spine of **n** arguments used
+    /// to call it n times, and each call rebuilt the whole remaining term, so
+    /// the step cost O(n × size) where one pass costs O(size). A proof of the
+    /// Lean prelude is made of long spines, so that square was most of the
+    /// work: one declaration built **84 million** nodes.
+    ///
+    /// The external checker `nanoclo` reports the same square and the same
+    /// cure, and states the bound exactly: "checking costs O(n) where
+    /// substituting into the body at each binder costs O(n²)".
+    ///
+    /// One pass also never touches the binder **types** of the lambdas it
+    /// discharges, because a β step throws them away. The one-at-a-time
+    /// version rebuilt each of them on the way past.
+    pub fn instantiate_many(&self, values: &[&Expr]) -> Expr {
+        if values.is_empty() || loose_range(self) == 0 {
+            return self.clone();
+        }
+        self.instantiate_many_at(0, values)
+            .unwrap_or_else(|| self.clone())
+    }
+
+    /// The worker for [`Expr::instantiate_many`]. `None` means "nothing
+    /// changed".
+    ///
+    /// The binders being discharged occupy indices `depth` up to
+    /// `depth + values.len()`. An index inside that window reads a value, and
+    /// an index above it moves down by the whole width, because every one of
+    /// those binders disappears together.
+    fn instantiate_many_at(&self, depth: u32, values: &[&Expr]) -> Option<Expr> {
+        let width = values.len() as u32;
+        let top = depth + width;
+        match self {
+            // Inside the window. `values[0]` is the outermost binder, and
+            // index `depth` is the innermost, so the order reverses.
+            Expr::BVar(index) if *index >= depth && *index < top => {
+                let slot = (width - 1 - (index - depth)) as usize;
+                Some(values[slot].lift(0, depth))
+            }
+            // Above the window, so all of these binders now stand gone.
+            Expr::BVar(index) if *index >= top => Some(Expr::BVar(index - width)),
+            Expr::App { fun, arg } => {
+                let new_fun = fun.instantiate_many_at(depth, values);
+                let new_arg = arg.instantiate_many_at(depth, values);
+                rebuild_app(fun, arg, new_fun, new_arg)
+            }
+            Expr::Lam {
+                binder_name,
+                binder_type,
+                body,
+                info,
+            } => {
+                let new_type = binder_type.instantiate_many_at(depth, values);
+                let new_body = body.instantiate_many_at(depth + 1, values);
+                rebuild_binder(
+                    true,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
+            Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                info,
+            } => {
+                let new_type = binder_type.instantiate_many_at(depth, values);
+                let new_body = body.instantiate_many_at(depth + 1, values);
+                rebuild_binder(
+                    false,
+                    binder_name,
+                    binder_type,
+                    body,
+                    *info,
+                    new_type,
+                    new_body,
+                )
+            }
+            Expr::Let {
+                binder_name,
+                binder_type,
+                value: bound,
+                body,
+            } => {
+                let new_type = binder_type.instantiate_many_at(depth, values);
+                let new_value = bound.instantiate_many_at(depth, values);
+                let new_body = body.instantiate_many_at(depth + 1, values);
+                rebuild_let(
+                    binder_name,
+                    binder_type,
+                    bound,
+                    body,
+                    new_type,
+                    new_value,
+                    new_body,
+                )
+            }
+            Expr::Proj(proj) => proj
+                .value
+                .instantiate_many_at(depth, values)
+                .map(|inner| rebuild_proj(proj, inner)),
+            _ => None,
+        }
+    }
+
     /// The worker for [`Expr::instantiate`]. `None` means "nothing changed".
     ///
     /// See [`Expr::lift_opt`] for why it returns an `Option`.
@@ -1105,13 +1230,24 @@ impl Expr {
     /// Returns `None` if the head is not a lambda or if there is no argument.
     pub fn beta_step(&self) -> Option<Expr> {
         let (head, args) = self.unfold_apps();
-        let Expr::Lam { body, .. } = head else {
+        if args.is_empty() || !matches!(head, Expr::Lam { .. }) {
             return None;
-        };
-        let first = *args.first()?;
-        let reduced = body.instantiate(first);
-        // The remaining arguments apply to the result of the step.
-        Some(reduced.apps(args[1..].iter().map(|arg| (*arg).clone())))
+        }
+        // Peel every lambda that has an argument waiting, and discharge them
+        // all in one pass. See [`Expr::instantiate_many`] for why that is not
+        // the same cost as doing them one at a time.
+        let mut body = head;
+        let mut taken = 0usize;
+        while taken < args.len() {
+            let Expr::Lam { body: inner, .. } = body else {
+                break;
+            };
+            body = inner;
+            taken += 1;
+        }
+        let reduced = body.instantiate_many(&args[..taken]);
+        // Anything left over applies to the result of the step.
+        Some(reduced.apps(args[taken..].iter().map(|arg| (*arg).clone())))
     }
 
     /// Repeats [`Expr::beta_step`] at the head until no step applies.
