@@ -479,7 +479,7 @@ fn every_error_variant_has_a_message() {
             expected: term.clone(),
             got: term,
         },
-        TypeError::ReductionLimit,
+        TypeError::OutOfFuel(20_000_000),
         TypeError::BadConstructor {
             ctor: Name::from_dotted("Bad.mk"),
             inductive: Name::from_dotted("Bad"),

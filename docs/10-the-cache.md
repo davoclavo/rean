@@ -246,7 +246,92 @@ So the checker still refuses no correct Lean on this input for want of a rule.
 
 ---
 
-## 10.8 The honest summary of three chapters of speed
+## 10.8 A faster kernel exposed a limit that lied
+
+A larger budget after the caches brought a failure the prelude had never shown:
+
+```text
+108  reduction did not stop after 100000 steps
+```
+
+That is not the budget. It was a **second** limit, inside one call of `whnf`,
+with a constant of its own. Its own doc comment said what it was:
+
+> The budget in `FUEL` bounds a whole declaration, and every step here spends a
+> unit of it, so this limit is a second line of defence rather than the main one.
+
+Read that again and the limit answers itself. `whnf_step` spends a unit of the
+budget **before** it tries any rule, so the loop cannot run more times than the
+budget holds. The budget already bounds the loop. The second limit could only
+ever fire **earlier** than the real one.
+
+So the loop now has one bound, which is the budget:
+
+```rust
+// The budget is the only bound this loop needs, and it is a real one.
+// `whnf_step` spends a unit before it tries any rule, so the loop
+// cannot run more times than the budget holds.
+loop {
+    match self.whnf_step(&current)? {
+```
+
+### And now the measurement, which says I was half wrong
+
+| | checked | failed | time |
+|---|---|---|---|
+| two bounds | 36,209 | 509 | 329 s |
+| one bound | **36,209** | **509** | 362 s |
+
+**Not one declaration changed its verdict.** Those 108 did not get released. They
+reduce for a while longer and then run out of budget, which was always going to
+happen. 393 out of budget plus 108 at the step limit became 501 out of budget,
+and 501 is the same 501.
+
+And the removal costs about 33 seconds, because the checker now keeps reducing
+a hopeless declaration until the real limit stops it. The old limit was an
+accidental early exit.
+
+So why keep the change? For the **message**, and for one constant fewer.
+
+```text
+before:  reduction did not stop after 100000 steps
+after:   this declaration needed more than 100000000 units of work
+```
+
+The first sentence tells the reader to look for a loop or a corrupt file. There
+was neither. The declaration was correct and simply expensive, and the reader
+who trusted that message would hunt a bug that does not exist.
+
+**A second safety limit that is not derived from the first will one day fire
+before it, and then it reports the wrong cause.** The cost of removing it is 10%
+of the time at a budget nobody uses by default. The gain is that every failure
+on this input now names its real reason.
+
+### The same measurement found a second false message
+
+The report said
+
+```text
+this declaration needed more than 20000000 units of work
+```
+
+on a run whose budget was **100,000,000**. The message read the default
+constant, and `REAN_FUEL` had overridden it. The error now carries the budget
+that the run actually set:
+
+```rust
+Err(TypeError::OutOfFuel(self.budget))
+```
+
+A report that names the wrong number is worse than one that names none, because
+a reader will trust it and tune the wrong knob.
+
+Test: `a_definition_that_unfolds_to_itself_hits_the_limit`, which now sets a
+budget of 1,000 and asks for that number back.
+
+---
+
+## 10.9 The honest summary of three chapters of speed
 
 Four changes, each measured, each with a different lesson:
 
@@ -258,16 +343,35 @@ Four changes, each measured, each with a different lesson:
 | `Name::two_parts` | 171 s → 163 s | do not allocate inside the loop |
 | cache `whnf` | **+557 declarations**, 163 s → 172 s | the first one that moved the real number |
 | cache `is_def_eq` | **+696 declarations**, 172 s → 190 s | the same idea pays twice |
+| one bound instead of two | nothing, and 33 s slower | a redundant limit reports the wrong cause |
 
-Only the last two moved the number the project reports, and they are the only
-two that made the **work smaller** rather than the same work faster.
+Only the two caches moved the number the project reports, and they are the only
+two that made the **work smaller** rather than the same work faster. Three of
+the six changes moved no declaration at all, and each one was still worth
+making for a different reason. Say which reason.
 
 ---
 
-## 10.9 What is left
+## 10.10 What is left
 
 **676 declarations out of budget.** Still well-founded recursion, and still the
 whole gap.
+
+A larger budget shows how much of that gap is the budget and how much is the
+checker:
+
+| budget | checked | failed | time |
+|---|---|---|---|
+| 20,000,000 | 35,115 | 684 | 190 s |
+| 100,000,000 | **36,209** | **509** | 362 s |
+
+Five times the budget buys 1,094 declarations and cuts the failures by 175. So
+the budget is still a real part of the gap, and 509 declarations are beyond even
+that.
+
+Do not compare this table with the one in chapter 9 §9.12. That measurement ran
+on an earlier binary, and a comparison across two binaries measures both
+changes at once.
 
 Both caches are in, so what remains is the deeper change: our `whnf` is
 **eager**, and it rebuilds a whole term for each step. Lean's is lazy, and that

@@ -280,6 +280,13 @@ proof checker honest: a hash **finds** an answer, and `alpha_eq` **decides**
 whether to trust it, because two terms can share a hash and a checker may not be
 probably right.
 
+The same measurement removed a **second** limit inside `whnf` that had a
+constant of its own. The budget already bounded that loop, because a step spends
+a unit before it tries any rule, so the second limit could only fire earlier and
+then report the wrong cause: "reduction did not stop" for a declaration that was
+correct and simply expensive. It changed no verdict and cost about 33 s at the
+larger budget. We kept the removal for the message and for one constant fewer.
+
 So one item is left, and it is a change of shape rather than a cache:
 
 - Our `whnf` is **eager** and rebuilds a whole term for each step, which is why

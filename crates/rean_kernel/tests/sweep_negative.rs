@@ -59,7 +59,8 @@ fn a_definition_that_unfolds_to_itself_hits_the_limit() {
     //
     // The theory says reduction terminates. A corrupt file does not have to
     // obey the theory, so the loop needs a bound, and the bound must report an
-    // error rather than hang.
+    // error rather than hang. The budget is that bound, and it is the only one:
+    // a step spends a unit before it tries any rule.
     let mut env = Environment::new();
     env.add(Declaration::Definition(DefinitionVal {
         name: Name::from_dotted("Loop"),
@@ -71,9 +72,10 @@ fn a_definition_that_unfolds_to_itself_hits_the_limit() {
         all: Vec::new(),
     }));
     let mut tc = TypeChecker::new(&env);
+    tc.set_fuel(1_000);
     assert_eq!(
         tc.whnf(&Expr::const_("Loop", vec![])),
-        Err(TypeError::ReductionLimit)
+        Err(TypeError::OutOfFuel(1_000))
     );
 }
 

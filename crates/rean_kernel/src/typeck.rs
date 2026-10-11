@@ -47,15 +47,6 @@ use std::fmt;
 ///
 /// The theory says that reduction terminates. A corrupt input file does not
 /// have to obey the theory, so the loop needs a bound.
-/// How many steps one call of [`TypeChecker::whnf`] may take.
-///
-/// The budget in [`FUEL`] bounds a whole declaration, and every step here
-/// spends a unit of it, so this limit is a second line of defence rather than
-/// the main one. It is generous because a real declaration can need it: a
-/// theorem of the Lean prelude about character validity reduces through more
-/// than a hundred thousand steps and is perfectly correct.
-const REDUCTION_LIMIT: u32 = 100_000;
-
 /// How much of a term one reduction step may be charged for.
 ///
 /// See [`Expr::size_up_to`] for why the count has a cap at all.
@@ -129,10 +120,8 @@ pub enum TypeError {
         expected: Box<Expr>,
         got: Box<Expr>,
     },
-    /// Reduction did not stop. The input is probably corrupt.
-    ReductionLimit,
     /// The declaration took more work than the budget allows.
-    OutOfFuel,
+    OutOfFuel(u64),
     /// A constructor type is not acceptable, so the inductive declaration is
     /// not sound. This is the check that stops a user from proving `False`.
     BadConstructor {
@@ -244,11 +233,11 @@ impl TypeError {
                 show(expected),
                 show(got)
             ),
-            TypeError::ReductionLimit => {
-                format!("reduction did not stop after {REDUCTION_LIMIT} steps")
-            }
-            TypeError::OutOfFuel => {
-                format!("this declaration needed more than {FUEL} steps, so it was not checked")
+            TypeError::OutOfFuel(budget) => {
+                format!(
+                    "this declaration needed more than {budget} units of work, \
+                     so it was not checked"
+                )
             }
             TypeError::BadConstructor {
                 ctor,
@@ -418,7 +407,10 @@ impl<'e> TypeChecker<'e> {
             }
             None => {
                 self.fuel = 0;
-                Err(TypeError::OutOfFuel)
+                // The message names the budget that this run set, not the
+                // default. `REAN_FUEL` overrides it, and a report that still
+                // printed the default was simply false.
+                Err(TypeError::OutOfFuel(self.budget))
             }
         }
     }
@@ -486,7 +478,13 @@ impl<'e> TypeChecker<'e> {
     /// caller can decide whether the answer is worth keeping.
     fn whnf_uncached(&mut self, e: &Expr) -> TypeResult<(Expr, u32)> {
         let mut current = e.clone();
-        for steps in 0..REDUCTION_LIMIT {
+        // The budget is the only bound this loop needs, and it is a real one.
+        // `whnf_step` spends a unit before it tries any rule, so the loop
+        // cannot run more times than the budget holds. A second limit of its
+        // own was redundant, and it fired on 108 correct declarations of the
+        // Lean prelude once the caches made each step cheap enough to reach it.
+        let mut steps = 0u32;
+        loop {
             match self.whnf_step(&current)? {
                 Some(next) => {
                     // A step can make the term larger, and the ι rule often
@@ -499,11 +497,11 @@ impl<'e> TypeChecker<'e> {
                     // substituted a bigger term than the last.
                     self.spend_many(next.size_up_to(SIZE_CAP))?;
                     current = next;
+                    steps = steps.saturating_add(1);
                 }
                 None => return Ok((current, steps)),
             }
         }
-        Err(TypeError::ReductionLimit)
     }
 
     /// Does one reduction step at the head, or returns `None` if none applies.
