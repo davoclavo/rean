@@ -378,6 +378,20 @@ pub struct TypeChecker<'e> {
     /// A core answer and a full answer are answers to different questions, so
     /// they cannot share one map.
     core_cache: HashMap<u64, Vec<(Expr, Expr)>>,
+    /// Terms that [`Self::read_nat`] has already found are not numbers.
+    ///
+    /// `nat_step` is tried on **every** reduction step whose head is a `Nat`
+    /// operation, and each try forces both arguments. A term that is not a
+    /// number stays one, so the second try can answer at once.
+    ///
+    /// This is the one cache in the kernel that needs **no confirmation**, and
+    /// the reason is worth keeping. Chapter 10 insists that a hash only finds
+    /// an answer and `alpha_eq` decides, because two terms can share a hash.
+    /// Here a collision makes the kernel call a number "not a number", so it
+    /// declines and unfolds the definition instead. That is slower and it is
+    /// not wrong. A cache may skip its confirmation exactly when being wrong
+    /// costs time rather than truth.
+    not_a_number: std::collections::HashSet<u64>,
     /// How many arithmetic arguments [`Self::read_nat`] is forcing right now.
     ///
     /// See [`SUCC_LIMIT`] for the other half of the same story.
@@ -407,6 +421,7 @@ impl<'e> TypeChecker<'e> {
             def_eq_cache: HashMap::new(),
             infer_cache: HashMap::new(),
             core_cache: HashMap::new(),
+            not_a_number: std::collections::HashSet::new(),
             nat_depth: 0,
         }
     }
@@ -721,11 +736,22 @@ impl<'e> TypeChecker<'e> {
     /// The loop ends because each step takes a strictly smaller term.
     fn read_nat(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
         if self.nat_depth >= NAT_DEPTH_LIMIT {
+            // Not an answer about the term, so nothing is remembered.
+            return Ok(None);
+        }
+        let key = e.hash_value();
+        if self.not_a_number.contains(&key) {
             return Ok(None);
         }
         self.nat_depth += 1;
         let answer = self.read_nat_inner(e);
         self.nat_depth -= 1;
+        if let Ok(None) = answer {
+            if self.not_a_number.len() >= CACHE_CAP {
+                self.not_a_number.clear();
+            }
+            self.not_a_number.insert(key);
+        }
         answer
     }
 
@@ -1096,6 +1122,7 @@ impl<'e> TypeChecker<'e> {
         self.def_eq_cache.clear();
         self.infer_cache.clear();
         self.core_cache.clear();
+        self.not_a_number.clear();
     }
 
     /// Stores one answer of [`Self::is_def_eq`].
