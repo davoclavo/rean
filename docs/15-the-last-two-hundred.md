@@ -5,9 +5,10 @@ That is 99.57%, and it took forty-four minutes at a budget forty times the
 default.
 
 This chapter is about the 248 that are left, and it is mostly a list of things
-that turned out **not** to be the reason. Five hypotheses, each plausible, each
-refuted by a measurement. None of them cost more than twenty minutes, and
-together they are worth more than a guess that happened to be right.
+that turned out **not** to be the reason. Six hypotheses, each plausible, each
+refuted by a measurement. None of them cost more than twenty minutes, one of
+them ruled out a rewrite, and together they are worth more than a guess that
+happened to be right.
 
 ---
 
@@ -144,7 +145,49 @@ with no payment.
 
 ---
 
-## 15.7 What it actually is
+## 15.7 Not lifting, and this one rules out a rewrite
+
+Chapter 14 §14.7 named two cures, and both change what a term **is**. The
+cheaper of the two is `nanobruijn`'s: keep a term as a pointer **plus a shift**,
+so that lifting costs nothing and one cache entry serves every shifted variant
+of a subterm.
+
+That is a large change, and it touches every place that reads a de Bruijn index.
+So measure first. Count how many lifts happen, how many of them do any work,
+and how many nodes they walk.
+
+```text
+lift: 3,906,385 free, 0 real, 0 nodes walked
+lift: 5,644,324 free, 0 real, 0 nodes walked
+lift: 8,111,897 free, 0 real, 0 nodes walked
+```
+
+**Eight million lifts, and not one of them did any work.**
+
+The reason is already in the kernel. `Expr::lift` begins
+
+```rust
+if amount == 0 || loose_range(self) <= cutoff {
+    return self.clone();
+}
+```
+
+and chapter 9 cached `loose` in every node precisely so that this test is O(1).
+The values a β step substitutes come from the spine, and a term from the spine is
+closed, so its lift is free. Every time.
+
+So a representation that makes lifting O(1) would replace something that already
+costs nothing. **One of the two remaining rewrites is ruled out, and no line of
+it was written.** The other, normalisation by evaluation, is untouched by this
+measurement.
+
+This is the third plan this project has retired by measuring instead of
+building, and the cheapest of the three to retire: twelve lines of counter and
+one run.
+
+---
+
+## 15.8 What it actually is
 
 With five explanations gone, the remaining reading is the plain one. For this
 single declaration the kernel performs about **1.3 million reduction steps**:
@@ -164,9 +207,10 @@ done, correctly, one freshly built term at a time.
 That is the cost of an **eager** `whnf`, and chapter 14 §14.7 already named the
 two cures and the reason we have not taken them. Both change what a term **is**:
 
-- a term as a pointer **plus a shift**, so that lifting is O(1) and one cache
-  entry serves every shifted variant of a subterm;
-- normalisation by evaluation, which the fastest checker in the arena uses.
+- ~~a term as a pointer **plus a shift**~~, ruled out in §15.7: our lifts
+  already cost nothing;
+- normalisation by evaluation, which the fastest checker in the arena uses, and
+  which this chapter does **not** rule out.
 
 The honest position is this. **99.57% is where an eager kernel with four caches
 gets to.** The last 0.43% is not a missing rule, not a budget, and not a cache.
@@ -175,15 +219,16 @@ these fifteen chapters describe.
 
 ---
 
-## 15.8 The part worth keeping
+## 15.9 The part worth keeping
 
-Five hypotheses, five measurements, five hours. Nothing in the kernel changed.
+Six hypotheses, six measurements, five hours. Nothing in the kernel changed.
 
 That reads like waste and is not, because each measurement **removed** something
 from the list, and the list is what a future reader inherits. The next person to
 open this file does not have to re-test the budget, the cache size, the overflow
-path, the under-application, or the universe substitution. They are all ruled
-out, with numbers.
+path, the under-application, the universe substitution, **or the shift in the
+representation**. They are all ruled out, with numbers, and the last of those
+would have been a week of work.
 
 And one of the five was worth the whole day on its own: the instrument that
 watched one exit of three. Every number this project reports comes from an

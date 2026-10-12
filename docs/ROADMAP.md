@@ -318,9 +318,10 @@ code you measured it on.
 | 800,000,000 | **57,264** | 68 | 2,637 s |
 
 At the larger budget that is **99.57%**, and the 68 that remain are one family:
-`Int32`, `Int64`, `ISize`. Chapter 15 rules out five explanations for them with
-measurements, including the budget itself at two hundred times the default. What
-is left is the representation of a term, and that is a different project.
+`Int32`, `Int64`, `ISize`. Chapter 15 rules out **six** explanations for them with measurements, including
+the budget itself at two hundred times the default, and including one of the two
+rewrites chapter 14 had named. What is left is normalisation by evaluation, and
+that is a different project.
 
 **At the default budget one declaration blocks 2,690 of the 3,089 that
 remain**, which is 87% of them. `tools/roots.py` says so, and it keeps saying something different each
@@ -345,8 +346,11 @@ can do it.
   bought nothing on our input and is right anyway.
 - **Taken:** a batched β spine, from `nanoclo`'s delayed instantiation. Our step
   was the O(n²) version it names.
-- **Not taken:** a term as a pointer **plus a shift**, as `nanobruijn` does, so
-  that lifting is O(1) and one cache entry serves every shifted variant.
+- **Ruled out by measurement**, chapter 15 §15.7: a term as a pointer **plus a
+  shift**, as `nanobruijn` does. Eight million lifts in one declaration and
+  **not one did any work**, because the `loose` number chapter 9 caches already
+  makes a lift of a closed term free. That rewrite would replace something that
+  costs nothing.
 - **Not taken:** normalisation by evaluation, which the fastest checker in the
   arena uses.
 
