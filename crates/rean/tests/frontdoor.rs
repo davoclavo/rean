@@ -84,7 +84,9 @@ fn a_lean_file_reaches_our_kernel() {
         "{text}"
     );
 
-    // The export file stays, so a second check costs nothing.
+    // The export file stays. `rean check Demo.lean` exports again every time,
+    // on purpose, because a stale export is a lie about the source; the file
+    // is kept so that `rean check <that file>.ndjson` needs no Lean at all.
     assert!(dir.join("Demo.ndjson").is_file());
     assert!(tools.lean.is_file());
     let _ = std::fs::remove_dir_all(&dir);

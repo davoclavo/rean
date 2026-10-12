@@ -319,8 +319,14 @@ fn size_text(bytes: u64) -> String {
 /// Where an export file goes when the caller names no directory.
 ///
 /// A prelude export is 345 MB, so it does not belong beside the user's source.
-/// It stays in the temporary directory, and the report prints the path, so a
-/// second check of the same module can read the file instead of making it.
+/// It stays in the temporary directory, and the report prints the path.
+///
+/// A target that is a `.lean` file or a module is exported **every time**. A
+/// cached export is a claim about a source file that may have changed since,
+/// and a checker that reports on a file nobody is editing any more is worse
+/// than one that takes 14 seconds. The path is printed so that a reader who
+/// wants the same terms twice can name the `.ndjson` instead, which needs no
+/// Lean at all.
 pub fn default_work_dir() -> PathBuf {
     match std::env::var_os("REAN_EXPORT_DIR") {
         Some(dir) => PathBuf::from(dir),

@@ -137,7 +137,9 @@ pub struct DeclOutcome {
     pub tally: Vec<(String, u64)>,
     /// The most stack that this declaration needed, in bytes.
     ///
-    /// Zero unless `REAN_TALLY` is set. See `REAN_STACK`.
+    /// Always measured, because the guard that measures it runs anyway. The
+    /// driver prints it beside a tally, where it answers the question the
+    /// tally raises: was the limit close? See `REAN_STACK`.
     pub deepest: usize,
 }
 
