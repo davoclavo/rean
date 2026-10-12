@@ -43,6 +43,24 @@ use rean_core::Name;
 use std::collections::HashMap;
 use std::fmt;
 
+/// How deep [`TypeChecker::read_nat`] will force a nested arithmetic argument.
+///
+/// To compute `Nat.sub a b` the kernel must reduce `a` and `b` first, and if
+/// `a` is itself `Nat.sub c d` then reducing it reduces `c`, and so on. The
+/// descent is a mutual recursion between `read_nat` and `whnf`, so its depth is
+/// the depth of the term.
+///
+/// On one declaration of the prelude that term was **more than a thousand
+/// levels deep**, and the chain `read_nat -> whnf -> reduce -> read_nat` held
+/// 3,959 of 4,000 samples in a profile. At a large budget it did not merely run
+/// slowly: it overflowed a **32 GB** stack, in the same 345 seconds at four
+/// billion units and at sixteen billion, which is what a crash looks like
+/// beside a timeout.
+///
+/// So the kernel forces a few levels and then declines. Declining is only
+/// slower, never wrong: it falls back to unfolding the definition.
+const NAT_DEPTH_LIMIT: u32 = 16;
+
 /// How many `Nat.succ` layers [`TypeChecker::read_nat`] will peel.
 ///
 /// Reading a number through its constructor form is what chapter 13 is about,
@@ -360,6 +378,10 @@ pub struct TypeChecker<'e> {
     /// A core answer and a full answer are answers to different questions, so
     /// they cannot share one map.
     core_cache: HashMap<u64, Vec<(Expr, Expr)>>,
+    /// How many arithmetic arguments [`Self::read_nat`] is forcing right now.
+    ///
+    /// See [`SUCC_LIMIT`] for the other half of the same story.
+    nat_depth: u32,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -385,6 +407,7 @@ impl<'e> TypeChecker<'e> {
             def_eq_cache: HashMap::new(),
             infer_cache: HashMap::new(),
             core_cache: HashMap::new(),
+            nat_depth: 0,
         }
     }
 
@@ -697,6 +720,17 @@ impl<'e> TypeChecker<'e> {
     ///
     /// The loop ends because each step takes a strictly smaller term.
     fn read_nat(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
+        if self.nat_depth >= NAT_DEPTH_LIMIT {
+            return Ok(None);
+        }
+        self.nat_depth += 1;
+        let answer = self.read_nat_inner(e);
+        self.nat_depth -= 1;
+        answer
+    }
+
+    /// The body of [`Self::read_nat`], inside the depth guard.
+    fn read_nat_inner(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
         let mut extra: u128 = 0;
         let mut current = self.whnf(e)?;
         for _ in 0..SUCC_LIMIT {
