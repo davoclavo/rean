@@ -315,10 +315,15 @@ code you measured it on.
 | budget | checked | failed | time |
 |---|---|---|---|
 | 20,000,000, the default | 54,308 | 115 | 252 s |
-| 100,000,000 | see chapter 14 | | |
+| 800,000,000 | **57,264** | 68 | 2,637 s |
 
-**And one declaration blocks 2,690 of the 3,089 that remain**, which is 87% of
-them. `tools/roots.py` says so, and it keeps saying something different each
+At the larger budget that is **99.57%**, and the 68 that remain are one family:
+`Int32`, `Int64`, `ISize`. Chapter 15 rules out five explanations for them with
+measurements, including the budget itself at two hundred times the default. What
+is left is the representation of a term, and that is a different project.
+
+**At the default budget one declaration blocks 2,690 of the 3,089 that
+remain**, which is 87% of them. `tools/roots.py` says so, and it keeps saying something different each
 time, so run it again rather than trusting the last answer:
 
 ```text
