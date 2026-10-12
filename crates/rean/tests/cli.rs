@@ -86,17 +86,42 @@ fn check_passes_the_fixture() {
 }
 
 #[test]
-fn check_without_a_path_fails() {
+fn check_without_a_target_fails() {
     let out = run(&["check"]);
     assert!(!out.status.success());
-    assert!(stderr(&out).contains("check needs a path"));
+    assert!(stderr(&out).contains("no target"), "{}", stderr(&out));
 }
 
 #[test]
-fn check_with_a_bad_file_fails() {
-    let out = run(&["check", "../../examples/twice.lean"]);
+fn check_with_a_missing_export_file_fails() {
+    let out = run(&["check", "nowhere.ndjson"]);
     assert!(!out.status.success());
-    assert!(stderr(&out).contains("cannot read"));
+    assert!(stderr(&out).contains("is not a file"), "{}", stderr(&out));
+}
+
+#[test]
+fn check_with_an_unknown_option_fails() {
+    let out = run(&["check", "a.ndjson", "--wat"]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("unknown option"), "{}", stderr(&out));
+}
+
+/// Slicing an export file is a different tool, and the message says which.
+///
+/// This test needs no Lean, because the refusal comes before the search for
+/// one. Every test in this file is of that kind: the front door is tested
+/// against the parser and the messages, and the one test that really drives
+/// Lean lives in `tests/frontdoor.rs` and skips itself when no Lean is there.
+#[test]
+fn decl_on_an_export_file_names_the_tool_that_does_it() {
+    let out = run(&[
+        "check",
+        "../../fixtures/lean4export/shapes.ndjson",
+        "--decl",
+        "Point",
+    ]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("tools/slice.py"), "{}", stderr(&out));
 }
 
 #[test]

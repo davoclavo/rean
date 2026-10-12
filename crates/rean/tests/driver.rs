@@ -165,5 +165,20 @@ fn the_usage_text_names_both_knobs_and_their_coupling() {
     // failed by this text. See chapter 9, section 9.8.
     assert!(USAGE.contains("REAN_FUEL"), "{USAGE}");
     assert!(USAGE.contains("REAN_STACK"), "{USAGE}");
-    assert!(USAGE.contains("deeper term needs more stack"), "{USAGE}");
+    assert!(USAGE.contains("needs more stack to reduce"), "{USAGE}");
+    // And the kernel's answer to running out: a report, not a crash.
+    assert!(USAGE.contains("rather than crashing"), "{USAGE}");
+}
+
+#[test]
+fn the_usage_text_names_the_three_kinds_of_target() {
+    // The front door of chapter 16. A reader who does not know that `prelude`
+    // is a target will never type it.
+    assert!(USAGE.contains(".ndjson"), "{USAGE}");
+    assert!(USAGE.contains("Demo.lean"), "{USAGE}");
+    assert!(USAGE.contains("prelude"), "{USAGE}");
+    assert!(USAGE.contains("--decl"), "{USAGE}");
+    // And it must say whose elaborator did the work, or the reader will think
+    // this project has a parser.
+    assert!(USAGE.contains("stage 4 is ours"), "{USAGE}");
 }

@@ -4,11 +4,15 @@
 //! printing. That split is what makes the driver testable, and a binary that
 //! holds its own logic cannot be tested at all.
 
+pub mod export;
+
+use export::{ExportReport, Toolchain};
 use rean_core::{DiagnosticBag, SourceMap};
 use rean_kernel::{Declaration, Environment, Expr, Level, TypeChecker};
 use rean_lexer::{TokenKind, TokenTable, tokenize};
 use rean_syntax::{Syntax, kind};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const USAGE: &str = "\
@@ -16,17 +20,42 @@ rean - a Lean compiler in Rust
 
 usage:
   rean lex <file.lean>   print every token with its position
-  rean check <f.ndjson>  check a lean4export file with our kernel
+  rean check <target>    check Lean declarations with our kernel
+  rean export <target>   export a target and print the path, without checking
   rean prove             check a proof with the kernel
   rean demo              walk the stages over a small example
   rean help              print this text
+
+a check target is one of three things:
+  foo.ndjson             a lean4export file, read as it is
+  Demo.lean              a Lean source file. The real Lean compiles it, then
+                         lean4export writes the terms, then our kernel checks
+                         them. Stages 2 and 3 are Lean's, stage 4 is ours.
+  prelude                Lean's `Init`, the whole prelude
+  Some.Module            any compiled module on REAN_LEAN_PATH
+
+options for check and export:
+  --decl <name>          export only this declaration and what it rests on.
+                         Repeatable. The whole module is the default.
+  --out <dir>            where the export file goes, default a temporary dir
+  --no-check             export only, as `rean export` does
 
 two knobs, and they are coupled:
   REAN_FUEL=<units>      work budget per declaration, default 20000000
   REAN_STACK=<MiB>       stack for the checker, default 512
 
 A larger budget lets a reduction run longer, a longer reduction builds a
-deeper term, and a deeper term needs more stack.
+deeper term, and a deeper term needs more stack to reduce. The kernel may
+use four fifths of the stack and then reports, rather than crashing.
+
+one more, for finding out why a declaration is expensive:
+  REAN_TALLY=1           count every rule the kernel fires, by name
+
+three more, for the front door:
+  REAN_LEAN              the `lean` binary to use
+  REAN_LEANEXPORT        the `lean4export` binary to use
+  REAN_LEAN_PATH         extra directories of compiled `.olean` files
+  REAN_EXPORT_DIR        where an export file goes, default a temporary dir
 ";
 
 /// What `lex` found.
@@ -99,6 +128,16 @@ pub struct DeclOutcome {
     /// The kernel re-checks everything else, so an axiom is the only thing it
     /// takes on trust. A report that does not name them is not a trust report.
     pub axioms: Vec<String>,
+    /// What the kernel did, rule by rule, when `REAN_TALLY` is set.
+    ///
+    /// Empty otherwise, and empty for a declaration that passed. The tally is
+    /// for finding out why one declaration is expensive, and printing it for
+    /// all 59,349 would bury the answer.
+    pub tally: Vec<(String, u64)>,
+    /// The most stack that this declaration needed, in bytes.
+    ///
+    /// Zero unless `REAN_TALLY` is set. See `REAN_STACK`.
+    pub deepest: usize,
 }
 
 /// What `check` found.
@@ -170,6 +209,187 @@ impl CheckReport {
     }
 }
 
+/// What `check` and `export` were pointed at.
+///
+/// The three cases are told apart by the shape of the name, and not by a flag.
+/// A reader who types `rean check Demo.lean` means that file, and a reader who
+/// types `rean check prelude` means the prelude. Making them say which is which
+/// would be a question whose answer is already written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    /// An export file, read as it is. No Lean is needed.
+    Export(PathBuf),
+    /// Lean source. The real Lean compiles it, then the exporter reads it.
+    Source(PathBuf),
+    /// A module that is compiled already, such as `Init`.
+    Module(String),
+}
+
+impl Target {
+    /// Reads what the user typed.
+    ///
+    /// `prelude` is an alias, because `Init` is the name of the module and not
+    /// a word that a reader would guess.
+    pub fn parse(target: &str) -> Result<Target, String> {
+        if export::is_export_file(target) {
+            return Ok(Target::Export(PathBuf::from(target)));
+        }
+        if export::is_lean_source(target) {
+            return Ok(Target::Source(PathBuf::from(target)));
+        }
+        if target.eq_ignore_ascii_case("prelude") {
+            return Ok(Target::Module(export::PRELUDE.to_string()));
+        }
+        // Anything else is a module name. A path that exists and is neither of
+        // the two extensions is a mistake worth naming, because treating
+        // `./foo.txt` as a module gives a message about an unknown module.
+        let looks_like_a_module = !target.is_empty()
+            && target.split('.').all(|part| {
+                !part.is_empty()
+                    && part
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '\'')
+            });
+        if !looks_like_a_module {
+            return Err(format!(
+                "`{target}` is not a target. Use a `.ndjson` export, a `.lean` \
+                 file, `prelude`, or a module name."
+            ));
+        }
+        Ok(Target::Module(target.to_string()))
+    }
+}
+
+/// What the command line asked `check` or `export` to do.
+///
+/// The parser lives here and not in `main.rs`, by the rule the driver follows
+/// everywhere: every decision belongs where a test can reach it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckArgs {
+    pub target: Target,
+    /// The declarations to export, or empty for the whole module.
+    pub decls: Vec<String>,
+    /// Where the export file goes.
+    pub out: Option<String>,
+    /// Whether to run the kernel afterwards.
+    pub check: bool,
+}
+
+impl CheckArgs {
+    /// Reads the arguments that follow `check` or `export`.
+    ///
+    /// `checks` is what the command does when no flag says otherwise, so
+    /// `export` passes `false` and `check` passes `true`.
+    pub fn parse(args: &[String], checks: bool) -> Result<CheckArgs, String> {
+        let mut target = None;
+        let mut decls = Vec::new();
+        let mut out = None;
+        let mut check = checks;
+        let mut rest = args.iter();
+        while let Some(arg) = rest.next() {
+            match arg.as_str() {
+                "--decl" => {
+                    let name = rest
+                        .next()
+                        .ok_or_else(|| "--decl needs a declaration name".to_string())?;
+                    decls.push(name.clone());
+                }
+                "--out" => {
+                    let dir = rest
+                        .next()
+                        .ok_or_else(|| "--out needs a directory".to_string())?;
+                    out = Some(dir.clone());
+                }
+                "--no-check" => check = false,
+                other if other.starts_with("--") => {
+                    return Err(format!("unknown option `{other}`"));
+                }
+                other => {
+                    if target.is_some() {
+                        return Err(format!(
+                            "two targets, `{}` and `{other}`. One at a time.",
+                            target.unwrap_or_default()
+                        ));
+                    }
+                    target = Some(other.to_string());
+                }
+            }
+        }
+        let target = target.ok_or_else(|| {
+            "no target. Give an `.ndjson` export, a `.lean` file, `prelude`, \
+             or a module name."
+                .to_string()
+        })?;
+        Ok(CheckArgs {
+            target: Target::parse(&target)?,
+            decls,
+            out,
+            check,
+        })
+    }
+}
+
+/// What it took to get an export file for a target.
+#[derive(Debug)]
+pub struct Prepared {
+    /// The export file to check.
+    pub path: PathBuf,
+    /// What the exporter did, or `None` when the target was a file already.
+    pub export: Option<ExportReport>,
+}
+
+/// Turns a target into an export file, driving the real Lean when it must.
+///
+/// This is the front door of `docs/ROADMAP.md` level 1. The reader points
+/// `rean` at ordinary Lean code, and our kernel checks the terms that Lean's
+/// own elaborator produced. Our parser and our elaborator are **not** in this
+/// path. See [`export`].
+pub fn prepare(target: &Target, decls: &[String], out: Option<&str>) -> Result<Prepared, String> {
+    let work = match out {
+        Some(dir) => PathBuf::from(dir),
+        None => export::default_work_dir(),
+    };
+    match target {
+        Target::Export(path) => {
+            if !path.is_file() {
+                return Err(format!("{} is not a file", path.display()));
+            }
+            if !decls.is_empty() {
+                // Slicing an export file is what `tools/slice.py` is for, and
+                // saying so beats doing nothing and reporting success.
+                return Err(
+                    "--decl needs Lean, so it works on a `.lean` file or a module. \
+                     To cut an export file down, use tools/slice.py."
+                        .to_string(),
+                );
+            }
+            Ok(Prepared {
+                path: path.clone(),
+                export: None,
+            })
+        }
+        Target::Source(path) => {
+            if !path.is_file() {
+                return Err(format!("{} is not a file", path.display()));
+            }
+            let tools = Toolchain::find()?;
+            let report = tools.export_source(path, decls, &work)?;
+            Ok(Prepared {
+                path: report.path.clone(),
+                export: Some(report),
+            })
+        }
+        Target::Module(module) => {
+            let tools = Toolchain::find()?;
+            let report = tools.export_module(module, decls, &[], &work)?;
+            Ok(Prepared {
+                path: report.path.clone(),
+                export: Some(report),
+            })
+        }
+    }
+}
+
 /// Reads a `lean4export` file and checks every declaration with our kernel.
 ///
 /// The environment grows one declaration at a time, so a declaration can only
@@ -217,12 +437,17 @@ pub fn check_export_streaming(
                     kind: "missing",
                     verdict: Verdict::Failed("the reader lost this declaration".to_string()),
                     axioms: Vec::new(),
+                    tally: Vec::new(),
+                    deepest: 0,
                 };
                 report(&lost);
                 outcomes.push(lost);
                 rejected.insert(name.clone());
                 continue;
             };
+
+            let mut tally: Vec<(String, u64)> = Vec::new();
+            let mut deepest = 0usize;
 
             // Does it rest on something that already failed?
             let mut uses = Vec::new();
@@ -238,16 +463,27 @@ pub fn check_export_streaming(
                     if let Some(fuel) = fuel_from_env() {
                         tc.set_fuel(fuel);
                     }
+                    tc.set_stack_budget(kernel_stack_budget(stack_bytes(
+                        std::env::var("REAN_STACK").ok().as_deref(),
+                    )));
                     let outcome = tc.with_group(&decls, |tc| {
                         tc.check_declaration(decl)
                             .map_err(|err| err.render(tc.lctx()))
                     });
+                    deepest = tc.deepest();
                     match outcome {
                         Ok(()) => {
                             accepted.push(decl.clone());
                             Verdict::Ok
                         }
-                        Err(message) => Verdict::Failed(message),
+                        Err(message) => {
+                            // The tally is taken here and not at the end of the
+                            // file, because the next declaration clears it.
+                            if rean_kernel::tally::on() {
+                                tally = rean_kernel::tally::take();
+                            }
+                            Verdict::Failed(message)
+                        }
                     }
                 }
             };
@@ -259,6 +495,8 @@ pub fn check_export_streaming(
                 kind: decl.kind_label(),
                 verdict,
                 axioms: Vec::new(),
+                tally,
+                deepest,
             };
             report(&outcome);
             outcomes.push(outcome);
@@ -563,11 +801,27 @@ fn axioms_of_group(
     sorted.into()
 }
 
-/// Reads a work budget from `REAN_FUEL`, if it is set./// Reads a work budget from `REAN_FUEL`, if it is set.
+/// Reads a work budget from `REAN_FUEL`, if it is set.
 ///
 /// The default lives in `rean_kernel`. This override exists so that a budget
 /// can be chosen by measurement over a real file rather than by taste, and so
 /// that a reader can see for themselves what a smaller one gives up.
 fn fuel_from_env() -> Option<u64> {
     std::env::var("REAN_FUEL").ok()?.parse().ok()
+}
+
+/// How much of a stack of `bytes` the kernel may use.
+///
+/// The kernel's own default is set for the 8 MB that a main thread gets,
+/// because a library cannot know its stack. The driver **chooses** the stack,
+/// so it can do better, and this is where the two knobs stop being
+/// independent: raise `REAN_STACK` and the kernel is allowed to recurse
+/// further, with no second knob to learn.
+///
+/// Four fifths, and the fifth that is left is not caution. The guard only acts
+/// where it is asked, which is on entry to one of three functions, and the work
+/// between two entries needs room of its own. A `whnf` that is refused must
+/// still have the stack to build the error and return it.
+pub fn kernel_stack_budget(bytes: usize) -> usize {
+    bytes / 5 * 4
 }

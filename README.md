@@ -21,6 +21,53 @@ cargo run -p rean -- prove                      # check a proof with the kernel
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
 ```
 
+## Check your own Lean code
+
+Point `rean` at a `.lean` file. It calls the real Lean to elaborate the file,
+calls `lean4export` to write the terms, and then **our kernel checks every one
+of them**.
+
+```sh
+cargo run --release -p rean -- check Demo.lean --decl twice_two
+cargo run --release -p rean -- check prelude        # Lean's `Init`, all of it
+cargo run --release -p rean -- check Some.Module    # a module on REAN_LEAN_PATH
+cargo run --release -p rean -- export Demo.lean     # write the file, check nothing
+```
+
+```text
+export: Demo -> /tmp/rean-export/Demo.ndjson (41 KB) in 0.3s, by Lean 4.35.0-rc3
+  ok    inductive  Nat
+  ...
+  ok    theorem    twice_two
+
+level 1: checked 39 of 39 declarations
+trust: no accepted declaration rests on an axiom
+```
+
+Read that output carefully, because it says something about trust. `twice_two`
+is three lines of Lean, and checking it took **39 declarations**: `Nat`, its
+recursor, `HAdd`, `OfNat`, and the instances between them. A checker that
+trusted the library and looked only at the theorem would be checking nothing.
+`--decl` keeps the export to one declaration and what it rests on. Without it,
+the export is the whole closure of the module, which for anything that imports
+the prelude is 345 MB and a few minutes.
+
+Four things are worth knowing before the first run.
+
+1. **The elaborator is Lean's, not ours.** Stages 2 and 3 of the pipeline below
+   still do not exist here. This is checkpoint level 1 of
+   [the roadmap](docs/ROADMAP.md): our kernel, Lean's terms. Level 2 is the one
+   that needs our own parser.
+2. **It needs the real Lean and `lean4export`, from one toolchain.** `rean`
+   looks on `PATH` and in `~/.elan/toolchains`. `REAN_LEAN` and
+   `REAN_LEANEXPORT` name them by hand, and
+   [`fixtures/lean4export/PROVENANCE.md`](fixtures/lean4export/PROVENANCE.md)
+   says how to build the exporter.
+3. **An `.ndjson` file needs none of that.** `rean check file.ndjson` reads what
+   anybody exported, on any machine.
+4. **Lean's errors stay Lean's.** A file that does not compile gets Lean's own
+   message, and our checker never sees it.
+
 ## Examples
 
 | File | Shows |
@@ -126,7 +173,7 @@ devbox run -- cargo test -p rean_kernel --test comparison  # chapters 11 and 12
 devbox run -- cargo test -p rean_kernel --test substitution # chapter 14
 ```
 
-## Two tools, and the method they serve
+## Three tools, and the method they serve
 
 Both of the largest wins in this project came from one move: **take one failing
 declaration out of hundreds, and let the measurement choose the fix.** Three
@@ -141,12 +188,33 @@ python3 tools/roots.py report.txt
 python3 tools/slice.py full.ndjson one.ndjson _private.Init.Prelude.0.isValidChar_UInt32
 
 # Then sweep. Passes at a bigger budget in a second? The budget was the fault.
-# The two knobs are coupled: a bigger budget needs a bigger stack.
-REAN_FUEL=20000000000 REAN_STACK=8192 ./target/release/rean check one.ndjson
+# The three knobs are coupled: a bigger budget builds a deeper term, a deeper
+# term needs a deeper recursion limit, and that needs a bigger stack.
+REAN_FUEL=2000000000 REAN_DEPTH=60000 REAN_STACK=8192 \
+  ./target/release/rean check one.ndjson
+
+# And ask the kernel what it did. One failing declaration, counted by rule.
+REAN_TALLY=1 ./target/release/rean check one.ndjson
+```
+
+```text
+  FAIL  theorem    ..ByteArray.utf8DecodeChar?.assemble₄._proof_3
+          the kernel reached 6000 levels of recursion, so it was not checked
+          deepest recursion: 6000
+               3276469  units of work charged
+                 73582  beta
+                 12065  iota Nat.rec
+                 12024  delta Nat.casesOn
+                  5980  declined read_nat: nested too deep
+                  5980  delta Nat.sub._f
 ```
 
 Chapters [11](docs/11-compare-before-you-unfold.md) and
 [12](docs/12-ask-the-cheapest-question.md) are that method, worked twice.
+Chapter [16](docs/16-the-front-door.md) is the third, and the tally above is
+what made it quick: `delta Nat.sub._f` names a cause, and "`whnf` is 41%" does
+not. A profiler cannot say **which** definition, and after chapter 13 that is
+the only question left.
 
 A third tool keeps the chapters honest. Every chapter cites its tests by name,
 and `tools/cite.py` fails the gate when a chapter names a test that the code
