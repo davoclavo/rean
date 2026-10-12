@@ -261,18 +261,18 @@ The prelude rows are Lean **4.35.0-rc3**, exported by `rean export prelude`:
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, default | **55,754 of 59,349** | the whole prelude, in 209 seconds |
+| level 1, default | **55,754 of 59,349** | the whole prelude, in 199 seconds |
 | level 1, patient | **59,199 of 59,349** | **99.75%**, with `REAN_FUEL=2000000000 REAN_STACK=8192`, in 36 minutes |
-| level 1, what is left | 45 failures, 105 blocked | one family, `Int32` and `Int64` and `ISize`. **5 want budget** and reach it at `REAN_FUEL=8000000000`. **40 want stack**, and doubling the stack closes none of them. No rule is missing. |
+| level 1, what is left | 45 failures, 105 blocked, at the patient setting | one family, `Int32` and `Int64` and `ISize`. **5 want budget** and reach it at `REAN_FUEL=8000000000`. **40 want stack**, and doubling the stack closes none of them. No rule is missing. |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **467** | `devbox run test` |
+| tests | **479** | `devbox run test` |
 | citations | every chapter's test names resolve | `devbox run cite` |
 | coverage | **93.1% of regions, 95.1% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 | crashes | **none**, at any setting | the kernel reports `OutOfStack` instead. [Chapter 16](docs/16-the-front-door.md) |
-| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 209 s. [Chapter 17](docs/17-twelve-seconds.md) |
+| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 199 s. [Chapter 17](docs/17-twelve-seconds.md) |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson

@@ -6,16 +6,17 @@ failed, and about the two things it found instead: a command this project should
 have had from chapter 0, and a number that changes what "finished" means.
 
 The number is in the title. **Lean's own kernel re-checks the whole prelude in
-twelve seconds.** Ours takes 209.
+twelve seconds.** Ours takes 199.
 
 ---
 
-## 17.1 Three knobs, and none of them reach
+## 17.1 Three knobs, and none of them reach, and then a fourth
 
 The 45 that remain split into 40 that run out of stack and 5 that run out of
 budget. Chapter 16 showed the budget is reachable: one of the five passes at
 four times it. So the question is the 40, and the first move is to try every
-knob, because a knob is cheaper than a plan.
+knob, because a knob is cheaper than a plan. A fourth one, built in section
+17.5 because the first three pointed at it, does not reach either.
 
 | knob | tried | result |
 |---|---|---|
@@ -193,7 +194,59 @@ cure does not reach.
 
 ---
 
-## 17.5 Twelve seconds
+## 17.5 A better limit, built and measured and reverted
+
+Section 17.1 left the arithmetic reader's depth as a trade with no winning
+value, and section 17.3's instrument says why that is the wrong knob. **The
+kernel declined to read the number zero.** A limit on nesting is global to the
+checker, so once it is deep inside one descent, every other read is refused,
+however easy.
+
+So count **work** instead of nesting. A read may spend a few hundred units of
+the declaration's budget and then give up. A trivial argument costs a handful of
+steps and is read at any depth; a pathological one declines, as before; and the
+stack guard of chapter 16 catches anything deeper than the machine can hold,
+which is the job the nesting count was really doing.
+
+That is a better design. It is also much worse.
+
+| limit on one read | the signed integer slice | time |
+|---|---|---|
+| **16 levels of nesting** | **16,583 of 16,584** | **205 s** |
+| 200 units of work | 15,681 of 16,584 | 1,125 s |
+
+**Nine hundred declarations and five times the time.** The reason is the shape
+of the failure, and it is obvious once seen. A read that declines on nesting
+costs **nothing**: the guard is one comparison. A read that declines on work has
+spent its whole allowance first. The arithmetic of this family is genuinely too
+deep to read, so the kernel pays that allowance millions of times over and
+declines anyway.
+
+> **When a guard fires often, what it costs to fire matters more than what it
+> measures.**
+
+Reverted, and the measurement is the part worth keeping. One half of it stays: a
+term that is **already** a numeral is now read before the guard, at no cost,
+because declining to read a literal is absurd whatever the limit is. It buys
+nothing measurable on this declaration, and it is still right.
+
+### My instrument lied about which exit, again
+
+The table in section 17.3 names three terms that the kernel refused. One of them
+is the literal `0`, and the fast path above was written for it. The declines did
+not move by one.
+
+The instrument printed **both** arguments of the operation, without saying which
+one had failed. The literal was the innocent one standing next to the guilty
+one. Chapter 15, section 15.3, has the same lesson from the other direction: an
+instrument that watches one exit of three reports a fact about the instrument.
+This one watched both arguments and named neither.
+
+> **An instrument must say which exit it saw, not which exits exist.**
+
+---
+
+## 17.6 Twelve seconds
 
 Three of the independent checkers that chapter 14 read about are installed on
 this machine beside the Lean that made the export. One of them is Lean's own
@@ -217,7 +270,7 @@ cannot check at all.
 | checker | the whole prelude |
 |---|---|
 | Lean's own kernel, `leanchecker` | **12 s**, all of it |
-| rean, default | 209 s, 55,754 of 59,349 |
+| rean, default | 199 s, 55,754 of 59,349 |
 | rean, `REAN_FUEL=2000000000 REAN_STACK=8192` | 2,172 s, 59,199 of 59,349 |
 
 Read the first row twice. It is not a scolding, it is a **gift**. Fifteen
@@ -237,7 +290,7 @@ it does, it is a mechanism, and a mechanism can be found.
 
 ---
 
-## 17.6 So how do we get to 100%
+## 17.7 So how do we get to 100%
 
 Ranked by what the measurements support, and each one is a measurement before
 it is a plan.
@@ -266,5 +319,14 @@ it is a plan.
    **zero**. `nat_lit.rs` names this limit in its own first paragraph, and it is
    still not the one being paid.
 
-What this chapter does **not** recommend is another sweep. Three knobs were
-swept here and the best of them bought one declaration out of 45.
+What this chapter does **not** recommend is another sweep. Four knobs were
+swept here, one of them was rebuilt as a better knob first, and the best of
+them bought one declaration out of 45.
+
+And one number that did move, on the whole prelude at the default settings:
+**74 failures became 71**, because the three that said "unknown constant" were
+cascades from a refused constructor and are now reported as blocked. The count
+of checked declarations is unchanged at 55,754 and the time fell from 209
+seconds to 199. Three phantoms off the list that `tools/roots.py` ranks is worth
+more than it sounds: a reader who chases a phantom finds nothing, and concludes
+the tool is lying.

@@ -47,19 +47,38 @@ use std::fmt;
 /// How deep [`TypeChecker::read_nat`] will force a nested arithmetic argument.
 ///
 /// To compute `Nat.sub a b` the kernel must reduce `a` and `b` first, and if
-/// `a` is itself `Nat.sub c d` then reducing it reduces `c`, and so on. The
-/// descent is a mutual recursion between `read_nat` and `whnf`, so its depth is
-/// the depth of the term.
+/// `a` is itself `Nat.sub c d` then reducing it reduces `c`, and so on. That
+/// descent is a mutual recursion between `read_nat` and `whnf`, and chapter 15,
+/// section 15.11, found it overflowing a **32 GB** stack. So it has to be
+/// bounded.
 ///
-/// On one declaration of the prelude that term was **more than a thousand
-/// levels deep**, and the chain `read_nat -> whnf -> reduce -> read_nat` held
-/// 3,959 of 4,000 samples in a profile. At a large budget it did not merely run
-/// slowly: it overflowed a **32 GB** stack, in the same 345 seconds at four
-/// billion units and at sixteen billion, which is what a crash looks like
-/// beside a timeout.
+/// # Why this counts nesting and not work
 ///
-/// So the kernel forces a few levels and then declines. Declining is only
-/// slower, never wrong: it falls back to unfolding the definition.
+/// Counting work is the better looking design and it was built and measured.
+/// Chapter 17 has the table. A read may spend a few hundred units and then give
+/// up, which reads trivial arguments at any depth and bounds the pathological
+/// ones by the thing that actually hurts.
+///
+/// It is **much worse**, and the reason is the shape of the failure. A read
+/// that declines on nesting costs **nothing**: the guard is a comparison. A
+/// read that declines on work has spent its whole allowance first, and the
+/// arithmetic of the signed integer family is genuinely too deep to read, so
+/// the kernel pays that allowance millions of times over.
+///
+/// | limit on one read | the signed integer slice | time |
+/// |---|---|---|
+/// | **16 levels of nesting** | **16,583 of 16,584** | **205 s** |
+/// | 200 units of work | 15,681 of 16,584 | 1,125 s |
+///
+/// Nine hundred declarations and five times the time. The cheap refusal wins,
+/// and the lesson generalises: **when a guard fires often, what it costs to
+/// fire matters more than what it measures.**
+///
+/// One half of the work version is kept, in [`TypeChecker::read_nat`]: a term
+/// that is **already** a numeral is read before the guard, at no cost. The
+/// instrument that justified the whole experiment found the kernel declining
+/// to read the number zero 63 times in one declaration, and that part was
+/// real.
 const NAT_DEPTH_LIMIT: u32 = 16;
 
 /// How many `Nat.succ` layers [`TypeChecker::read_nat`] will peel.
@@ -530,11 +549,11 @@ impl<'e> TypeChecker<'e> {
 
     /// Sets how deep [`Self::read_nat`] may force a nested argument.
     ///
-    /// A knob because it is a **trade**, and the two sides of it are measured
-    /// in chapter 16. A shallow limit sends the kernel down the unary path and
+    /// A knob because it is a **trade**, and both sides of it are measured in
+    /// chapter 17. A shallow limit sends the kernel down the unary path and
     /// costs work. A deep one reads the arithmetic and costs stack. There is no
-    /// value that is right for every declaration, so there is a number that can
-    /// be swept.
+    /// value that is right for every declaration, so there is a number that
+    /// can be swept.
     pub fn set_nat_depth_limit(&mut self, limit: u32) {
         self.nat_depth_limit = limit;
     }
@@ -844,6 +863,7 @@ impl<'e> TypeChecker<'e> {
         }
 
         if let Expr::Const { name, levels } = head {
+            tally::bump(|| format!("met head {name}"));
             let args = cloned();
             // The kernel computes on a `Nat` literal directly.
             if let Some(next) = self.nat_step(name, &args)? {
@@ -972,6 +992,12 @@ impl<'e> TypeChecker<'e> {
         }
         if self.not_a_number.contains(&key) {
             return Ok(NatRead::NotANumber);
+        }
+        // A term that is **already** a numeral answers at any depth and at any
+        // cost, because there is no descent to make. 63 declines of the number
+        // zero in one declaration are what this line is for.
+        if let Some(found) = nat_lit::value(e) {
+            return Ok(NatRead::Number(found));
         }
         if self.nat_depth >= self.nat_depth_limit {
             // Not an answer about the term, so nothing is remembered.
@@ -1596,11 +1622,14 @@ impl<'e> TypeChecker<'e> {
     /// Unfolds the definition at the head of `e`, once.
     fn delta_step(&mut self, e: &Expr) -> TypeResult<Option<Expr>> {
         self.spend()?;
-        tally::bump(|| "lazy delta".to_string());
         let (head, borrowed) = e.unfold_apps();
         let Expr::Const { name, levels } = head else {
             return Ok(None);
         };
+        // The name, and not only the rule. A row that says "lazy delta 181"
+        // cannot answer "which definition started this", and that was the one
+        // question chapter 17 needed it for.
+        tally::bump(|| format!("lazy delta {name}"));
         let Some(decl) = self.lookup(name) else {
             return Ok(None);
         };

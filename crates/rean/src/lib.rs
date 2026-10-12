@@ -1010,7 +1010,7 @@ fn verdict_for_failure(
 /// Reads how deep the arithmetic reader may force, from `REAN_NAT_DEPTH`.
 ///
 /// The third thing to sweep. See `TypeChecker::set_nat_depth_limit`: a shallow
-/// limit costs work and a deep one costs stack, and chapter 16 measures both
+/// limit costs work and a deep one costs stack, and chapter 17 measures both
 /// sides of that trade.
 fn nat_depth_from_env() -> Option<u32> {
     std::env::var("REAN_NAT_DEPTH").ok()?.parse().ok()

@@ -339,7 +339,7 @@ against:
 
 | settings, Lean 4.35.0-rc3 | checked of 59,349 | failed | blocked | time |
 |---|---|---|---|---|
-| default | 55,754 | 74 | 3,521 | 209 s |
+| default | 55,754 | 71 | 3,524 | 199 s |
 
 And one row of the old table was never a timeout. At a hundred times the default
 budget the run **crashed**, after 16,583 declarations, on a 4 GB stack. Chapter
@@ -398,13 +398,13 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   55754 of 59349 of the Lean prelude, in 209 s
+          and                   55754 of 59349 of the Lean prelude, in 199 s
           and                   59199 of 59349 at REAN_FUEL=2000000000
                                                  REAN_STACK=8192, in 36 min
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     467
+tests     479
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name

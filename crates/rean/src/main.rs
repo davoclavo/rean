@@ -116,7 +116,13 @@ fn run_check(path: &str) -> ExitCode {
         // question a profiler cannot answer. See `rean_kernel::tally`.
         if !outcome.tally.is_empty() {
             println!("          most stack used: {}", bytes_text(outcome.deepest));
-            for (rule, count) in outcome.tally.iter().take(14) {
+            // `REAN_TALLY=all` prints every row. Fourteen is the shape of the
+            // problem and the tail is where a cause hides.
+            let rows = match std::env::var("REAN_TALLY").as_deref() {
+                Ok("all") => outcome.tally.len(),
+                _ => 14,
+            };
+            for (rule, count) in outcome.tally.iter().take(rows) {
                 println!("          {count:>12}  {rule}");
             }
         }
