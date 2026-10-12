@@ -21,7 +21,7 @@ cargo run -p rean -- prove                      # check a proof with the kernel
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
 ```
 
-## Check your own Lean code
+## Three commands for your own Lean code
 
 Point `rean` at a `.lean` file. It calls the real Lean to elaborate the file,
 calls `lean4export` to write the terms, and then **our kernel checks every one
@@ -29,10 +29,31 @@ of them**.
 
 ```sh
 cargo run --release -p rean -- check Demo.lean --decl twice_two
+cargo run --release -p rean -- show  Demo.lean twice      # what the kernel sees
 cargo run --release -p rean -- check prelude        # Lean's `Init`, all of it
 cargo run --release -p rean -- check Some.Module    # a module on REAN_LEAN_PATH
 cargo run --release -p rean -- export Demo.lean     # write the file, check nothing
 ```
+
+`show` is the one to try first, and it answers in half a second:
+
+```text
+def twice
+
+type
+  Nat → Nat
+
+value
+  fun (n : Nat) => HAdd.hAdd.{0, 0, 0} Nat Nat Nat (instHAdd.{0} Nat instAddNat) n n
+
+rests on 4 constant(s)
+trust: no axiom
+```
+
+Nobody wrote `HAdd.hAdd` or `instAddNat`. Lean's elaborator put them there, and
+this is how to see what it did. Ask it about the library too:
+`rean show prelude Nat.sub` shows that subtraction is a **course of values
+recursion** over a step function that the equation compiler generated.
 
 ```text
 export: Demo -> /tmp/rean-export/Demo.ndjson (41 KB) in 0.3s, by Lean 4.35.0-rc3
@@ -134,7 +155,8 @@ exercises and answers.
 | to see a checker **built**, step by step | chapters [1](docs/01-the-type-checker.md) and [2](docs/02-the-environment.md) |
 | to see it meet **real Lean** | [chapter 3](docs/03-the-ground-truth.md) |
 | to see what **breaks** and how it is found | chapters [4](docs/04-making-it-work.md) to [7](docs/07-mutual-and-nested.md) |
-| to see what a checker **costs**, measured | chapters [9](docs/09-structures-and-cost.md) to [16](docs/16-the-front-door.md) |
+| to see what a checker **costs**, measured | chapters [9](docs/09-structures-and-cost.md) to [17](docs/17-twelve-seconds.md) |
+| to see **what Lean hands the kernel** | `rean show prelude Nat.sub`, and [chapter 17](docs/17-twelve-seconds.md) |
 | to see how to **find** a performance fault | chapters [11](docs/11-compare-before-you-unfold.md) to [13](docs/13-a-hundred-million.md) |
 | to **check your own Lean file** | [chapter 16](docs/16-the-front-door.md) |
 | to see where a compiler **begins** | [chapter 8](docs/08-the-frontend.md), independent of the rest |
@@ -161,6 +183,7 @@ exercises and answers.
 | [14 — What the others do](docs/14-what-the-others-do.md) | independent Lean kernels exist and some are 20× faster than Lean's own. Reading their write-ups found a rule we had wrong and the O(n²) in our β step. |
 | [15 — The last two hundred and forty-eight](docs/15-the-last-two-hundred.md) | eleven hypotheses, eleven measurements. Eight changed nothing, one ruled out a rewrite, one test failed because the kernel got **more correct**, and a profile found a **crash** that hours of measurement had read as a slow run. |
 | [16 — The front door](docs/16-the-front-door.md) | `rean check Demo.lean`. Three lines of Lean cost **39 declarations**, the one substitution that chapter 9's rule had missed, a limit that counted the wrong thing, and the instrument that is kept because a profiler cannot name a definition. |
+| [17 — Twelve seconds](docs/17-twelve-seconds.md) | `rean show`, and the two bugs it found in an hour. Three knobs that reach nothing. And the number that reframes the project: **Lean's own kernel re-checks the whole prelude in 12 seconds**, so measure against something that is not yourself. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use, including what a check **costs** |
 
 Every claim in a chapter has a test:
@@ -175,6 +198,7 @@ devbox run -- cargo test -p rean_kernel --test comparison  # chapters 11 and 12
 devbox run -- cargo test -p rean_kernel --test substitution # chapter 14
 devbox run -- cargo test -p rean_kernel --test limits       # chapter 16
 devbox run -- cargo test -p rean --test frontdoor           # chapter 16
+devbox run -- cargo test -p rean --test show                # chapter 17
 ```
 
 ## Three tools, and the method they serve
@@ -248,6 +272,7 @@ The prelude rows are Lean **4.35.0-rc3**, exported by `rean export prelude`:
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 | crashes | **none**, at any setting | the kernel reports `OutOfStack` instead. [Chapter 16](docs/16-the-front-door.md) |
+| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 209 s. [Chapter 17](docs/17-twelve-seconds.md) |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson

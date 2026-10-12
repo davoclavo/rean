@@ -32,6 +32,10 @@ import sys
 # Names that are not ours to define.
 KNOWN = {
     "native_decide",  # a Lean tactic
+    # A declaration of the Lean library. Most of those carry a dot or a capital
+    # and never match CITED, so this set only needs the few that read like one
+    # of our test names.
+    "of_decide_eq_true",
 }
 
 # A cited name is at least this long, so that ordinary prose in backticks does

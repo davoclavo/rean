@@ -415,6 +415,12 @@ crashes   none, at any setting
 lemmas. **No rule is missing**, and chapter 16, section 16.7, is the correction
 of the sentence that chapter 15 ended on.
 
+**There is an oracle for speed now, and it is not us.** `leanchecker Init`, the
+kernel of the Lean that made this export, re-checks the whole prelude in
+**12 seconds** and fails nothing. Chapter 17 has the table. That number is the
+one to work against, because fifteen chapters of measuring against our own last
+week is how chapter 15 reached a conclusion that chapter 16 had to take back.
+
 Those 45 split in two, and the split is what to work on next:
 
 - **5 want budget**, and they reach it. One of them passes at
@@ -431,17 +437,22 @@ mutual recursor is still **unvalidated against real Lean**. Getting a mutual
 fixture is the highest value item left, and `rean export` now makes one in a
 command. See `fixtures/lean4export/PROVENANCE.md`.
 
-## Three kinds of oracle
+## Four kinds of oracle
 
-The project now uses three, and each one found something the others could not.
+The project now uses four, and each one found something the others could not.
 
 | Oracle | Finds | Found |
 |---|---|---|
 | **ground truth**, a real Lean file | shapes nobody writes by hand | a projection at the head of an application spine |
 | **coverage**, `devbox run coverage` | paths that no data took | a driver that could not be tested, and two dead branches |
 | **red team**, a crafted lie | checks that are absent | a recursor that smuggled in an axiom and proved `False` |
+| **another checker**, `leanchecker` | how far off our **speed** is | 12 seconds against our 209, on the same input |
 
-The third is the one to grow. See chapter 5, section 5.8, for the full
+The fourth is new in chapter 17 and it is the one that changes what the others
+mean. A project that measures only against itself can learn that it is
+improving and nothing else.
+
+The third is still the one to grow. See chapter 5, section 5.8, for the full
 inventory of what a checker must check and where we stand.
 
 ## Coverage is part of the oracle
