@@ -5,9 +5,10 @@ That is 99.57%, and it took forty-four minutes at a budget forty times the
 default.
 
 This chapter is about the 248 that are left, and it is mostly a list of things
-that turned out **not** to be the reason. Nine hypotheses, each plausible, eight
-refuted by a measurement. None of them cost more than twenty minutes, one ruled
-out a rewrite, and the ninth was worth twelve declarations.
+that turned out **not** to be the reason. Eleven hypotheses, each plausible,
+eight refuted by a measurement. One ruled out a rewrite, one was worth twelve
+declarations, and the last found a crash that every earlier measurement had read
+as a slow run.
 
 ---
 
@@ -48,6 +49,10 @@ The first thing to rule out, because it is the cheapest.
 Two hundred times the default budget, and a stack sixty times the default.
 `Int32.ofInt_eq_ofNat` does not finish. Everything else in its slice does: 10,747
 of 10,748.
+
+§15.11 later found a better reason for this row than the one it was written
+with. Those runs were not slow. They **crashed**, and a measurement that reads a
+crash as a timeout is a measurement that has not been checked.
 
 So there is a real inefficiency. The rest of this chapter is four attempts to
 name it.
@@ -312,10 +317,84 @@ the point is the answer, assert the answer.
 
 ---
 
-## 15.11 The part worth keeping
+## 15.11 A profile, and the crash it was hiding
 
-Nine hypotheses, nine measurements. Eight of them changed nothing in the
-kernel, and the ninth bought twelve declarations.
+Nine hypotheses had come from reading the tally of which rules fire. The tenth
+came from a plain profile of the hard workload, and it was not subtle.
+
+**3,959 of 4,000 samples sat in one chain, more than a thousand frames deep:**
+
+```text
+read_nat → whnf → reduce → read_nat → whnf → reduce → ...   (× 340)
+```
+
+Everything else was far behind: `drop_slow` 1,779, `infer_type` 632,
+`instantiate_levels` 503, `spine_eq` 445.
+
+The cause is plain once seen. To compute `Nat.sub a b` the kernel must reduce
+`a` first, and if `a` is itself `Nat.sub c d` then reducing it reduces `c`. The
+descent is a **mutual recursion** between `read_nat` and `whnf`, so its depth is
+the depth of the term — and §15.5 measured `Nat.sub._f` unfolding 220,848 times,
+which is what builds a term that deep.
+
+### The budget sweep was never a timeout
+
+A sweep was running at the same time, and its result changes what §15.2 means:
+
+```text
+int slice at  4,000,000,000   crashed   345 s
+int slice at 16,000,000,000   crashed   341 s
+```
+
+**The same duration at four billion units and at sixteen billion.** A budget
+that is four times larger cannot take the same time unless the budget is not
+what stopped it. It was the **stack**, overflowing at 32 GB.
+
+So §15.2's conclusion — "not the budget" — was right, and for a reason better
+than the one given there. No budget could **ever** close those declarations,
+because the run died before it could spend one.
+
+### The fix, and what it bought
+
+`read_nat` now forces sixteen levels of nested arithmetic and then declines.
+Declining is only slower and never wrong: the kernel falls back to unfolding.
+
+| | result |
+|---|---|
+| before | **crashed** a 32 GB stack in 345 s |
+| after | **completes** in 379 s, and reports 10,747 of 10,748 |
+
+The failure that remains is honest instead of fatal, and a large budget became a
+usable setting rather than a way to kill the process.
+
+This was a regression of my own, from chapter 13. I capped the successor
+**peeling** when `read_nat` first reached the top of a profile. That cap was
+right and it left this one alone, because the recursion is not through peeling.
+It is through `whnf` of an argument.
+
+### And the cache that needs no confirmation
+
+`nat_step` is tried on every reduction step whose head is a `Nat` operation, and
+each try forces both arguments. A term that is not a number stays one, so the
+answer is worth keeping. 38 seconds became 35.
+
+That cache breaks chapter 10's rule on purpose, and the exception is the
+interesting part. Chapter 10 §10.3 insists that a hash only **finds** an answer
+and `alpha_eq` **decides**, because two terms can share a hash. Here a collision
+makes the kernel call a number "not a number", so it declines and unfolds the
+definition instead.
+
+> **A cache may skip its confirmation exactly when being wrong costs time rather
+> than truth.**
+
+---
+
+## 15.12 The part worth keeping
+
+Eleven hypotheses, eleven measurements. Eight of them changed nothing in the
+kernel, one bought twelve declarations, and the last two came from a plain
+profile — one of which turned out to be a **crash** that had been reading as a
+slow run for hours.
 
 That reads like waste and is not, because each measurement **removed** something
 from the list, and the list is what a future reader inherits. The next person to
