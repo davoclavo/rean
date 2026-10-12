@@ -391,7 +391,32 @@ impl Environment {
         axioms
     }
 
-    /// Returns the inductive type that owns `ctor`.
+    /// Returns how **tall** a definition is, if it unfolds at all.
+    ///
+    /// Lean records this in [`ReducibilityHints`], and the kernel uses it to
+    /// choose which of two sides to unfold. See
+    /// [`TypeChecker::lazy_delta`][crate::TypeChecker::lazy_delta].
+    ///
+    /// An `Abbrev` is meant to disappear on sight, so it counts as taller than
+    /// any `Regular`. An `Opaque` definition does not unfold, and neither does
+    /// anything that is not a definition, so both give `None`.
+    pub fn height(&self, name: &Name) -> Option<u32> {
+        let Declaration::Definition(def) = self.get(name)? else {
+            // A theorem unfolds, and has no height of its own. Treat it as the
+            // shortest, so a definition beside it unfolds first.
+            return match self.get(name)? {
+                Declaration::Theorem(_) => Some(0),
+                _ => None,
+            };
+        };
+        match def.hints {
+            ReducibilityHints::Opaque => None,
+            ReducibilityHints::Abbrev => Some(u32::MAX),
+            ReducibilityHints::Regular(h) => Some(h),
+        }
+    }
+
+    /// Returns the inductive type that owns `ctor`.    /// Returns the inductive type that owns `ctor`.
     pub fn inductive_of_ctor(&self, ctor: &Name) -> Option<&InductiveVal> {
         let Declaration::Constructor(c) = self.get(ctor)? else {
             return None;

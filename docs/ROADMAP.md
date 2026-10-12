@@ -257,7 +257,8 @@ bought. The summary:
 | proof irrelevance first, and an `infer_type` cache | 39,244 | 192 s |
 | read a number in constructor form, and a linear trust report | 48,804 | 141 s |
 | charge a step for what it adds, and charge for inference | 54,187 | 291 s |
-| **a batched β spine, and a cap on reading successors** | **54,308** | **252 s** |
+| a batched β spine, and a cap on reading successors | 54,308 | 252 s |
+| **lazy δ by height** | **54,320** | **239 s** |
 
 Read the first three rows together. The `loose` and `size` caches moved the
 **time** and not the **count**, because the budget is charged by work and a
@@ -318,10 +319,13 @@ code you measured it on.
 | 800,000,000 | **57,264** | 68 | 2,637 s |
 
 At the larger budget that is **99.57%**, and the 68 that remain are one family:
-`Int32`, `Int64`, `ISize`. Chapter 15 rules out **six** explanations for them with measurements, including
-the budget itself at two hundred times the default, and including one of the two
-rewrites chapter 14 had named. What is left is normalisation by evaluation, and
-that is a different project.
+`Int32`, `Int64`, `ISize`. Chapter 15 asks **nine** questions of them. Eight answers changed nothing,
+including the budget at two hundred times the default and one of the two
+rewrites chapter 14 had named. The ninth, **lazy δ by height**, is now built and
+bought twelve declarations: chapter 12 had retired it on the evidence of a
+single case, and 31% of the comparisons in this family turn out to need it.
+
+What is left is normalisation by evaluation, and that is a different project.
 
 **At the default budget one declaration blocks 2,690 of the 3,089 that
 remain**, which is 87% of them. `tools/roots.py` says so, and it keeps saying something different each

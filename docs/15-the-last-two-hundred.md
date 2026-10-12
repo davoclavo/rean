@@ -5,10 +5,9 @@ That is 99.57%, and it took forty-four minutes at a budget forty times the
 default.
 
 This chapter is about the 248 that are left, and it is mostly a list of things
-that turned out **not** to be the reason. Six hypotheses, each plausible, each
-refuted by a measurement. None of them cost more than twenty minutes, one of
-them ruled out a rewrite, and together they are worth more than a guess that
-happened to be right.
+that turned out **not** to be the reason. Nine hypotheses, each plausible, eight
+refuted by a measurement. None of them cost more than twenty minutes, one ruled
+out a rewrite, and the ninth was worth twelve declarations.
 
 ---
 
@@ -219,15 +218,111 @@ these fifteen chapters describe.
 
 ---
 
-## 15.9 The part worth keeping
+## 15.9 Lazy δ by height, which chapter 12 retired too early
 
-Six hypotheses, six measurements, five hours. Nothing in the kernel changed.
+One rule-level difference from Lean was still unbuilt. Lean records a **height**
+for every definition in `ReducibilityHints`, and when two sides of a comparison
+have different constant heads it unfolds only the **taller** one, then looks
+again. Our `is_def_eq` called `whnf` on both sides, which unfolds each of them
+until no rule applies at its head.
+
+Chapter 12 §12.1 retired this on the evidence of one declaration, where the
+profile showed the two heads already **matching** so the rule had nothing to do.
+That was one declaration. Here is the same question asked of this family:
+
+```text
+is_def_eq past the quick tests:
+   same head        882
+   both unfold   19,783
+   one unfolds   48,049
+   neither          824
+   not two constants  153,498
+```
+
+**31%** of the comparisons that get past the quick tests have two different
+constant heads where at least one unfolds. So the rule does apply, often, and
+chapter 12's conclusion was true only of the case it looked at.
+
+So it is built. `whnf` splits in two: **core** reduction is every rule except δ,
+and `lazy_delta` reduces both sides by core, then unfolds one of them.
+
+```rust
+let (unfold_left, unfold_right) = match (tall_left, tall_right) {
+    (None, None) => return Ok((left, right)),
+    (Some(_), None) => (true, false),
+    (None, Some(_)) => (false, true),
+    // Equal heights give no reason to prefer one, so take both.
+    (Some(x), Some(y)) => (x >= y, y >= x),
+};
+```
+
+### What it bought
+
+| | checked | failed | time |
+|---|---|---|---|
+| before | 54,308 | 115 | 228 s |
+| with lazy δ | **54,320** | **112** | 239 s |
+
+**Twelve declarations and three failures, for 5% more time.**
+
+That is a small payoff for about a hundred lines and a second cache, and it is
+recorded here rather than dressed up. It is kept for two reasons. The gain is
+real and repeatable, unlike the six changes above it that measured to nothing.
+And it is the rule Lean states, which this project would rather own than
+describe.
+
+---
+
+## 15.10 A test failed because the kernel got more correct
+
+Building lazy δ broke one test, and the break is the interesting part.
+
+The broken one was the control for proof irrelevance from chapter 12. Its name
+is not written here in backticks, because the name no longer exists in the code
+and `tools/cite.py` is right to refuse a citation that does not resolve.
+
+It gave two terms a `Type` instead of a `Prop` and asserted that the comparison
+would **run out of budget**, to prove that the test beside it passed because of
+proof irrelevance and not because the terms were cheap.
+
+With lazy δ it answered `Ok(true)` inside the budget. And it was right: those
+two terms were **equal all along**. `Slow` unfolds through a `Wrap` that throws
+its argument away, so it reduces to the very term it was compared with. The old
+assertion was not measuring proof irrelevance. It was measuring the length of a
+detour that eager reduction used to take.
+
+So the control now tests the thing it was named for. `T` has **two**
+inhabitants, and `Slow` reduces to the second one:
+
+```rust
+assert_eq!(tc.is_def_eq(&slow, &plain), Ok(false));   // in `Type`
+assert_eq!(tc.is_def_eq(&slow, &plain), Ok(true));    // in `Prop`
+```
+
+The same two shapes, one answer each way, and the difference between them is
+exactly what proof irrelevance is.
+
+> **A test that asserts a cost is asserting the route, not the destination.**
+> Make the route faster and the test fails while the kernel improves.
+
+Every budget-based test in chapters 11 to 14 is open to this, and they earn
+their place only where the cost is the **point** — unfolding a definition twice
+when congruence would have settled it, or walking a tower of successors. Where
+the point is the answer, assert the answer.
+
+---
+
+## 15.11 The part worth keeping
+
+Nine hypotheses, nine measurements. Eight of them changed nothing in the
+kernel, and the ninth bought twelve declarations.
 
 That reads like waste and is not, because each measurement **removed** something
 from the list, and the list is what a future reader inherits. The next person to
 open this file does not have to re-test the budget, the cache size, the overflow
-path, the under-application, the universe substitution, **or the shift in the
-representation**. They are all ruled out, with numbers, and the last of those
+path, the under-application, the universe substitution, the clone of a spine
+that no rule reads, caching every term, **or the shift in the representation**.
+They are all ruled out, with numbers, and the last of those
 would have been a week of work.
 
 And one of the five was worth the whole day on its own: the instrument that

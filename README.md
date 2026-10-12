@@ -111,7 +111,7 @@ exercises and answers.
 | [12 — Ask the cheapest question first](docs/12-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, why a pair of changes is one unit of measurement, and how to rank 107 failures so you work on the one worth 15,272. |
 | [13 — A hundred million](docs/13-a-hundred-million.md) | the checker counted down from 100,000,000 one `Nat.succ` at a time. When a profiler stops helping, count things in the language of the **problem**: which recursor, which number, which definition. Then the **report** became the slow part. |
 | [14 — What the others do](docs/14-what-the-others-do.md) | independent Lean kernels exist and some are 20× faster than Lean's own. Reading their write-ups found a rule we had wrong and the O(n²) in our β step. |
-| [15 — The last two hundred and forty-eight](docs/15-the-last-two-hundred.md) | six hypotheses, six measurements, nothing changed in the kernel. One of them ruled out a rewrite for twelve lines of counter. And the instrument that watched one exit of three. |
+| [15 — The last two hundred and forty-eight](docs/15-the-last-two-hundred.md) | nine hypotheses, nine measurements. Eight changed nothing, one ruled out a rewrite, and one test failed because the kernel got **more correct**. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use, including what a check **costs** |
 
 Every claim in a chapter has a test:
@@ -162,7 +162,7 @@ devbox run cite
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, stress | **54,308 of 57,512** | the whole Lean prelude, in 228 seconds |
+| level 1, stress | **54,320 of 57,512** | the whole Lean prelude, in 239 seconds |
 | level 1, patient | **57,264 of 57,512** | 99.57%, with `REAN_FUEL=800000000`, in 44 minutes |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |

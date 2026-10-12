@@ -119,8 +119,15 @@ mismatch for a cost problem. Chapter 10 §10.8 is the same lesson, and it was
 expensive enough to learn once.
 
 Tests: `two_proofs_of_one_proposition_need_no_reduction`, and the control
-`two_terms_of_one_type_do_need_reduction`, which gives the same shapes a `Type`
-instead of a `Prop` so that the rule must decline and the budget must run out.
+`two_terms_of_one_type_are_not_equal_for_free`, which gives the same shapes a
+`Type` instead of a `Prop`. The two sides are genuinely different terms, so the
+pair answers `true` in `Prop` and `false` in `Type`, and that difference is
+exactly what proof irrelevance is.
+
+That control used to assert a **budget exhaustion** instead, and chapter 15
+§15.10 records why that was wrong: the terms it compared were equal all along,
+and only an eager reduction made finding it expensive. A test that measures the
+cost of a detour is a test that passes for the wrong reason.
 
 ---
 
