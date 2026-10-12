@@ -48,8 +48,9 @@ A larger budget lets a reduction run longer, a longer reduction builds a
 deeper term, and a deeper term needs more stack to reduce. The kernel may
 use four fifths of the stack and then reports, rather than crashing.
 
-one more, for finding out why a declaration is expensive:
+two more, for finding out why a declaration is expensive:
   REAN_TALLY=1           count every rule the kernel fires, by name
+  REAN_KERNEL_STACK=<MiB>  the kernel's allowance, held apart from the stack
 
 three more, for the front door:
   REAN_LEAN              the `lean` binary to use
@@ -240,10 +241,15 @@ impl Target {
         if target.eq_ignore_ascii_case("prelude") {
             return Ok(Target::Module(export::PRELUDE.to_string()));
         }
-        // Anything else is a module name. A path that exists and is neither of
-        // the two extensions is a mistake worth naming, because treating
-        // `./foo.txt` as a module gives a message about an unknown module.
+        // Anything else is a module name, such as `Init.Data.Nat`.
+        //
+        // A **path** is not. `./notes.txt` would otherwise pass as a module
+        // name, and the reader would get a message about an unknown module
+        // prefix, which is true and unhelpful. A separator settles it, and so
+        // does a file that is really there: see [`prepare`].
         let looks_like_a_module = !target.is_empty()
+            && !target.contains('/')
+            && !target.contains('\\')
             && target.split('.').all(|part| {
                 !part.is_empty()
                     && part
@@ -380,6 +386,17 @@ pub fn prepare(target: &Target, decls: &[String], out: Option<&str>) -> Result<P
             })
         }
         Target::Module(module) => {
+            // A name that is really a file on disk is a mistake worth naming.
+            // `rean check notes.txt` reads as a module name, and a message
+            // about an unknown module prefix would send the reader looking in
+            // the wrong place.
+            if std::path::Path::new(module).is_file() {
+                return Err(format!(
+                    "`{module}` is a file, and its name ends in neither \
+                     `.ndjson` nor `.lean`. An export file must be `.ndjson`, \
+                     and Lean source must be `.lean`."
+                ));
+            }
             let tools = Toolchain::find()?;
             let report = tools.export_module(module, decls, &[], &work)?;
             Ok(Prepared {
@@ -466,9 +483,18 @@ pub fn check_export_streaming(
                     tc.set_stack_budget(kernel_stack_budget(stack_bytes(
                         std::env::var("REAN_STACK").ok().as_deref(),
                     )));
+                    // The rendered message, and the name of the constant that
+                    // was missing if that is what went wrong. The name is kept
+                    // because a constant can be missing for two very different
+                    // reasons, and the next `match` tells them apart.
                     let outcome = tc.with_group(&decls, |tc| {
-                        tc.check_declaration(decl)
-                            .map_err(|err| err.render(tc.lctx()))
+                        tc.check_declaration(decl).map_err(|err| {
+                            let missing = match &err {
+                                rean_kernel::TypeError::UnknownConstant(name) => Some(name.clone()),
+                                _ => None,
+                            };
+                            (err.render(tc.lctx()), missing)
+                        })
                     });
                     deepest = tc.deepest();
                     match outcome {
@@ -476,13 +502,13 @@ pub fn check_export_streaming(
                             accepted.push(decl.clone());
                             Verdict::Ok
                         }
-                        Err(message) => {
+                        Err((message, missing)) => {
                             // The tally is taken here and not at the end of the
                             // file, because the next declaration clears it.
                             if rean_kernel::tally::on() {
                                 tally = rean_kernel::tally::take();
                             }
-                            Verdict::Failed(message)
+                            verdict_for_failure(message, missing, &rejected)
                         }
                     }
                 }
@@ -810,6 +836,37 @@ fn fuel_from_env() -> Option<u64> {
     std::env::var("REAN_FUEL").ok()?.parse().ok()
 }
 
+/// Decides whether a failed check is a **failure** or a **block**.
+///
+/// A missing constant that we refused is a block, not a failure.
+///
+/// The dependency test in [`check_export_streaming`] catches a dependency that
+/// the term names. It cannot catch one that the **kernel** names:
+/// `ctor_when_struct` builds `S.mk` out of the declaration of `S`, to let the ι
+/// rule fire on a variable, so a refused constructor is asked for by a term
+/// that never mentions it.
+///
+/// Three declarations of the Lean prelude were reported as failures for that
+/// reason, and `tools/roots.py` ranked them beside real ones. A phantom failure
+/// sends a reader looking for a cause that is not there, which is the one thing
+/// a report must never do.
+///
+/// A constant that is missing for any **other** reason stays a failure. An
+/// export that names something it never declared is a broken export, and
+/// calling that "blocked" would hide it.
+fn verdict_for_failure(
+    message: String,
+    missing: Option<rean_core::Name>,
+    rejected: &HashSet<rean_core::Name>,
+) -> Verdict {
+    match missing {
+        Some(name) if rejected.contains(&name) => {
+            Verdict::Blocked(format!("`{name}` did not check"))
+        }
+        _ => Verdict::Failed(message),
+    }
+}
+
 /// How much of a stack of `bytes` the kernel may use.
 ///
 /// The kernel's own default is set for the 8 MB that a main thread gets,
@@ -818,10 +875,163 @@ fn fuel_from_env() -> Option<u64> {
 /// independent: raise `REAN_STACK` and the kernel is allowed to recurse
 /// further, with no second knob to learn.
 ///
-/// Four fifths, and the fifth that is left is not caution. The guard only acts
-/// where it is asked, which is on entry to one of three functions, and the work
-/// between two entries needs room of its own. A `whnf` that is refused must
-/// still have the stack to build the error and return it.
+/// The margin left over is **absolute and small**, not a fraction, and that is
+/// a measurement and not a preference. The guard only acts where it is asked,
+/// which is on entry to one of three functions, so the margin has to cover the
+/// work between two of those entries and nothing more.
+///
+/// A fraction was tried first and it refuses real work. The declaration of the
+/// prelude that blocks 2,283 others needs between 3.6 and 4.2 GB of stack, and
+/// it **passes** on the 4 GB that `REAN_STACK=4096` gives. A fifth held back
+/// leaves 3,276 MB, which refuses it, and a reader who gives the checker a 4 GB
+/// stack has said what they meant.
 pub fn kernel_stack_budget(bytes: usize) -> usize {
-    bytes / 5 * 4
+    match std::env::var("REAN_KERNEL_STACK")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+    {
+        // A measurement must be able to hold one variable still. This one
+        // separates the allowance from the stack, so a sweep can ask "how much
+        // does this declaration really need?" without moving both at once.
+        // Setting it above the real stack brings the crash back, which is the
+        // reader's business and not ours.
+        Some(mib) if mib > 0 => mib * 1024 * 1024,
+        _ => {
+            const MARGIN: usize = 64 * 1024 * 1024;
+            bytes.saturating_sub(MARGIN.min(bytes / 8))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rean_core::Name;
+
+    fn rejected_set(names: &[&str]) -> HashSet<Name> {
+        names.iter().map(|name| Name::from_dotted(name)).collect()
+    }
+
+    #[test]
+    fn a_constant_we_refused_is_a_block_and_not_a_failure() {
+        let verdict = verdict_for_failure(
+            "unknown constant `Splits.mk`".to_string(),
+            Some(Name::from_dotted("Splits.mk")),
+            &rejected_set(&["Splits.mk"]),
+        );
+        assert_eq!(
+            verdict,
+            Verdict::Blocked("`Splits.mk` did not check".to_string())
+        );
+    }
+
+    #[test]
+    fn a_constant_that_nobody_declared_stays_a_failure() {
+        // An export that names something it never declared is broken, and
+        // calling that "blocked" would hide it.
+        let verdict = verdict_for_failure(
+            "unknown constant `Nowhere.at_all`".to_string(),
+            Some(Name::from_dotted("Nowhere.at_all")),
+            &rejected_set(&["Splits.mk"]),
+        );
+        assert!(matches!(verdict, Verdict::Failed(_)), "{verdict:?}");
+    }
+
+    #[test]
+    fn any_other_error_stays_a_failure() {
+        let verdict = verdict_for_failure(
+            "this declaration needed more than 20000000 units of work".to_string(),
+            None,
+            &rejected_set(&["Splits.mk"]),
+        );
+        assert!(matches!(verdict, Verdict::Failed(_)), "{verdict:?}");
+    }
+
+    #[test]
+    fn the_kernel_gets_the_stack_less_a_margin() {
+        // The override is not set in a test run, so this is the derived value.
+        if std::env::var_os("REAN_KERNEL_STACK").is_some() {
+            return;
+        }
+        let mib = 1024 * 1024;
+        // A large stack keeps all but the 64 MiB margin.
+        assert_eq!(kernel_stack_budget(4096 * mib), 4032 * mib);
+        assert_eq!(kernel_stack_budget(512 * mib), 448 * mib);
+        // A small one keeps seven eighths, because 64 MiB of margin out of 8
+        // would be most of it.
+        assert_eq!(kernel_stack_budget(8 * mib), 7 * mib);
+        assert_eq!(kernel_stack_budget(8), 7);
+    }
+
+    #[test]
+    fn a_target_is_read_from_its_name() {
+        assert_eq!(
+            Target::parse("full.ndjson").unwrap(),
+            Target::Export(PathBuf::from("full.ndjson"))
+        );
+        assert_eq!(
+            Target::parse("Demo.lean").unwrap(),
+            Target::Source(PathBuf::from("Demo.lean"))
+        );
+        // `prelude` is an alias, because `Init` is the name of the module and
+        // not a word a reader would guess.
+        assert_eq!(
+            Target::parse("prelude").unwrap(),
+            Target::Module("Init".to_string())
+        );
+        assert_eq!(
+            Target::parse("Init.Data.Nat").unwrap(),
+            Target::Module("Init.Data.Nat".to_string())
+        );
+        // A path is not a module name. `prepare` catches the other half of
+        // this: a bare name that is really a file on disk.
+        let err = Target::parse("./notes.txt").unwrap_err();
+        assert!(err.contains("is not a target"), "{err}");
+        assert!(Target::parse("docs/README.md").is_err());
+    }
+
+    #[test]
+    fn the_options_of_check_are_read_where_a_test_can_see_them() {
+        let args: Vec<String> = [
+            "Demo.lean",
+            "--decl",
+            "foo",
+            "--decl",
+            "bar",
+            "--out",
+            "/tmp",
+        ]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+        let parsed = CheckArgs::parse(&args, true).unwrap();
+        assert_eq!(parsed.decls, vec!["foo".to_string(), "bar".to_string()]);
+        assert_eq!(parsed.out.as_deref(), Some("/tmp"));
+        assert!(parsed.check);
+
+        let no_check: Vec<String> = ["prelude".to_string(), "--no-check".to_string()].to_vec();
+        assert!(!CheckArgs::parse(&no_check, true).unwrap().check);
+        // `export` checks nothing by default.
+        assert!(
+            !CheckArgs::parse(&["prelude".to_string()], false)
+                .unwrap()
+                .check
+        );
+    }
+
+    #[test]
+    fn two_targets_are_refused_with_both_names() {
+        let args: Vec<String> = ["a.ndjson".to_string(), "b.ndjson".to_string()].to_vec();
+        let err = CheckArgs::parse(&args, true).unwrap_err();
+        assert!(err.contains("a.ndjson"), "{err}");
+        assert!(err.contains("b.ndjson"), "{err}");
+    }
+
+    #[test]
+    fn an_option_that_wants_a_value_says_so() {
+        let err = CheckArgs::parse(&["--decl".to_string()], true).unwrap_err();
+        assert!(err.contains("needs a declaration name"), "{err}");
+        let err = CheckArgs::parse(&["--out".to_string()], true).unwrap_err();
+        assert!(err.contains("needs a directory"), "{err}");
+    }
 }

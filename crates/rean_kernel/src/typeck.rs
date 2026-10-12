@@ -556,16 +556,25 @@ impl<'e> TypeChecker<'e> {
         out
     }
 
-    /// Runs `body`, and declines when the stack is nearly spent.
+    /// Declines when the stack is nearly spent. See [`STACK_BUDGET`].
     ///
     /// Three functions recurse into each other over the shape of a term:
     /// [`Self::whnf`], [`Self::is_def_eq`] and [`Self::infer_type`]. Every deep
     /// chain this kernel has ever overflowed a stack with went through one of
-    /// them, so a guard at those three doors bounds them all.
+    /// them, so a test at those three doors bounds them all.
     ///
     /// There is nothing to undo on the way out. The measurement is the address
     /// of a local, so it falls as the stack unwinds, by itself.
-    fn deeper<T>(&mut self, body: impl FnOnce(&mut Self) -> TypeResult<T>) -> TypeResult<T> {
+    ///
+    /// # Why this is a test and not a wrapper
+    ///
+    /// The first version took a closure: `self.deeper(|tc| tc.whnf_inner(e))`.
+    /// It reads better, and it adds a frame of its own to every level of a
+    /// recursion whose depth is the depth of the term. That is stack spent to
+    /// measure stack, in the one place where the resource is the thing being
+    /// saved.
+    #[inline]
+    fn check_stack(&mut self) -> TypeResult<()> {
         let here = stack_pointer();
         if self.stack_base == 0 {
             self.stack_base = here;
@@ -580,7 +589,7 @@ impl<'e> TypeChecker<'e> {
         if used > self.deepest {
             self.deepest = used;
         }
-        body(self)
+        Ok(())
     }
 
     /// Spends one unit of the work budget.
@@ -627,11 +636,7 @@ impl<'e> TypeChecker<'e> {
     /// "Weak" means that the function does not look inside a binder. "Head"
     /// means that it only reduces the outermost shape.
     pub fn whnf(&mut self, e: &Expr) -> TypeResult<Expr> {
-        self.deeper(|tc| tc.whnf_at_depth(e))
-    }
-
-    /// The body of [`Self::whnf`], inside the depth guard.
-    fn whnf_at_depth(&mut self, e: &Expr) -> TypeResult<Expr> {
+        self.check_stack()?;
         let worth_it = e.size_up_to(CACHE_MIN_SIZE) >= CACHE_MIN_SIZE;
         let key = if worth_it { e.hash_value() } else { 0 };
         if worth_it
@@ -681,11 +686,7 @@ impl<'e> TypeChecker<'e> {
     /// full answer are different answers to different questions. So this keeps
     /// its own.
     fn whnf_core(&mut self, e: &Expr) -> TypeResult<Expr> {
-        self.deeper(|tc| tc.whnf_core_at_depth(e))
-    }
-
-    /// The body of [`Self::whnf_core`], inside the depth guard.
-    fn whnf_core_at_depth(&mut self, e: &Expr) -> TypeResult<Expr> {
+        self.check_stack()?;
         let key = e.hash_value();
         if let Some(bucket) = self.core_cache.get(&key)
             && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
@@ -1260,16 +1261,12 @@ impl<'e> TypeChecker<'e> {
     /// Returns `true` if `a` and `b` are the same term by computation.
     pub fn is_def_eq(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
         // The cheap test. Most comparisons stop here, and it costs no fuel and
-        // no depth: `alpha_eq` walks the two terms without recursing through
+        // no stack: `alpha_eq` walks the two terms without recursing through
         // any rule.
         if a.alpha_eq(b) {
             return Ok(true);
         }
-        self.deeper(|tc| tc.is_def_eq_at_depth(a, b))
-    }
-
-    /// The body of [`Self::is_def_eq`], inside the depth guard.
-    fn is_def_eq_at_depth(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
+        self.check_stack()?;
         // Past that test the work can be unbounded, so the answer is worth
         // keeping whatever the size of the two terms. See chapter 10.
         let key = mix_hashes(a.hash_value(), b.hash_value());
@@ -1805,11 +1802,7 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns the type of `e`.
     pub fn infer_type(&mut self, e: &Expr) -> TypeResult<Expr> {
-        self.deeper(|tc| tc.infer_type_at_depth(e))
-    }
-
-    /// The body of [`Self::infer_type`], inside the depth guard.
-    fn infer_type_at_depth(&mut self, e: &Expr) -> TypeResult<Expr> {
+        self.check_stack()?;
         // A leaf is cheaper to type than to look up, so the cache ignores one.
         if matches!(
             e,
