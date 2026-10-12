@@ -151,6 +151,32 @@ fn stack_pointer() -> usize {
     std::hint::black_box(&probe) as *const u8 as usize
 }
 
+/// What [`TypeChecker::read_nat`] found out about a term.
+///
+/// Three outcomes and not two, and the difference between the last two is a
+/// **cache** bug that cost 2,421,228 reduction steps on one declaration of the
+/// prelude.
+///
+/// `read_nat` remembers the terms that are not numbers, because `nat_step` asks
+/// about the same term on every reduction step. But a read that stops at
+/// [`NAT_DEPTH_LIMIT`] has found out **nothing** about the term, and the old
+/// version returned the same `None` for both. So a term that is a perfectly
+/// good number, read once while the reader happened to be sixteen levels deep,
+/// was remembered as "not a number" for the rest of the declaration, and every
+/// later attempt declined at once without looking.
+///
+/// A cache may hold an answer. It may not hold the absence of one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum NatRead {
+    /// The term is this number.
+    Number(u128),
+    /// The term is not a number, and nothing will make it one. Worth
+    /// remembering.
+    NotANumber,
+    /// A limit stopped the attempt, so there is no answer to remember.
+    Declined,
+}
+
 /// Why a term failed to check.
 ///
 /// The variants that carry a term carry it in a [`Box`]. The reason is size.
@@ -455,10 +481,27 @@ pub struct TypeChecker<'e> {
     /// not wrong. A cache may skip its confirmation exactly when being wrong
     /// costs time rather than truth.
     not_a_number: std::collections::HashSet<u64>,
+    /// Numbers that [`Self::read_nat`] has already found.
+    ///
+    /// The other half of [`Self::not_a_number`], and it was missing for a
+    /// reason that is worth keeping: the kernel asks the same question far
+    /// more often than anybody would guess. On one declaration of the prelude
+    /// **one term was read 5,290,885 times**, always with the same answer, and
+    /// the instrument that found that out is three lines of `eprintln!` on the
+    /// path that declined.
+    ///
+    /// This cache keeps chapter 10's rule, and [`Self::not_a_number`] does
+    /// not. A hash **finds** the entry here and [`Expr::alpha_eq`]
+    /// **decides**, because a wrong number is a wrong answer. The exception
+    /// that the negative cache enjoys does not apply: being wrong there costs
+    /// time, and being wrong here would cost the truth.
+    numbers: HashMap<u64, Vec<(Expr, u128)>>,
     /// How many arithmetic arguments [`Self::read_nat`] is forcing right now.
     ///
     /// See [`SUCC_LIMIT`] for the other half of the same story.
     nat_depth: u32,
+    /// How deep that may go. See [`NAT_DEPTH_LIMIT`].
+    nat_depth_limit: u32,
     /// Where the stack was when this declaration started, or zero.
     ///
     /// Zero means "not taken yet", so the first entry records it. See
@@ -483,6 +526,17 @@ impl<'e> TypeChecker<'e> {
     pub fn set_fuel(&mut self, fuel: u64) {
         self.budget = fuel;
         self.fuel = fuel;
+    }
+
+    /// Sets how deep [`Self::read_nat`] may force a nested argument.
+    ///
+    /// A knob because it is a **trade**, and the two sides of it are measured
+    /// in chapter 16. A shallow limit sends the kernel down the unary path and
+    /// costs work. A deep one reads the arithmetic and costs stack. There is no
+    /// value that is right for every declaration, so there is a number that can
+    /// be swept.
+    pub fn set_nat_depth_limit(&mut self, limit: u32) {
+        self.nat_depth_limit = limit;
     }
 
     /// Sets how many bytes of stack the kernel may use. See [`STACK_BUDGET`].
@@ -517,7 +571,9 @@ impl<'e> TypeChecker<'e> {
             infer_cache: HashMap::new(),
             core_cache: HashMap::new(),
             not_a_number: std::collections::HashSet::new(),
+            numbers: HashMap::new(),
             nat_depth: 0,
+            nat_depth_limit: NAT_DEPTH_LIMIT,
             stack_base: 0,
             stack_budget: STACK_BUDGET,
             deepest: 0,
@@ -845,7 +901,9 @@ impl<'e> TypeChecker<'e> {
         if nat_lit::returns_bool(name) && !self.env.contains(&Name::from_dotted("Bool.true")) {
             return Ok(None);
         }
-        let (Some(a), Some(b)) = (self.read_nat(&args[0])?, self.read_nat(&args[1])?) else {
+        let (NatRead::Number(a), NatRead::Number(b)) =
+            (self.read_nat(&args[0])?, self.read_nat(&args[1])?)
+        else {
             tally::bump(|| format!("declined {name}: a number could not be read"));
             return Ok(None);
         };
@@ -865,7 +923,7 @@ impl<'e> TypeChecker<'e> {
         if !nat_lit::is_unop(name) || args.is_empty() {
             return Ok(None);
         }
-        let Some(value) = self.read_nat(&args[0])? else {
+        let NatRead::Number(value) = self.read_nat(&args[0])? else {
             return Ok(None);
         };
         let Some(out) = nat_lit::unop(name, value) else {
@@ -895,52 +953,94 @@ impl<'e> TypeChecker<'e> {
     /// and a reader that only looked at the surface stopped one layer in.
     ///
     /// The loop ends because each step takes a strictly smaller term.
-    fn read_nat(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
-        if self.nat_depth >= NAT_DEPTH_LIMIT {
+    fn read_nat(&mut self, e: &Expr) -> TypeResult<NatRead> {
+        // **Ask the caches before the depth guard, not after.**
+        //
+        // The guard used to come first, and it is the only exit that
+        // remembers nothing. So a term it declined was asked again on the next
+        // reduction step, and the next, with no record that the question had
+        // ever been put. On one declaration of the prelude the **same term**
+        // reached this line 5,290,885 times.
+        //
+        // An answer that is already known is known at any depth. The guard is
+        // about how far to **descend**, and a cache hit descends nowhere.
+        let key = e.hash_value();
+        if let Some(bucket) = self.numbers.get(&key)
+            && let Some((_, value)) = bucket.iter().find(|(term, _)| term.alpha_eq(e))
+        {
+            return Ok(NatRead::Number(*value));
+        }
+        if self.not_a_number.contains(&key) {
+            return Ok(NatRead::NotANumber);
+        }
+        if self.nat_depth >= self.nat_depth_limit {
             // Not an answer about the term, so nothing is remembered.
             tally::bump(|| "declined read_nat: nested too deep".to_string());
-            return Ok(None);
-        }
-        let key = e.hash_value();
-        if self.not_a_number.contains(&key) {
-            return Ok(None);
+            return Ok(NatRead::Declined);
         }
         self.nat_depth += 1;
         let answer = self.read_nat_inner(e);
         self.nat_depth -= 1;
-        if let Ok(None) = answer {
-            if self.not_a_number.len() >= CACHE_CAP {
-                self.not_a_number.clear();
+        // **Only a real answer is remembered.** A `Declined` means a limit
+        // stopped the read somewhere below, which says nothing about this
+        // term. See [`NatRead`] for what remembering it cost.
+        match answer {
+            Ok(NatRead::NotANumber) => {
+                if self.not_a_number.len() >= CACHE_CAP {
+                    self.not_a_number.clear();
+                }
+                self.not_a_number.insert(key);
             }
-            self.not_a_number.insert(key);
+            Ok(NatRead::Number(value)) => {
+                if self.numbers.len() >= CACHE_CAP {
+                    self.numbers.clear();
+                }
+                self.numbers
+                    .entry(key)
+                    .or_default()
+                    .push((e.clone(), value));
+            }
+            _ => {}
         }
         answer
     }
 
     /// The body of [`Self::read_nat`], inside the depth guard.
-    fn read_nat_inner(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
+    fn read_nat_inner(&mut self, e: &Expr) -> TypeResult<NatRead> {
         let mut extra: u128 = 0;
         let mut current = self.whnf(e)?;
         for _ in 0..SUCC_LIMIT {
             if let Some(found) = nat_lit::value(&current) {
-                return Ok(found.checked_add(extra));
+                return Ok(match found.checked_add(extra) {
+                    Some(sum) => NatRead::Number(sum),
+                    // The number is real and larger than a `u128`. That is a
+                    // limit of this module, not a fact about the term.
+                    None => {
+                        tally::bump(|| "declined read_nat: past u128".to_string());
+                        NatRead::Declined
+                    }
+                });
             }
             match nat_lit::shape(&current) {
-                Some(NatShape::Zero) => return Ok(Some(extra)),
+                Some(NatShape::Zero) => return Ok(NatRead::Number(extra)),
                 Some(NatShape::Succ(inner)) => {
                     let Some(next) = extra.checked_add(1) else {
-                        return Ok(None);
+                        tally::bump(|| "declined read_nat: past u128".to_string());
+                        return Ok(NatRead::Declined);
                     };
                     extra = next;
                     let inner = inner.clone();
                     current = self.whnf(&inner)?;
                 }
-                None => return Ok(None),
+                // The head is neither a literal nor a `Nat` constructor, so
+                // this term is not a number. **This** is the answer the cache
+                // exists for.
+                None => return Ok(NatRead::NotANumber),
             }
         }
         // A tower taller than `SUCC_LIMIT` is not a numeral anyone wrote.
         tally::bump(|| "declined read_nat: the tower of successors is too tall".to_string());
-        Ok(None)
+        Ok(NatRead::Declined)
     }
 
     /// Computes a function of one string literal.
@@ -1289,6 +1389,7 @@ impl<'e> TypeChecker<'e> {
         self.infer_cache.clear();
         self.core_cache.clear();
         self.not_a_number.clear();
+        self.numbers.clear();
     }
 
     /// Stores one answer of [`Self::is_def_eq`].

@@ -170,3 +170,45 @@ fn a_prefix_test_handles_both_answers() {
     assert!(!nat.is_prefix_of(&other));
     assert!(Name::anonymous().is_prefix_of(&succ));
 }
+
+/// A dotted name must survive the round trip through text.
+///
+/// `rean show` found this. A private declaration of the Lean prelude is named
+/// `_private.Init.Data.SInt.Lemmas.0.ISize.le_toInt`, and the `0` is a
+/// **numeric** part. Reading it back as the string "0" gives a different name,
+/// so the lookup failed and the trust report quietly found no axioms for every
+/// private declaration in the prelude.
+mod a_numeric_part {
+    use rean_core::Name;
+
+    #[test]
+    fn survives_the_round_trip_through_text() {
+        let name = Name::from_dotted("_private.Init.Data.SInt.Lemmas.0.ISize.le_toInt");
+        assert_eq!(
+            name.to_string(),
+            "_private.Init.Data.SInt.Lemmas.0.ISize.le_toInt"
+        );
+        // And it is the same name that the parts build, which is what the
+        // export reader builds while it reads the file.
+        let built = Name::from_dotted("_private.Init.Data.SInt.Lemmas")
+            .num(0)
+            .str("ISize")
+            .str("le_toInt");
+        assert_eq!(name, built);
+    }
+
+    #[test]
+    fn a_name_with_no_digits_is_unchanged() {
+        let name = Name::from_dotted("Nat.succ");
+        assert_eq!(name, Name::anonymous().str("Nat").str("succ"));
+        assert_eq!(name.to_string(), "Nat.succ");
+    }
+
+    #[test]
+    fn a_part_that_only_starts_with_a_digit_stays_a_string() {
+        // `0a` is not a number, so it is a string part and stays one.
+        let name = Name::from_dotted("Foo.0a");
+        assert_eq!(name, Name::anonymous().str("Foo").str("0a"));
+        assert_eq!(name.to_string(), "Foo.0a");
+    }
+}

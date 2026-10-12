@@ -4,8 +4,8 @@
 //! library, so a test can reach it.
 
 use rean::{
-    CheckArgs, DeclOutcome, USAGE, Verdict, check_export_streaming, demo, lex_file, prepare, prove,
-    stack_bytes,
+    CheckArgs, DeclOutcome, Target, USAGE, Verdict, check_export_streaming, demo, lex_file,
+    prepare, prove, show, stack_bytes,
 };
 use std::process::ExitCode;
 
@@ -30,6 +30,7 @@ fn run() -> ExitCode {
         },
         Some("check") => run_target(&args[1..], true),
         Some("export") => run_target(&args[1..], false),
+        Some("show") => run_show(&args[1..]),
         Some("prove") => run_prove(),
         Some("demo") => {
             print!("{}", demo());
@@ -132,6 +133,60 @@ fn run_check(path: &str) -> ExitCode {
     } else {
         ExitCode::FAILURE
     }
+}
+
+/// Prints one declaration as the kernel sees it.
+///
+/// The target can be a `.lean` file or a module, so this works on the reader's
+/// own code and not only on an export they already have.
+fn run_show(args: &[String]) -> ExitCode {
+    let full = args.iter().any(|arg| arg == "--full");
+    let plain: Vec<&String> = args.iter().filter(|arg| !arg.starts_with("--")).collect();
+    let (Some(target), Some(name)) = (plain.first(), plain.get(1)) else {
+        return fail("show needs a target and a declaration name");
+    };
+    let target_kind = match Target::parse(target) {
+        Ok(kind) => kind,
+        Err(message) => return fail(&message),
+    };
+    // A `.lean` file or a module has to be exported first, and the whole
+    // closure of one is 345 MB. So name the declaration to the exporter too:
+    // `rean show Demo.lean twice_two` exports 759 KB instead.
+    let decls = match &target_kind {
+        Target::Export(_) => Vec::new(),
+        _ => vec![(*name).clone()],
+    };
+    let ready = match prepare(&target_kind, &decls, None) {
+        Ok(ready) => ready,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let report = match show(&ready.path.to_string_lossy(), name, full) {
+        Ok(report) => report,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!("{} {}{}", report.kind, report.name, report.levels);
+    println!("\ntype\n  {}", report.ty.replace('\n', "\n  "));
+    match (&report.value, report.value_cut) {
+        (None, _) => println!("\nvalue\n  none. A {} has no value.", report.kind),
+        (Some(value), 0) => println!("\nvalue\n  {}", value.replace('\n', "\n  ")),
+        (Some(value), cut) => {
+            println!("\nvalue\n  {}", value.replace('\n', "\n  "));
+            println!("  ... and {cut} more bytes. `--full` prints all of it.");
+        }
+    }
+    println!("\nrests on {} constant(s)", report.uses.len());
+    if report.axioms.is_empty() {
+        println!("trust: no axiom");
+    } else {
+        println!("trust: {}", report.axioms.join(", "));
+    }
+    ExitCode::SUCCESS
 }
 
 /// Prints a byte count in the unit that suits it.

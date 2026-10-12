@@ -58,7 +58,23 @@ impl Name {
             return name;
         }
         for part in text.split('.') {
-            name = name.str(part);
+            // A part that is all digits is a **numeric** part, because that is
+            // what [`fmt::Display`] wrote. Lean's own private names carry one:
+            // `_private.Init.Data.SInt.Lemmas.0.ISize.le_toInt` holds `Num(0)`
+            // in the middle, and reading it back as the string "0" gives a
+            // different name that no environment holds.
+            //
+            // That cost two real faults before `rean show` made it visible.
+            // The trust report looks a declaration up by this route, so for
+            // every private declaration of the prelude it found nothing and
+            // reported no axioms; and `rean show` could not find one at all.
+            //
+            // A string part that is all digits cannot be written in a dotted
+            // name, in Lean or here. Lean spells that one `«0»`.
+            name = match part.parse::<u64>() {
+                Ok(number) => name.num(number),
+                Err(_) => name.str(part),
+            };
         }
         name
     }

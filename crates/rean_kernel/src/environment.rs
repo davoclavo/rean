@@ -347,6 +347,14 @@ impl Environment {
         self.decls.get(name)
     }
 
+    /// Returns every name in the environment, in no particular order.
+    ///
+    /// A driver uses this to answer "did you mean?" when a reader asks for a
+    /// declaration by a name that is nearly right.
+    pub fn names(&self) -> impl Iterator<Item = &Name> {
+        self.decls.keys()
+    }
+
     /// Returns `true` if the environment holds `name`.
     pub fn contains(&self, name: &Name) -> bool {
         self.decls.contains_key(name)

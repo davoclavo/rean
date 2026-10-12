@@ -133,3 +133,26 @@ fn export_writes_the_file_and_checks_nothing() {
     assert!(dir.join("Demo.ndjson").is_file());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn show_reads_a_declaration_out_of_a_lean_file() {
+    if Toolchain::find().is_err() {
+        eprintln!("skipped: no lean and lean4export. See the module comment.");
+        return;
+    }
+    let dir = work_dir("shows");
+    std::fs::write(dir.join("Demo.lean"), SOURCE).expect("the source must be written");
+
+    // No `--decl` from the reader: `show` passes the name to the exporter
+    // itself, so this costs 759 KB and half a second rather than 345 MB.
+    let out = run(&["show", "Demo.lean", "twice"], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("def twice"), "{text}");
+    assert!(text.contains("Nat → Nat"), "{text}");
+    // The value is Lean's, with the instance it inserted for `+`.
+    assert!(text.contains("HAdd.hAdd"), "{text}");
+    assert!(text.contains("instAddNat"), "{text}");
+    assert!(text.contains("trust: no axiom"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

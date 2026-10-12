@@ -8,7 +8,7 @@ pub mod export;
 
 use export::{ExportReport, Toolchain};
 use rean_core::{DiagnosticBag, SourceMap};
-use rean_kernel::{Declaration, Environment, Expr, Level, TypeChecker};
+use rean_kernel::{Declaration, Environment, Expr, Level, LocalContext, TypeChecker};
 use rean_lexer::{TokenKind, TokenTable, tokenize};
 use rean_syntax::{Syntax, kind};
 use std::collections::{HashMap, HashSet};
@@ -22,6 +22,7 @@ usage:
   rean lex <file.lean>   print every token with its position
   rean check <target>    check Lean declarations with our kernel
   rean export <target>   export a target and print the path, without checking
+  rean show <target> <name>   print one declaration as the kernel sees it
   rean prove             check a proof with the kernel
   rean demo              walk the stages over a small example
   rean help              print this text
@@ -33,6 +34,9 @@ a check target is one of three things:
                          them. Stages 2 and 3 are Lean's, stage 4 is ours.
   prelude                Lean's `Init`, the whole prelude
   Some.Module            any compiled module on REAN_LEAN_PATH
+
+options for show:
+  --full                 print the whole value, however large
 
 options for check and export:
   --decl <name>          export only this declaration and what it rests on.
@@ -51,6 +55,7 @@ use four fifths of the stack and then reports, rather than crashing.
 two more, for finding out why a declaration is expensive:
   REAN_TALLY=1           count every rule the kernel fires, by name
   REAN_KERNEL_STACK=<MiB>  the kernel's allowance, held apart from the stack
+  REAN_NAT_DEPTH=<levels>  how deep the arithmetic reader forces, default 16
 
 three more, for the front door:
   REAN_LEAN              the `lean` binary to use
@@ -482,6 +487,9 @@ pub fn check_export_streaming(
                     if let Some(fuel) = fuel_from_env() {
                         tc.set_fuel(fuel);
                     }
+                    if let Some(depth) = nat_depth_from_env() {
+                        tc.set_nat_depth_limit(depth);
+                    }
                     tc.set_stack_budget(kernel_stack_budget(stack_bytes(
                         std::env::var("REAN_STACK").ok().as_deref(),
                     )));
@@ -553,6 +561,136 @@ pub fn check_export_streaming(
         meta: module.meta.to_string(),
         outcomes,
     })
+}
+
+/// What one declaration looks like to the kernel.
+///
+/// This is the command that answers the question a reader of these chapters
+/// asks most: **what does Lean actually hand us?** `demo` shows a term that was
+/// built by hand. This shows a real one, out of a real export, with the names
+/// and universes that Lean gave it.
+///
+/// It paid for itself the hour it was written. Chapter 16 was stuck on why one
+/// signed integer proof costs a billion units of work, and `rean show` on three
+/// of its dependencies answered it in a minute.
+#[derive(Debug)]
+pub struct ShowReport {
+    pub name: String,
+    pub kind: &'static str,
+    /// The universe parameters, as `{u, v}`, or empty.
+    pub levels: String,
+    pub ty: String,
+    /// `None` for an axiom, an inductive type, a constructor or a recursor.
+    pub value: Option<String>,
+    /// How many bytes of the value were left out, if any.
+    pub value_cut: usize,
+    /// Every constant that the type and the value name.
+    pub uses: Vec<String>,
+    /// The axioms that this declaration rests on.
+    pub axioms: Vec<String>,
+    /// What the kernel says about it, if it was asked.
+    pub verdict: Option<String>,
+}
+
+/// How much of a value to print before cutting it.
+///
+/// A proof term of the prelude can be hundreds of kilobytes. A reader wants to
+/// see the **shape** of one, so the default is a page of it and the report says
+/// how much it cut.
+const SHOW_LIMIT: usize = 2_000;
+
+/// Reads one declaration out of an export and describes it.
+///
+/// `full` prints the whole value, however large.
+pub fn show(path: &str, name: &str, full: bool) -> Result<ShowReport, String> {
+    let module =
+        rean_export::read_module(path).map_err(|err| format!("cannot read {path}: {err}"))?;
+    let wanted = rean_core::Name::from_dotted(name);
+    let decl = module.env.get(&wanted).ok_or_else(|| {
+        // A name that is nearly right is the common mistake, so name the
+        // nearest few rather than only refusing.
+        let near = nearest_names(&module.env, name);
+        if near.is_empty() {
+            format!("{path} holds no declaration called `{name}`")
+        } else {
+            format!(
+                "{path} holds no declaration called `{name}`. Did you mean:\n  {}",
+                near.join("\n  ")
+            )
+        }
+    })?;
+
+    let lctx = LocalContext::new();
+    let levels = if decl.level_params().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{{{}}}",
+            decl.level_params()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let (value, value_cut) = match decl.value() {
+        None => (None, 0),
+        Some(term) => {
+            let text = lctx.pretty(term);
+            if full || text.len() <= SHOW_LIMIT {
+                (Some(text), 0)
+            } else {
+                let cut = text.len() - SHOW_LIMIT;
+                // Cut on a character boundary, because a term holds names
+                // such as `assemble₄` and half of a `₄` is not text.
+                let mut end = SHOW_LIMIT;
+                while end > 0 && !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                (Some(text[..end].to_string()), cut)
+            }
+        }
+    };
+    let mut uses = Vec::new();
+    decl.collect_dependencies(&mut uses);
+    let mut uses: Vec<String> = uses.iter().map(ToString::to_string).collect();
+    uses.sort();
+    uses.dedup();
+
+    Ok(ShowReport {
+        name: decl.name().to_string(),
+        kind: decl.kind_label(),
+        levels,
+        ty: lctx.pretty(decl.ty()),
+        value,
+        value_cut,
+        uses,
+        axioms: module
+            .env
+            .axioms_of(&wanted)
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        verdict: None,
+    })
+}
+
+/// Returns up to five names that look like `name`.
+///
+/// The test is a shared last part, which is what a reader usually remembers.
+fn nearest_names(env: &Environment, name: &str) -> Vec<String> {
+    let last = name.rsplit('.').next().unwrap_or(name).to_lowercase();
+    if last.len() < 3 {
+        return Vec::new();
+    }
+    let mut found: Vec<String> = env
+        .names()
+        .filter(|known| known.to_string().to_lowercase().contains(&last))
+        .map(ToString::to_string)
+        .collect();
+    found.sort_by_key(String::len);
+    found.truncate(5);
+    found
 }
 
 /// What `prove` found.
@@ -867,6 +1005,15 @@ fn verdict_for_failure(
         }
         _ => Verdict::Failed(message),
     }
+}
+
+/// Reads how deep the arithmetic reader may force, from `REAN_NAT_DEPTH`.
+///
+/// The third thing to sweep. See `TypeChecker::set_nat_depth_limit`: a shallow
+/// limit costs work and a deep one costs stack, and chapter 16 measures both
+/// sides of that trade.
+fn nat_depth_from_env() -> Option<u32> {
+    std::env::var("REAN_NAT_DEPTH").ok()?.parse().ok()
 }
 
 /// How much of a stack of `bytes` the kernel may use.
