@@ -136,3 +136,61 @@ fn instantiate_many_with_nothing_changes_nothing() {
     let term = lambdas(2, Expr::bvar(0));
     assert!(term.instantiate_many(&[]).alpha_eq(&term));
 }
+
+/// The same rule, for a **universe** substitution.
+///
+/// Chapter 9 gave `instantiate_at` and `lift` an answer that means "nothing
+/// changed", so an unchanged subterm keeps its `Arc`. `instantiate_levels`
+/// never had one, and the δ rule calls it on every unfold of a universe
+/// polymorphic definition. These tests state both halves of the rule: nothing
+/// changed means `None`, and a change means the right term.
+mod universe_substitution {
+    use rean_core::Name;
+    use rean_kernel::{Expr, Level};
+
+    fn params() -> Vec<Name> {
+        vec![Name::from_dotted("u")]
+    }
+
+    #[test]
+    fn a_term_with_no_universe_parameter_is_not_rebuilt() {
+        // `Nat.succ #0` holds no level at all, so the substitution has nothing
+        // to do and must say so rather than copy the term.
+        let term = Expr::const_("Nat.succ", vec![]).app(Expr::bvar(0));
+        assert_eq!(term.instantiate_levels_opt(&params(), &[Level::Zero]), None);
+    }
+
+    #[test]
+    fn a_level_that_names_another_parameter_is_not_rebuilt() {
+        let term = Expr::sort(Level::param("v"));
+        assert_eq!(term.instantiate_levels_opt(&params(), &[Level::Zero]), None);
+    }
+
+    #[test]
+    fn the_parameter_is_still_replaced_where_it_appears() {
+        let term = Expr::forall(
+            "α",
+            Expr::sort(Level::param("u")),
+            Expr::const_("List", vec![Level::param("u")]).app(Expr::bvar(0)),
+        );
+        let after = term.instantiate_levels(&params(), &[Level::Zero]);
+        assert_eq!(after.pretty(), "(α : Prop) → List.{0} α");
+        // And the two spellings agree, which is what keeps the fast answer
+        // honest: `instantiate_levels` is `instantiate_levels_opt` plus a clone.
+        assert!(
+            after.alpha_eq(
+                &term
+                    .instantiate_levels_opt(&params(), &[Level::Zero])
+                    .expect("a term that holds the parameter must change")
+            )
+        );
+    }
+
+    #[test]
+    fn a_level_keeps_its_shape_under_max_and_succ() {
+        let level = Level::param("u").succ().max(&Level::param("v"));
+        let term = Expr::sort(level);
+        let after = term.instantiate_levels(&params(), &[Level::Zero]);
+        assert_eq!(after.pretty(), "Sort max 1 v");
+    }
+}

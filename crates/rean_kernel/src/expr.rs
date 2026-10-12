@@ -175,6 +175,14 @@ impl Sub {
         self.expr.instantiate_many_at(depth, values).map(Sub::new)
     }
 
+    /// [`Expr::instantiate_levels_opt`] for a subterm.
+    ///
+    /// A `None` from the inside means the caller keeps this very `Sub`, so an
+    /// unchanged subterm costs one reference count bump.
+    fn instantiate_levels_opt(&self, params: &[Name], args: &[Level]) -> Option<Sub> {
+        self.expr.instantiate_levels_opt(params, args).map(Sub::new)
+    }
+
     /// [`Expr::abstract_at`] for a subterm.
     ///
     /// There is no skip here. The cached range says where the **bound**
@@ -608,58 +616,133 @@ impl Expr {
     /// stored value of `List` speaks about `u`, so the value must take the `0`
     /// before the checker uses it.
     pub fn instantiate_levels(&self, params: &[Name], args: &[Level]) -> Expr {
+        self.instantiate_levels_opt(params, args)
+            .unwrap_or_else(|| self.clone())
+    }
+
+    /// Like [`Self::instantiate_levels`], and returns `None` when nothing
+    /// changed.
+    ///
+    /// This is chapter 9's rule, applied to the one substitution that never
+    /// got it. [`Self::instantiate_at`] and [`Self::lift`] already return
+    /// "nothing changed" so that an unchanged subterm keeps its [`Arc`], and
+    /// the profile of chapter 9 moved by a factor of fifteen when they did.
+    ///
+    /// The δ rule asks for this on **every** unfold of a universe polymorphic
+    /// definition, and most of such a value holds no universe parameter at all.
+    /// On one declaration of the prelude the kernel unfolds `Nat.casesOn`
+    /// 283,803 times and `Nat.sub._f` 220,848 times, and the old version
+    /// rebuilt every node of both values each time, only to drop the copy a
+    /// moment later. Chapter 15, section 15.6, tried to cache those answers
+    /// instead and measured nothing, which is the clue this reading explains:
+    /// a cache cannot help when the work it saves was never needed.
+    pub fn instantiate_levels_opt(&self, params: &[Name], args: &[Level]) -> Option<Expr> {
         if params.is_empty() {
-            return self.clone();
+            return None;
         }
         match self {
-            Expr::Sort(level) => Expr::Sort(level.substitute(params, args)),
-            Expr::Const { name, levels } => Expr::Const {
-                name: name.clone(),
-                levels: levels.iter().map(|l| l.substitute(params, args)).collect(),
-            },
-            Expr::App { fun, arg } => Expr::App {
-                fun: Sub::new(fun.instantiate_levels(params, args)),
-                arg: Sub::new(arg.instantiate_levels(params, args)),
-            },
+            Expr::Sort(level) => Some(Expr::Sort(level.substitute_opt(params, args)?)),
+            Expr::Const { name, levels } => {
+                let mut changed = false;
+                let next: Vec<Level> = levels
+                    .iter()
+                    .map(|level| match level.substitute_opt(params, args) {
+                        Some(new) => {
+                            changed = true;
+                            new
+                        }
+                        None => level.clone(),
+                    })
+                    .collect();
+                if !changed {
+                    return None;
+                }
+                Some(Expr::Const {
+                    name: name.clone(),
+                    levels: next,
+                })
+            }
+            Expr::App { fun, arg } => {
+                let (first, second) = (
+                    fun.instantiate_levels_opt(params, args),
+                    arg.instantiate_levels_opt(params, args),
+                );
+                if first.is_none() && second.is_none() {
+                    return None;
+                }
+                Some(Expr::App {
+                    fun: first.unwrap_or_else(|| fun.clone()),
+                    arg: second.unwrap_or_else(|| arg.clone()),
+                })
+            }
             Expr::Lam {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Lam {
-                binder_name: binder_name.clone(),
-                binder_type: Sub::new(binder_type.instantiate_levels(params, args)),
-                body: Sub::new(body.instantiate_levels(params, args)),
-                info: *info,
-            },
+            } => {
+                let (ty, inner) = (
+                    binder_type.instantiate_levels_opt(params, args),
+                    body.instantiate_levels_opt(params, args),
+                );
+                if ty.is_none() && inner.is_none() {
+                    return None;
+                }
+                Some(Expr::Lam {
+                    binder_name: binder_name.clone(),
+                    binder_type: ty.unwrap_or_else(|| binder_type.clone()),
+                    body: inner.unwrap_or_else(|| body.clone()),
+                    info: *info,
+                })
+            }
             Expr::Forall {
                 binder_name,
                 binder_type,
                 body,
                 info,
-            } => Expr::Forall {
-                binder_name: binder_name.clone(),
-                binder_type: Sub::new(binder_type.instantiate_levels(params, args)),
-                body: Sub::new(body.instantiate_levels(params, args)),
-                info: *info,
-            },
+            } => {
+                let (ty, inner) = (
+                    binder_type.instantiate_levels_opt(params, args),
+                    body.instantiate_levels_opt(params, args),
+                );
+                if ty.is_none() && inner.is_none() {
+                    return None;
+                }
+                Some(Expr::Forall {
+                    binder_name: binder_name.clone(),
+                    binder_type: ty.unwrap_or_else(|| binder_type.clone()),
+                    body: inner.unwrap_or_else(|| body.clone()),
+                    info: *info,
+                })
+            }
             Expr::Let {
                 binder_name,
                 binder_type,
                 value,
                 body,
-            } => Expr::Let {
-                binder_name: binder_name.clone(),
-                binder_type: Sub::new(binder_type.instantiate_levels(params, args)),
-                value: Sub::new(value.instantiate_levels(params, args)),
-                body: Sub::new(body.instantiate_levels(params, args)),
-            },
-            Expr::Proj(proj) => Expr::Proj(Proj {
+            } => {
+                let (ty, held, inner) = (
+                    binder_type.instantiate_levels_opt(params, args),
+                    value.instantiate_levels_opt(params, args),
+                    body.instantiate_levels_opt(params, args),
+                );
+                if ty.is_none() && held.is_none() && inner.is_none() {
+                    return None;
+                }
+                Some(Expr::Let {
+                    binder_name: binder_name.clone(),
+                    binder_type: ty.unwrap_or_else(|| binder_type.clone()),
+                    value: held.unwrap_or_else(|| value.clone()),
+                    body: inner.unwrap_or_else(|| body.clone()),
+                })
+            }
+            Expr::Proj(proj) => Some(Expr::Proj(Proj {
                 structure: proj.structure.clone(),
                 index: proj.index,
-                value: Sub::new(proj.value.instantiate_levels(params, args)),
-            }),
-            other => other.clone(),
+                value: proj.value.instantiate_levels_opt(params, args)?,
+            })),
+            // A variable, a hole and a literal hold no level.
+            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => None,
         }
     }
 

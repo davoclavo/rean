@@ -113,21 +113,56 @@ impl Level {
     /// `List.{u}` stores its value with `u` as a parameter. The call site
     /// supplies the real level, so the value must take it before it is used.
     pub fn substitute(&self, params: &[Name], args: &[Level]) -> Level {
+        self.substitute_opt(params, args)
+            .unwrap_or_else(|| self.clone())
+    }
+
+    /// Like [`Self::substitute`], and returns `None` when nothing changed.
+    ///
+    /// Chapter 9 taught this to [`Expr::instantiate_at`] and the profile moved:
+    /// an unchanged subterm keeps its existing [`Arc`] and costs one reference
+    /// count bump instead of a fresh allocation.
+    ///
+    /// The δ rule asks for this on **every** unfold, and the value of a
+    /// definition is mostly levels that no parameter touches. `Nat.casesOn`
+    /// unfolds 283,803 times in one declaration of the prelude, and the old
+    /// version rebuilt every `Level` node of it each time.
+    ///
+    /// [`Expr::instantiate_at`]: crate::expr::Expr::instantiate_at
+    pub fn substitute_opt(&self, params: &[Name], args: &[Level]) -> Option<Level> {
         match self {
-            Level::Zero => Level::Zero,
-            Level::Succ(inner) => Level::Succ(Arc::new(inner.substitute(params, args))),
-            Level::Max(a, b) => Level::Max(
-                Arc::new(a.substitute(params, args)),
-                Arc::new(b.substitute(params, args)),
-            ),
-            Level::IMax(a, b) => Level::IMax(
-                Arc::new(a.substitute(params, args)),
-                Arc::new(b.substitute(params, args)),
-            ),
-            Level::Param(name) => match params.iter().position(|p| p == name) {
-                Some(index) => args.get(index).cloned().unwrap_or(Level::Zero),
-                None => self.clone(),
-            },
+            Level::Zero => None,
+            Level::Succ(inner) => Some(Level::Succ(Arc::new(inner.substitute_opt(params, args)?))),
+            Level::Max(a, b) => {
+                let (x, y) = (
+                    a.substitute_opt(params, args),
+                    b.substitute_opt(params, args),
+                );
+                if x.is_none() && y.is_none() {
+                    return None;
+                }
+                Some(Level::Max(
+                    x.map(Arc::new).unwrap_or_else(|| Arc::clone(a)),
+                    y.map(Arc::new).unwrap_or_else(|| Arc::clone(b)),
+                ))
+            }
+            Level::IMax(a, b) => {
+                let (x, y) = (
+                    a.substitute_opt(params, args),
+                    b.substitute_opt(params, args),
+                );
+                if x.is_none() && y.is_none() {
+                    return None;
+                }
+                Some(Level::IMax(
+                    x.map(Arc::new).unwrap_or_else(|| Arc::clone(a)),
+                    y.map(Arc::new).unwrap_or_else(|| Arc::clone(b)),
+                ))
+            }
+            Level::Param(name) => params
+                .iter()
+                .position(|p| p == name)
+                .map(|index| args.get(index).cloned().unwrap_or(Level::Zero)),
         }
     }
 
