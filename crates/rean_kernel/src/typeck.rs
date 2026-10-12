@@ -68,9 +68,10 @@ use std::fmt;
 /// | limit on one read | the signed integer slice | time |
 /// |---|---|---|
 /// | **16 levels of nesting** | **16,583 of 16,584** | **205 s** |
+/// | 1,000 units of work | 15,737 of 16,584 | 743 s |
 /// | 200 units of work | 15,681 of 16,584 | 1,125 s |
 ///
-/// Nine hundred declarations and five times the time. The cheap refusal wins,
+/// Eight hundred declarations and four times the time. The cheap refusal wins,
 /// and the lesson generalises: **when a guard fires often, what it costs to
 /// fire matters more than what it measures.**
 ///

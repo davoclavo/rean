@@ -213,9 +213,12 @@ That is a better design. It is also much worse.
 | limit on one read | the signed integer slice | time |
 |---|---|---|
 | **16 levels of nesting** | **16,583 of 16,584** | **205 s** |
+| 1,000 units of work | 15,737 of 16,584 | 743 s |
 | 200 units of work | 15,681 of 16,584 | 1,125 s |
 
-**Nine hundred declarations and five times the time.** The reason is the shape
+**Eight hundred declarations and four times the time**, at the better of the two
+allowances. A larger allowance is less bad than a smaller one, which is the
+clue: more allowance means fewer reads reach the limit at all. The reason is the shape
 of the failure, and it is obvious once seen. A read that declines on nesting
 costs **nothing**: the guard is one comparison. A read that declines on work has
 spent its whole allowance first. The arithmetic of this family is genuinely too
