@@ -39,6 +39,7 @@ use crate::level::Level;
 use crate::local::LocalContext;
 use crate::nat_lit::{self, NatShape};
 use crate::positivity::{self, PositivityError};
+use crate::tally;
 use rean_core::Name;
 use std::collections::HashMap;
 use std::fmt;
@@ -109,6 +110,47 @@ const CACHE_CAP: usize = 200_000;
 /// in the roadmap.
 const FUEL: u64 = 20_000_000;
 
+/// How many bytes of stack the kernel may use before it declines.
+///
+/// The kernel walks a term by recursion, and one rule makes that recursion
+/// unbounded: to reduce a recursor the kernel must first reduce the **major
+/// premise**, and that premise can itself be a recursor application. The depth
+/// is then the depth of the term, and the term is one that the reduction built.
+///
+/// A work budget does not bound it. Chapter 15, section 15.11, measured the
+/// same 345 seconds at four billion units and at sixteen billion, which is what
+/// a **crash** looks like beside a timeout: the run died of a 32 GB stack before
+/// it could spend the budget. A hundred times the default budget over the whole
+/// prelude did the same thing at 4 GB. A checker that aborts cannot report.
+///
+/// # Why this counts bytes and not levels
+///
+/// The first version of this guard counted **levels**, as Lean's `maxRecDepth`
+/// does, and the measurement refused it. On the deepest declaration of the
+/// prelude a 512 MB stack held 100,000 levels and died at 200,000, so a level
+/// costs about 5 KB; but the chain that actually goes deep is
+/// `whnf -> reduce -> whnf`, whose frames are far smaller than that. A count
+/// set for the fat path refuses work the thin path could finish, and a count
+/// set for the thin path crashes on the fat one. **There is no right count.**
+///
+/// So the kernel measures the thing it is running out of. It records the stack
+/// address where a declaration started and compares it with the address of a
+/// local on each entry, which is two instructions and no counter at all.
+///
+/// This default is the 8 MB that a **main thread** gets, less a margin, because
+/// a library cannot know its stack. The driver chooses the stack, so it sets
+/// this from `REAN_STACK` and the two stop being independent.
+const STACK_BUDGET: usize = 6 * 1024 * 1024;
+
+/// Returns the address of a local, which is where the stack is now.
+///
+/// The hint keeps the local on the stack. Without it the optimiser is free to
+/// hold it in a register, and the address of a register is not a thing.
+fn stack_pointer() -> usize {
+    let probe = 0u8;
+    std::hint::black_box(&probe) as *const u8 as usize
+}
+
 /// Why a term failed to check.
 ///
 /// The variants that carry a term carry it in a [`Box`]. The reason is size.
@@ -147,6 +189,11 @@ pub enum TypeError {
     },
     /// The declaration took more work than the budget allows.
     OutOfFuel(u64),
+    /// The kernel ran out of the stack it is allowed to use.
+    ///
+    /// This is a limit and not a fault in the declaration, exactly like
+    /// [`TypeError::OutOfFuel`]. See [`STACK_BUDGET`].
+    OutOfStack(usize),
     /// A constructor type is not acceptable, so the inductive declaration is
     /// not sound. This is the check that stops a user from proving `False`.
     BadConstructor {
@@ -177,6 +224,17 @@ pub enum TypeError {
 }
 
 impl TypeError {
+    /// Returns `true` for an error about a **limit** rather than about a term.
+    ///
+    /// Several rules of [`TypeChecker::is_def_eq`] ask a question that may
+    /// fail, and a failure there means "this rule does not apply" and not "the
+    /// declaration is wrong". A limit is the exception: it must travel out, or
+    /// the report blames the wrong cause, and a report that blames the wrong
+    /// cause is worse than no report.
+    pub fn is_a_limit(&self) -> bool {
+        matches!(self, TypeError::OutOfFuel(_) | TypeError::OutOfStack(_))
+    }
+
     fn not_a_type(term: &Expr, got: Expr) -> Self {
         TypeError::NotAType {
             term: Box::new(term.clone()),
@@ -264,6 +322,11 @@ impl TypeError {
                      so it was not checked"
                 )
             }
+            TypeError::OutOfStack(budget) => format!(
+                "the kernel used the {} MiB of stack it is allowed, so it was \
+                 not checked. REAN_STACK raises it",
+                budget / (1024 * 1024)
+            ),
             TypeError::BadConstructor {
                 ctor,
                 inductive,
@@ -396,6 +459,19 @@ pub struct TypeChecker<'e> {
     ///
     /// See [`SUCC_LIMIT`] for the other half of the same story.
     nat_depth: u32,
+    /// Where the stack was when this declaration started, or zero.
+    ///
+    /// Zero means "not taken yet", so the first entry records it. See
+    /// [`STACK_BUDGET`].
+    stack_base: usize,
+    /// How many bytes of stack this run allows. See [`STACK_BUDGET`].
+    stack_budget: usize,
+    /// The most stack that the declaration under check has used.
+    ///
+    /// A report that says "out of stack" is more useful beside the number that
+    /// a declaration which **passed** needed, because the two together say
+    /// whether the limit is close or far.
+    deepest: usize,
 }
 
 impl<'e> TypeChecker<'e> {
@@ -407,6 +483,25 @@ impl<'e> TypeChecker<'e> {
     pub fn set_fuel(&mut self, fuel: u64) {
         self.budget = fuel;
         self.fuel = fuel;
+    }
+
+    /// Sets how many bytes of stack the kernel may use. See [`STACK_BUDGET`].
+    ///
+    /// The caller that chooses the thread chooses this. Set it **below** the
+    /// real stack, because the guard can only act where it is asked, and the
+    /// work between two entries needs room of its own.
+    pub fn set_stack_budget(&mut self, bytes: usize) {
+        self.stack_budget = bytes;
+    }
+
+    /// Returns the stack budget of this run, in bytes.
+    pub fn stack_budget(&self) -> usize {
+        self.stack_budget
+    }
+
+    /// Returns the most stack used since the last declaration started.
+    pub fn deepest(&self) -> usize {
+        self.deepest
     }
 
     /// Builds a checker with an empty local context.
@@ -423,6 +518,9 @@ impl<'e> TypeChecker<'e> {
             core_cache: HashMap::new(),
             not_a_number: std::collections::HashSet::new(),
             nat_depth: 0,
+            stack_base: 0,
+            stack_budget: STACK_BUDGET,
+            deepest: 0,
         }
     }
 
@@ -444,11 +542,45 @@ impl<'e> TypeChecker<'e> {
         // δ reads the declarations under check, so an answer from before this
         // group may rest on a different set of them.
         self.clear_caches();
+        // A new group starts a new tally, so that the rows a report prints
+        // belong to the declaration it names.
+        tally::clear();
+        self.deepest = 0;
+        // A new group starts from wherever this call sits, which is the frame
+        // the next check will grow out of.
+        self.stack_base = stack_pointer();
         let saved = std::mem::replace(&mut self.pending, group.to_vec());
         let out = body(self);
         self.pending = saved;
         self.clear_caches();
         out
+    }
+
+    /// Runs `body`, and declines when the stack is nearly spent.
+    ///
+    /// Three functions recurse into each other over the shape of a term:
+    /// [`Self::whnf`], [`Self::is_def_eq`] and [`Self::infer_type`]. Every deep
+    /// chain this kernel has ever overflowed a stack with went through one of
+    /// them, so a guard at those three doors bounds them all.
+    ///
+    /// There is nothing to undo on the way out. The measurement is the address
+    /// of a local, so it falls as the stack unwinds, by itself.
+    fn deeper<T>(&mut self, body: impl FnOnce(&mut Self) -> TypeResult<T>) -> TypeResult<T> {
+        let here = stack_pointer();
+        if self.stack_base == 0 {
+            self.stack_base = here;
+        }
+        // The stack grows **down**, so the base is the larger address. A caller
+        // that entered from a shallower frame than the base saturates to zero,
+        // which is right: it has used none of the allowance.
+        let used = self.stack_base.saturating_sub(here);
+        if used >= self.stack_budget {
+            return Err(TypeError::OutOfStack(self.stack_budget));
+        }
+        if used > self.deepest {
+            self.deepest = used;
+        }
+        body(self)
     }
 
     /// Spends one unit of the work budget.
@@ -495,6 +627,11 @@ impl<'e> TypeChecker<'e> {
     /// "Weak" means that the function does not look inside a binder. "Head"
     /// means that it only reduces the outermost shape.
     pub fn whnf(&mut self, e: &Expr) -> TypeResult<Expr> {
+        self.deeper(|tc| tc.whnf_at_depth(e))
+    }
+
+    /// The body of [`Self::whnf`], inside the depth guard.
+    fn whnf_at_depth(&mut self, e: &Expr) -> TypeResult<Expr> {
         let worth_it = e.size_up_to(CACHE_MIN_SIZE) >= CACHE_MIN_SIZE;
         let key = if worth_it { e.hash_value() } else { 0 };
         if worth_it
@@ -544,6 +681,11 @@ impl<'e> TypeChecker<'e> {
     /// full answer are different answers to different questions. So this keeps
     /// its own.
     fn whnf_core(&mut self, e: &Expr) -> TypeResult<Expr> {
+        self.deeper(|tc| tc.whnf_core_at_depth(e))
+    }
+
+    /// The body of [`Self::whnf_core`], inside the depth guard.
+    fn whnf_core_at_depth(&mut self, e: &Expr) -> TypeResult<Expr> {
         let key = e.hash_value();
         if let Some(bucket) = self.core_cache.get(&key)
             && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
@@ -599,7 +741,9 @@ impl<'e> TypeChecker<'e> {
                     // for a tree it never built.
                     let before = current.size_up_to(u32::MAX);
                     let after = next.size_up_to(u32::MAX);
-                    self.spend_many(1 + after.saturating_sub(before))?;
+                    let charge = 1 + after.saturating_sub(before);
+                    tally::add(|| "units of work charged".to_string(), u64::from(charge));
+                    self.spend_many(charge)?;
                     current = next;
                     steps = steps.saturating_add(1);
                 }
@@ -624,11 +768,13 @@ impl<'e> TypeChecker<'e> {
 
         // ζ: a `let` in the head position substitutes its value.
         if let Expr::Let { value, body, .. } = head {
+            tally::bump(|| "zeta".to_string());
             return Ok(Some(body.instantiate(value).apps(cloned())));
         }
 
         // β: a lambda in the head position takes its first argument.
         if let Some(next) = e.beta_step() {
+            tally::bump(|| "beta".to_string());
             return Ok(Some(next));
         }
 
@@ -636,6 +782,7 @@ impl<'e> TypeChecker<'e> {
         if let Expr::Proj(proj) = head
             && let Some(field) = self.proj_step(proj)?
         {
+            tally::bump(|| format!("proj {}.{}", proj.structure, proj.index));
             return Ok(Some(field.apps(cloned())));
         }
 
@@ -643,22 +790,27 @@ impl<'e> TypeChecker<'e> {
             let args = cloned();
             // The kernel computes on a `Nat` literal directly.
             if let Some(next) = self.nat_step(name, &args)? {
+                tally::bump(|| format!("nat {name}"));
                 return Ok(Some(next));
             }
             // And on a function of one number, such as `Nat.pred`.
             if let Some(next) = self.nat_unary_step(name, &args)? {
+                tally::bump(|| format!("nat {name}"));
                 return Ok(Some(next));
             }
             // And on a string literal.
             if let Some(next) = self.string_step(name, &args)? {
+                tally::bump(|| format!("string {name}"));
                 return Ok(Some(next));
             }
             // ι: a recursor applied to a constructor rewrites to its rule.
             if let Some(next) = self.iota_step(name, levels, &args)? {
+                tally::bump(|| format!("iota {name}"));
                 return Ok(Some(next));
             }
             // The quotient rules, for `Quot.lift` and `Quot.ind`.
             if let Some(next) = self.quot_step(name, &args)? {
+                tally::bump(|| format!("quot {name}"));
                 return Ok(Some(next));
             }
             // δ: a definition unfolds to its value.
@@ -666,11 +818,13 @@ impl<'e> TypeChecker<'e> {
                 && let Some(decl) = self.lookup(name)
                 && let Some(value) = decl.unfoldable_value()
             {
+                tally::bump(|| format!("delta {name}"));
                 let value = value.instantiate_levels(decl.level_params(), levels);
                 return Ok(Some(value.apps(args)));
             }
         }
 
+        tally::bump(|| "no rule applies".to_string());
         Ok(None)
     }
 
@@ -679,7 +833,11 @@ impl<'e> TypeChecker<'e> {
     /// Without this step, `2 + 3` would unfold through `Nat.rec` once per unit,
     /// so a real program would exhaust the reduction budget.
     fn nat_step(&mut self, name: &Name, args: &[Expr]) -> TypeResult<Option<Expr>> {
-        if !nat_lit::is_binop(name) || args.len() < 2 {
+        if !nat_lit::is_binop(name) {
+            return Ok(None);
+        }
+        if args.len() < 2 {
+            tally::bump(|| format!("declined {name}: fewer than two arguments"));
             return Ok(None);
         }
         // A `Bool` result needs the constructors to exist.
@@ -687,10 +845,12 @@ impl<'e> TypeChecker<'e> {
             return Ok(None);
         }
         let (Some(a), Some(b)) = (self.read_nat(&args[0])?, self.read_nat(&args[1])?) else {
+            tally::bump(|| format!("declined {name}: a number could not be read"));
             return Ok(None);
         };
         let Some(out) = nat_lit::binop(name, a, b) else {
             // The answer does not fit in a `u128`. Stay stuck rather than lie.
+            tally::bump(|| format!("declined {name}: the arithmetic overflowed"));
             return Ok(None);
         };
         Ok(Some(out.apps(args[2..].iter().cloned())))
@@ -737,6 +897,7 @@ impl<'e> TypeChecker<'e> {
     fn read_nat(&mut self, e: &Expr) -> TypeResult<Option<u128>> {
         if self.nat_depth >= NAT_DEPTH_LIMIT {
             // Not an answer about the term, so nothing is remembered.
+            tally::bump(|| "declined read_nat: nested too deep".to_string());
             return Ok(None);
         }
         let key = e.hash_value();
@@ -777,6 +938,7 @@ impl<'e> TypeChecker<'e> {
             }
         }
         // A tower taller than `SUCC_LIMIT` is not a numeral anyone wrote.
+        tally::bump(|| "declined read_nat: the tower of successors is too tall".to_string());
         Ok(None)
     }
 
@@ -1097,10 +1259,17 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns `true` if `a` and `b` are the same term by computation.
     pub fn is_def_eq(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
-        // The cheap test. Most comparisons stop here, and it costs no fuel.
+        // The cheap test. Most comparisons stop here, and it costs no fuel and
+        // no depth: `alpha_eq` walks the two terms without recursing through
+        // any rule.
         if a.alpha_eq(b) {
             return Ok(true);
         }
+        self.deeper(|tc| tc.is_def_eq_at_depth(a, b))
+    }
+
+    /// The body of [`Self::is_def_eq`], inside the depth guard.
+    fn is_def_eq_at_depth(&mut self, a: &Expr, b: &Expr) -> TypeResult<bool> {
         // Past that test the work can be unbounded, so the answer is worth
         // keeping whatever the size of the two terms. See chapter 10.
         let key = mix_hashes(a.hash_value(), b.hash_value());
@@ -1170,9 +1339,9 @@ impl<'e> TypeChecker<'e> {
         match self.proof_irrelevant(a, b) {
             Ok(Some(answer)) => return Ok(answer),
             Ok(None) => {}
-            // The budget is the one error that must not be hidden, because a
+            // A limit is the one error that must not be hidden, because a
             // report that blames the wrong cause is worse than no report.
-            Err(error @ TypeError::OutOfFuel(_)) => return Err(error),
+            Err(error) if error.is_a_limit() => return Err(error),
             // Any other error means this rule did not apply, not that the
             // declaration is wrong. The full comparison below decides.
             Err(_) => {}
@@ -1329,6 +1498,7 @@ impl<'e> TypeChecker<'e> {
     /// Unfolds the definition at the head of `e`, once.
     fn delta_step(&mut self, e: &Expr) -> TypeResult<Option<Expr>> {
         self.spend()?;
+        tally::bump(|| "lazy delta".to_string());
         let (head, borrowed) = e.unfold_apps();
         let Expr::Const { name, levels } = head else {
             return Ok(None);
@@ -1635,6 +1805,11 @@ impl<'e> TypeChecker<'e> {
 
     /// Returns the type of `e`.
     pub fn infer_type(&mut self, e: &Expr) -> TypeResult<Expr> {
+        self.deeper(|tc| tc.infer_type_at_depth(e))
+    }
+
+    /// The body of [`Self::infer_type`], inside the depth guard.
+    fn infer_type_at_depth(&mut self, e: &Expr) -> TypeResult<Expr> {
         // A leaf is cheaper to type than to look up, so the cache ignores one.
         if matches!(
             e,

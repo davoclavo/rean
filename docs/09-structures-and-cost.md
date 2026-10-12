@@ -314,6 +314,12 @@ Tests: `the_stack_size_reads_a_number_of_mebibytes`,
 `a_stack_size_nobody_wrote_is_the_default`,
 `the_usage_text_names_both_knobs_and_their_coupling`.
 
+One line of this section is now out of date, and
+[chapter 16](16-the-front-door.md) is where it is corrected. "This stack
+overflowed after 4,034 declarations" is no longer what happens. The kernel
+measures how much of the stack it has used and **reports** instead, so the
+coupling above is still true and the crash at the end of it is gone.
+
 Note what the first budget sweep reported before this fix: "did not finish". A
 timeout and a crash look the same from outside, and we read it as the first for
 one whole measurement. **Read the exit code and the stderr, not the clock.**
