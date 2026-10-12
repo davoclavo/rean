@@ -239,7 +239,7 @@ The prelude rows are Lean **4.35.0-rc3**, exported by `rean export prelude`:
 | level 1 | **95 of 95** | the two committed fixtures |
 | level 1, default | **55,754 of 59,349** | the whole prelude, in 209 seconds |
 | level 1, patient | **59,199 of 59,349** | **99.75%**, with `REAN_FUEL=2000000000 REAN_STACK=8192`, in 36 minutes |
-| level 1, what is left | 45 failures, 105 blocked | one family, `Int32` and `Int64` and `ISize`. 40 want stack, 5 want budget. No rule is missing. |
+| level 1, what is left | 45 failures, 105 blocked | one family, `Int32` and `Int64` and `ISize`. **5 want budget** and reach it at `REAN_FUEL=8000000000`. **40 want stack**, and doubling the stack closes none of them. No rule is missing. |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
 | tests | **467** | `devbox run test` |

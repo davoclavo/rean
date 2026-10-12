@@ -514,16 +514,37 @@ The honest statement of where this project's kernel stands.
   chapter 14 named, and section 16.7 is the correction: it would make the work
   cheaper and faster, and it is no longer the thing standing between this
   kernel and the prelude.
-- **What NbE would still buy** is named by the final table: **40 of the 45
-  remaining failures are the stack**, and they are stack because the recursion
-  that reduces a major premise is a **Rust** recursion. An evaluator with an
-  explicit stack puts that chain on the heap, where a 96 GB machine has room
-  that no thread stack can match, and the guard would stop firing on them. That
-  is a measured case for the rewrite, and it is a better case than "the last
-  0.43%" because it names the mechanism.
-- **The other five want budget**, and a budget is cheap to raise. Whether they
-  finish is a question nobody here has asked yet, and the way to ask it is one
-  slice and one sweep.
+- **The five that want budget are reachable.** One of them,
+  `WellFounded.partialExtrinsicFix₃_eq_partialExtrinsicFix`, was asked the
+  question directly, and the front door made asking it cheap:
+
+  ```sh
+  rean export prelude --decl WellFounded.partialExtrinsicFix₃_eq_partialExtrinsicFix
+  # 759 KB in 1.3s, 206 declarations, instead of 345 MB and 14 seconds
+  ```
+
+  | budget | result |
+  |---|---|
+  | 2,000,000,000 | 205 of 206, in 17 s |
+  | **8,000,000,000** | **206 of 206**, in 313 s |
+
+  It is real work, and five minutes of it for one theorem. The method of
+  chapters 11 and 12 is now one command, and that is the front door earning
+  its place in a performance chapter rather than a usability one.
+
+- **The forty that want stack are not reachable by that knob.** The stack was
+  doubled, from 8 GB to 16 GB, and the **same six** declarations failed at the
+  point the run was stopped, each having used all 16,320 MB of its allowance.
+  Not one of them closed.
+
+  That is the measured case for normalisation by evaluation, and it is a better
+  case than "the last 0.43%" because it names the mechanism. These declarations
+  need **Rust** stack, because the descent into a major premise is a Rust
+  recursion. An evaluator with an explicit stack puts that chain on the heap,
+  where a 96 GB machine has room that no thread stack can match. And a thread
+  stack has a second cost that the heap does not: a 32 GB stack is 32 GB of
+  **memory** once the recursion touches it, which took this machine to 4 GB of
+  free memory twice in one evening.
 - **Level 2 is still zero.** A `.lean` file reaches our kernel through Lean's
   elaborator, not ours. That is the next island, and it needs the parser of
   chapter 8 with an elaborator behind it.

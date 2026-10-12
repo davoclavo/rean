@@ -412,9 +412,19 @@ crashes   none, at any setting
 ```
 
 99.75%, and the 45 failures that remain are one family of signed integer
-lemmas. Forty of them want more stack and five want more budget. **No rule is
-missing**, and chapter 16, section 16.7, is the correction of the sentence that
-chapter 15 ended on.
+lemmas. **No rule is missing**, and chapter 16, section 16.7, is the correction
+of the sentence that chapter 15 ended on.
+
+Those 45 split in two, and the split is what to work on next:
+
+- **5 want budget**, and they reach it. One of them passes at
+  `REAN_FUEL=8000000000`, in five minutes of real work for one theorem.
+- **40 want stack**, and that knob does not reach them. The stack was doubled
+  from 8 GB to 16 GB and **not one of them closed**. They need Rust stack
+  because the descent into a major premise is a Rust recursion, so the cure is
+  an evaluator with an explicit stack, on the heap. That is the measured case
+  for normalisation by evaluation, and it replaces the guess that chapter 14
+  recorded.
 
 The first number cannot grow without a bigger fixture, and the ordering of a
 mutual recursor is still **unvalidated against real Lean**. Getting a mutual
