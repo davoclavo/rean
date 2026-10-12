@@ -285,14 +285,17 @@ impl ExportReport {
 
     /// Returns the version number out of what `lean --version` printed.
     pub fn short_version(&self) -> String {
-        self.toolchain
-            .split_once("version ")
-            .map(|(_, rest)| rest)
-            .unwrap_or(&self.toolchain)
-            .split(&[',', ' '][..])
-            .next()
-            .unwrap_or("")
-            .to_string()
+        match self.toolchain.split_once("version ") {
+            Some((_, rest)) => rest
+                .split([',', ' '])
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+            // A `lean --version` that nobody here has seen is passed through
+            // whole. Cutting at the first space would report "something" for
+            // "something else", which is worse than the long line.
+            None => self.toolchain.clone(),
+        }
     }
 }
 
@@ -558,6 +561,95 @@ mod tests {
         assert!(message.contains("lean4export"), "{message}");
         assert!(message.contains(EXPORTER_VAR), "{message}");
         assert!(message.contains("shapes.ndjson"), "{message}");
+    }
+
+    /// Makes a directory with the files named in it, and returns the path.
+    fn a_directory_holding(files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "rean-export-test-{}-{}",
+            std::process::id(),
+            files.join("-")
+        ));
+        std::fs::create_dir_all(&dir).expect("the directory must be there");
+        for file in files {
+            std::fs::write(dir.join(file), b"not really a binary").expect("the file must be there");
+        }
+        dir
+    }
+
+    #[test]
+    fn a_pair_is_taken_only_from_a_directory_that_holds_both() {
+        // The two must match, so one of them alone is not a pair. A directory
+        // with only `lean` in it is the common case on a machine where nobody
+        // has built the exporter, and taking `lean` from there and the
+        // exporter from somewhere else is how a version mismatch happens.
+        let lean_only = a_directory_holding(&["lean"]);
+        assert_eq!(pair_in(&lean_only, None, None), None);
+
+        let exporter_only = a_directory_holding(&["lean4export"]);
+        assert_eq!(pair_in(&exporter_only, None, None), None);
+
+        let both = a_directory_holding(&["lean", "lean4export"]);
+        let (lean, exporter) = pair_in(&both, None, None).expect("both are there");
+        assert_eq!(lean, both.join("lean"));
+        assert_eq!(exporter, both.join("lean4export"));
+
+        // The short name is accepted as well, because a toolchain that carries
+        // the exporter beside `lean` often renames it.
+        let short = a_directory_holding(&["lean", "leanexport"]);
+        let (_, exporter) = pair_in(&short, None, None).expect("both are there");
+        assert_eq!(exporter, short.join("leanexport"));
+
+        for dir in [lean_only, exporter_only, both, short] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn an_override_stands_in_for_the_binary_it_names() {
+        // A reader who built the exporter themselves keeps the toolchain's
+        // `lean`, so one override must not require the other.
+        let lean_only = a_directory_holding(&["lean"]);
+        let mine = PathBuf::from("/somewhere/of/my/own/lean4export");
+        let (lean, exporter) =
+            pair_in(&lean_only, None, Some(&mine)).expect("the override completes the pair");
+        assert_eq!(lean, lean_only.join("lean"));
+        assert_eq!(exporter, mine);
+        let _ = std::fs::remove_dir_all(lean_only);
+    }
+
+    #[test]
+    fn the_message_says_which_of_the_two_is_missing() {
+        assert!(not_found(None, None).contains("lean4export"));
+        assert!(not_found(Some(Path::new("/bin/lean")), None).contains("lean4export"));
+        // An exporter with no Lean beside it.
+        let no_lean = not_found(None, Some(Path::new("/bin/lean4export")));
+        assert!(no_lean.contains("cannot find lean"), "{no_lean}");
+        // Both named and still no pair: the two are in different places.
+        let neither = not_found(
+            Some(Path::new("/bin/lean")),
+            Some(Path::new("/bin/lean4export")),
+        );
+        assert!(neither.contains("matching pair"), "{neither}");
+    }
+
+    #[test]
+    fn the_version_is_cut_down_to_the_number() {
+        let report = |toolchain: &str| ExportReport {
+            path: PathBuf::from("x.ndjson"),
+            module: "X".to_string(),
+            bytes: 0,
+            seconds: 0.0,
+            toolchain: toolchain.to_string(),
+        };
+        assert_eq!(
+            report("Lean (version 4.35.0-rc3, arm64-apple-darwin24.6.0, commit abc, Release)")
+                .short_version(),
+            "4.35.0-rc3"
+        );
+        // A `lean --version` that this reader has never seen is passed through
+        // rather than mangled.
+        assert_eq!(report("something else").short_version(), "something else");
     }
 
     #[test]

@@ -3,6 +3,25 @@
 These files come from the real Lean. They are the checkpoint that our own
 pipeline must meet. See `docs/ROADMAP.md`.
 
+## How to generate a new fixture, now
+
+`rean export` does every step of this page for you. See
+[chapter 16](../../docs/16-the-front-door.md).
+
+```sh
+# a module, or one declaration and its closure
+cargo run --release -p rean -- export Probe.lean --decl Tree --decl Forest --out fixtures/lean4export
+```
+
+It finds `lean` and `lean4export` in one toolchain, compiles the file, sets
+`LEAN_PATH`, and writes the NDJSON. `REAN_LEAN` and `REAN_LEANEXPORT` name the
+two binaries when the search does not find them.
+
+The rest of this page is the history of the two committed fixtures, and it is
+kept because it records **which** versions made each one and what went wrong on
+the way.
+
+
 ## Nat.add_succ.ndjson
 
 Source: the `examples/` directory of `lean4export`.
@@ -64,15 +83,17 @@ Master pins a different toolchain:
 cat lean-toolchain     # leanprover/lean4:v4.35.0-rc4
 ```
 
-So one of three steps is needed, and none is done yet:
+So one of three steps is needed:
 
 1. Install `elan` and let it fetch the pinned toolchain.
 2. Check out a `lean4export` commit whose `lean-toolchain` matches the devbox
    Lean.
 3. Bump the devbox `lean4` version to match master.
 
-Until then, the committed example file is the ground truth. It is enough for
-chapters 3 and 4 of the roadmap.
+**The first one is done.** `elan` carries `v4.35.0-rc3` with an exporter beside
+it, and `rean export` finds the pair by itself. Chapter 16 reports the prelude
+measured against that toolchain: 59,349 declarations, 345 MB, exported in 16
+seconds.
 
 ## What this fixture does not cover
 

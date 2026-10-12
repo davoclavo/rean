@@ -31,10 +31,20 @@ Lean's kernel.
 | — the elaborator | `Syntax` | `Expr` | missing |
 | **B** the kernel | `Expr` | yes or no | works. Every reduction rule, plus strict positivity. |
 | **B** the importer | `.ndjson` | `Environment` | works |
+| **B** the front door | `.lean` text | `.ndjson` | works, **by calling the real Lean**. See chapter 16. |
 
-The two islands still do not touch. Nothing in a `.lean` file reaches the
-kernel. But island B now reads real Lean terms, so it is testable on its own.
-That is what the ground truth bought.
+The two islands still do not touch. Nothing in a `.lean` file reaches the kernel
+**through our own stages**. But island B now reads real Lean terms, so it is
+testable on its own, and the front door makes that one command:
+
+```sh
+rean check Demo.lean --decl twice_two     # 39 declarations, all of them checked
+rean check prelude                        # 59,349 declarations
+```
+
+Read that row carefully. The front door is Lean's elaborator, not ours. It
+closes the **ergonomic** gap, not the pipeline gap, and the usage text says so,
+because a reader must not mistake it for a parser.
 
 ## The checkpoint ladder
 
@@ -123,6 +133,10 @@ ours. Only the library comes from outside.
 | 7 | metavariables, instance search, tactics | real proofs from real text |
 | 8 | the exporter | closes the loop. Short, by then. |
 | later | LCNF and a backend | a program that runs |
+
+Chapter 16 sits outside that table on purpose. It adds no rule and no stage. It
+makes the kernel **reachable**, and it turns the one answer a report cannot
+carry — a stack overflow — into a verdict.
 
 Note where the exporter sits. It is last and it is small, because by chapter 8
 the reader in chapter 3 will have pinned down every detail of the format.
@@ -318,6 +332,21 @@ code you measured it on.
 | 20,000,000, the default | 54,308 | 115 | 252 s |
 | 800,000,000 | **57,264** | 68 | 2,637 s |
 
+Those two rows are Lean 4.27 and the numbers that chapters 13 to 15 measured.
+Chapter 16 re-measured against Lean **4.35.0-rc3**, which is a different and
+larger prelude, and the first row of the new table is the one to compare
+against:
+
+| settings, Lean 4.35.0-rc3 | checked of 59,349 | failed | blocked | time |
+|---|---|---|---|---|
+| default | 55,754 | 74 | 3,521 | 209 s |
+
+And one row of the old table was never a timeout. At a hundred times the default
+budget the run **crashed**, after 16,583 declarations, on a 4 GB stack. Chapter
+16 section 16.4 has it. The kernel now measures the stack it has used and
+reports `OutOfStack`, so a large budget is a setting and not a way to kill the
+process.
+
 At the larger budget that is **99.57%**, and the 68 that remain are one family:
 `Int32`, `Int64`, `ISize`. Chapter 15 asks **nine** questions of them. Eight answers changed nothing,
 including the budget at two hundred times the default and one of the two
@@ -369,20 +398,28 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   54308 of 57512 of the Lean prelude, in 252 s
+          and                   55754 of 59349 of the Lean prelude, in 209 s
+          and                   59199 of 59349 at REAN_FUEL=2000000000
+                                                 REAN_STACK=8192, in 36 min
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     429
+tests     467
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name
+crashes   none, at any setting
 ```
+
+99.75%, and the 45 failures that remain are one family of signed integer
+lemmas. Forty of them want more stack and five want more budget. **No rule is
+missing**, and chapter 16, section 16.7, is the correction of the sentence that
+chapter 15 ended on.
 
 The first number cannot grow without a bigger fixture, and the ordering of a
 mutual recursor is still **unvalidated against real Lean**. Getting a mutual
-fixture is the highest value item left. See
-`fixtures/lean4export/PROVENANCE.md`.
+fixture is the highest value item left, and `rean export` now makes one in a
+command. See `fixtures/lean4export/PROVENANCE.md`.
 
 ## Three kinds of oracle
 
