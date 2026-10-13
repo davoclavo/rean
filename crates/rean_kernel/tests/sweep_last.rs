@@ -168,7 +168,22 @@ fn a_later_field_can_mention_an_earlier_one() {
     env.add(Declaration::Inductive(InductiveVal {
         name: Name::from_dotted("Sig"),
         level_params: vec![Name::from_dotted("u")],
-        ty: Expr::type_(1),
+        // `(A : Type) → (B : A → Type) → Type 1`, and the two binders are the
+        // two parameters. The first version of this fixture said `Type 1` with
+        // no binders at all, which no exporter would ever write: a type that
+        // claims two parameters must have somewhere to put them, and chapter
+        // 20 turned that into a rule of its own. `TypeChecker::infer_proj`
+        // asks what universe a `Sig A B` lives in, and a type with no binders
+        // cannot answer.
+        ty: Expr::forall(
+            "A",
+            Expr::type_(0),
+            Expr::forall(
+                "B",
+                Expr::arrow(Expr::bvar(0), Expr::type_(0)),
+                Expr::type_(1),
+            ),
+        ),
         num_params: 2,
         num_indices: 0,
         all: vec![Name::from_dotted("Sig")],

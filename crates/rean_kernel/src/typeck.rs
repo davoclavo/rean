@@ -247,6 +247,12 @@ pub enum TypeError {
     NotAStructure { term: Box<Expr>, got: Box<Expr> },
     /// A projection index is past the last field.
     BadProjection { structure: Name, index: u32 },
+    /// A projection read data out of a proof. See [`TypeChecker::infer_proj`].
+    ProofWithData {
+        structure: Name,
+        index: u32,
+        field_level: String,
+    },
     /// A term has the wrong type for its place.
     TypeMismatch {
         term: Box<Expr>,
@@ -279,6 +285,18 @@ pub enum TypeError {
     DuplicateDeclaration(Name),
     /// A safe declaration uses one that is not safe.
     UnsafeDependency { declaration: Name, dependency: Name },
+    /// A declaration refers to itself. See [`TypeChecker::check_declaration`].
+    SelfReference(Name),
+    /// A theorem's statement is not a proposition.
+    NotAProposition { declaration: Name, level: String },
+    /// An inductive declaration does not describe a type.
+    BadInductive { inductive: Name, reason: String },
+    /// A constructor claims to belong to a type that does not own it.
+    OrphanConstructor {
+        ctor: Name,
+        inductive: Name,
+        reason: String,
+    },
     /// A constructor field lives in a larger universe than its inductive type.
     ///
     /// The payload is boxed, for the reason this enum's own comment gives: it
@@ -397,6 +415,35 @@ impl TypeError {
                      so it was not checked"
                 )
             }
+            TypeError::SelfReference(name) => format!(
+                "`{name}` refers to itself. The kernel checks a declaration \
+                 against the ones before it, and a declaration that is its own \
+                 proof proves nothing"
+            ),
+            TypeError::NotAProposition { declaration, level } => format!(
+                "the statement of the theorem `{declaration}` lives in \
+                 `Sort {level}` and not in `Prop`, so it is not a statement"
+            ),
+            TypeError::BadInductive { inductive, reason } => {
+                format!("the inductive declaration `{inductive}` is not acceptable: {reason}")
+            }
+            TypeError::OrphanConstructor {
+                ctor,
+                inductive,
+                reason,
+            } => {
+                format!("the constructor `{ctor}` claims to belong to `{inductive}`, and {reason}")
+            }
+            TypeError::ProofWithData {
+                structure,
+                index,
+                field_level,
+            } => format!(
+                "field {index} of `{structure}` lives in `Sort {field_level}` and \
+                 `{structure}` is a `Prop`, so that field is data inside a \
+                 proof. Any two proofs are equal, so it is not a thing the \
+                 kernel may read"
+            ),
             TypeError::OutOfStack(budget) => format!(
                 "the kernel used the {} MiB of stack it is allowed, so it was \
                  not checked. REAN_STACK raises it",
@@ -483,6 +530,13 @@ pub struct TypeChecker<'e> {
     /// make sense together. The export format puts a whole mutual group on one
     /// line for exactly this reason.
     pending: Vec<Declaration>,
+    /// The declaration under check, when it is one that may not see itself.
+    ///
+    /// It is held only to tell two failures apart. A constant that is missing
+    /// because the file never declared it and a constant that is missing
+    /// because it is the declaration we are checking are the same event in
+    /// [`Self::lookup`], and they are very different messages.
+    checking: Option<Name>,
     /// What is left of the work budget for the declaration under check.
     fuel: u64,
     /// The budget that each declaration starts with. See [`FUEL`].
@@ -614,6 +668,7 @@ impl<'e> TypeChecker<'e> {
             env,
             lctx: LocalContext::new(),
             pending: Vec::new(),
+            checking: None,
             fuel: FUEL,
             budget: FUEL,
             whnf_cache: KeyMap::default(),
@@ -1361,6 +1416,21 @@ impl<'e> TypeChecker<'e> {
         if type_args.len() < num_params {
             return Ok(None);
         }
+        // **Not for a `Prop`.** The same rule, and the same reason, as the
+        // guard in `Self::struct_eta_eq`: the fields this is about to project
+        // may be data inside a proof, and `Self::field_must_be_a_proof`
+        // refuses those. `Exists.rec` of an opaque proof is the case, and it
+        // does not reduce in Lean either.
+        //
+        // A reduction rule **declines, it does not error**. So a type that has
+        // no sort at all means the rule does not fire, and a limit is the one
+        // answer that still has to travel: it does not mean "no".
+        match self.infer_sort(&major_type) {
+            Ok(level) if level.normalize().is_zero() => return Ok(None),
+            Ok(_) => {}
+            Err(err) if err.is_a_limit() => return Err(err),
+            Err(_) => return Ok(None),
+        }
         let mut out = Expr::Const {
             name: ctor_name,
             levels: levels.clone(),
@@ -1909,6 +1979,24 @@ impl<'e> TypeChecker<'e> {
             Expr::Const { name, .. } if *name == ctor.induct => {}
             _ => return Ok(false),
         }
+        // **Not for a `Prop`.** Proof irrelevance already makes any two proofs
+        // of one proposition equal, so this rule has nothing to add there, and
+        // it does real harm: the projections it is about to build are the ones
+        // `Self::field_must_be_a_proof` refuses.
+        //
+        // `Exists` is the case that found this. Four theorems of `Std` compare
+        // a proof of `∃ x, p x` against `Exists.intro w h`, this rule built
+        // `Exists.0` of the other side, and the new rule refused it. The error
+        // then left `is_def_eq` altogether and failed the declaration, which is
+        // what this function's own guard above is written to prevent: **a
+        // comparison helper must decline, never error.** One rule away from
+        // the guard, by a rule added a chapter later.
+        match self.infer_sort(&whole_type) {
+            Ok(level) if level.normalize().is_zero() => return Ok(false),
+            Ok(_) => {}
+            Err(err) if err.is_a_limit() => return Err(err),
+            Err(_) => return Ok(false),
+        }
         let args: Vec<Expr> = args.into_iter().cloned().collect();
         for index in 0..ctor.num_fields {
             let field = &args[(ctor.num_params + index) as usize];
@@ -2043,9 +2131,13 @@ impl<'e> TypeChecker<'e> {
 
             // The environment gives the type, after the universe arguments go in.
             Expr::Const { name, levels } => {
-                let decl = self
-                    .lookup(name)
-                    .ok_or_else(|| TypeError::UnknownConstant(name.clone()))?;
+                let decl = self.lookup(name).ok_or_else(|| {
+                    if self.checking.as_ref() == Some(name) {
+                        TypeError::SelfReference(name.clone())
+                    } else {
+                        TypeError::UnknownConstant(name.clone())
+                    }
+                })?;
                 let params = decl.level_params();
                 if params.len() != levels.len() {
                     return Err(TypeError::LevelArity {
@@ -2189,14 +2281,38 @@ impl<'e> TypeChecker<'e> {
             };
             ty = body.instantiate(param);
         }
+        // Is the structure a `Prop`? Asked once, before the walk, because the
+        // walk needs the answer at every step. See `Self::field_must_be_a_proof`.
+        let a_proof = self.infer_sort(&value_type)?.normalize().is_zero();
+
         // Walk past each earlier field.
         for index in 0..proj.index {
-            let Expr::Forall { body, .. } = self.whnf(&ty)? else {
+            let Expr::Forall {
+                binder_type, body, ..
+            } = self.whnf(&ty)?
+            else {
                 return Err(TypeError::BadProjection {
                     structure: proj.structure.clone(),
                     index: proj.index,
                 });
             };
+            // Does the rest of the telescope mention this field?
+            //
+            // `Sub::loose` is the count this kernel stores on every node, so
+            // the question costs one field read. If the answer is no, there is
+            // nothing to substitute, and the `Expr::Proj` below is a node that
+            // nobody would ever read.
+            if body.loose() == 0 {
+                ty = body.to_expr();
+                continue;
+            }
+            // The rest of the telescope does mention it, so the type we are
+            // about to return will hold `proj.index` of a **data** field if
+            // this field is data. See `Self::field_must_be_a_proof`, and the
+            // six arena tests that this one line separates.
+            if a_proof {
+                self.field_must_be_a_proof(proj, index, &binder_type.to_expr())?;
+            }
             let earlier = Expr::Proj(Proj {
                 structure: proj.structure.clone(),
                 index,
@@ -2210,7 +2326,98 @@ impl<'e> TypeChecker<'e> {
                 index: proj.index,
             });
         };
-        Ok(binder_type.to_expr())
+        let field_type = binder_type.to_expr();
+        if a_proof {
+            self.field_must_be_a_proof(proj, proj.index, &field_type)?;
+        }
+        Ok(field_type)
+    }
+
+    /// Refuses a field of a `Prop` that is not itself a proof.
+    ///
+    /// **A proof has no fields.** `Self::structure_params` asks three questions
+    /// and Lean asks a fourth: if the structure is a `Prop`, the field must be
+    /// a `Prop` too.
+    ///
+    /// Proof irrelevance makes any two proofs of one proposition equal. So if a
+    /// `Prop` could carry **data**, the two proofs would be equal while their
+    /// data differed, and that is `False` in four lines. The arena has it as
+    /// `bad/bugs/proj-of-imax-prop`:
+    ///
+    /// ```text
+    /// inductive ImaxProp : Prop where mk (b : Bool)
+    /// def  f (p : ImaxProp) : Bool := p.1          -- we accepted this
+    /// theorem irrel : mk false = mk true := rfl    -- proof irrelevance
+    /// theorem bad : False := by rewrite irrel; ... -- and then False
+    /// ```
+    ///
+    /// `Exists` is the same shape and the same hazard: one constructor, no
+    /// index, not recursive, and a field that is data. Lean stops both here
+    /// rather than by naming them.
+    ///
+    /// `And` and `Iff` are **not** stopped, and that is the point of asking
+    /// about the field rather than about the structure. Their fields are
+    /// proofs, so irrelevance applies to the fields as well and `h.1` is sound.
+    ///
+    /// # It is asked of the fields on the way, and not only of the last one
+    ///
+    /// The arena spends six tests, `tutorial/089` to `tutorial/094`, on one
+    /// structure. It is a `Prop`, and its six fields alternate: a proof, data,
+    /// a proof, data, a proof **about** the second data field, and a last
+    /// proof.
+    ///
+    /// | field | its type | the arena says |
+    /// |---|---|---|
+    /// | 0 | a proof | accept |
+    /// | 1 | data | refuse |
+    /// | 2 | a proof | **accept** |
+    /// | 3 | data | refuse |
+    /// | 4 | a proof about field 3 | refuse |
+    /// | 5 | a proof | **refuse** |
+    ///
+    /// Fields 2 and 5 have the same type, and one is good and one is bad. The
+    /// rule that separates them is not about the field asked for. It is about
+    /// the fields the walk **steps over**: to reach field 5 the kernel must put
+    /// `x.3` into the type of field 4, and `x.3` is a projection it would
+    /// refuse. To reach field 2 it steps over fields 0 and 1 and neither is
+    /// mentioned by anything later, so it substitutes nothing.
+    ///
+    /// So the question is asked where the substitution happens, and `Sub::loose`
+    /// decides whether it happens at all.
+    ///
+    /// # The question is definite
+    ///
+    /// Not "can this be a `Prop`", which is what `check_elimination_universe`
+    /// had to ask one rule away. Here a careful question would refuse real
+    /// code: `PProd.{u, v} : Sort (max u v)` can be a `Prop`, its fields are
+    /// `Sort u` and `Sort v`, and the prelude projects one of them **millions**
+    /// of times inside `Nat.below`.
+    ///
+    /// Definite is safe here because of the universe constraint of chapter 7:
+    /// an inductive type's universe bounds its fields. A structure whose level
+    /// really is zero has fields whose levels are zero, and one whose level is
+    /// a parameter becomes a `Prop` only where its fields do too. The attack
+    /// needs a `Prop` with a field that is not, and the constraint forbids that
+    /// unless the declaration lied, which is what `Self::check_field_universes`
+    /// is for.
+    ///
+    /// The `imax` in the arena's name for the first of these tests is about
+    /// normalising the level before asking, not about parameters.
+    fn field_must_be_a_proof(
+        &mut self,
+        proj: &Proj,
+        index: u32,
+        field_type: &Expr,
+    ) -> TypeResult<()> {
+        let field_level = self.infer_sort(field_type)?;
+        if field_level.normalize().is_zero() {
+            return Ok(());
+        }
+        Err(TypeError::ProofWithData {
+            structure: proj.structure.clone(),
+            index,
+            field_level: field_level.to_string(),
+        })
     }
 
     /// Returns the level of `e`, and fails if `e` is not a type.
@@ -2259,7 +2466,12 @@ impl<'e> TypeChecker<'e> {
         } else {
             positivity::check_constructor
         };
-        check(&ctor.ty, ctor.num_params, ctor.num_fields, &names).map_err(|reason| {
+        // The check reads the shape of the type, so it must read the shape the
+        // type **reduces to**. See `Self::reduced_telescope`.
+        let reduced = self
+            .reduced_telescope(&ctor.ty, (ctor.num_params + ctor.num_fields) as usize)?
+            .unwrap_or_else(|| ctor.ty.clone());
+        check(&reduced, ctor.num_params, ctor.num_fields, &names).map_err(|reason| {
             TypeError::BadConstructor {
                 ctor: ctor.name.clone(),
                 inductive: ctor.induct.clone(),
@@ -2267,6 +2479,119 @@ impl<'e> TypeChecker<'e> {
             }
         })?;
         self.check_field_universes(ctor)
+    }
+
+    /// Rebuilds the first `count` binders of a telescope with every binder type
+    /// reduced. Returns `None` when there are fewer binders than that.
+    ///
+    /// # Why a syntactic check needs this
+    ///
+    /// `crate::positivity` reads the shape of a constructor type and asks where
+    /// the inductive type occurs. A definition can hide that shape, and the
+    /// arena spends three tests on it. `good/tutorial/055_reduceCtorParam.mk`
+    /// is the smallest:
+    ///
+    /// ```text
+    /// def constType (a b : Type) : Type := a
+    /// inductive I (α : Type) where
+    ///   | mk (x : constType (I α) (I α))
+    /// ```
+    ///
+    /// The field type reduces to `I α`, which is a plain recursive occurrence
+    /// and exactly what `I.mk` is allowed to hold. Unreduced its head is
+    /// `constType`, a function this checker knows nothing about, and an
+    /// occurrence in the argument of such a function is refused. So we refused
+    /// a declaration that Lean built.
+    ///
+    /// That is the false rejection. The **other** direction is the reason this
+    /// is not only a matter of politeness:
+    ///
+    /// ```text
+    /// def Bad (X : Type) : Type := (I X) → Unit
+    /// inductive I (α : Type) where
+    ///   | mk (x : Bad α)
+    /// ```
+    ///
+    /// `Bad α` holds no occurrence of `I` at all, so the old check had nothing
+    /// to refuse, and `I` occurs to the left of an arrow in the reduced form.
+    /// A syntactic check that does not reduce can be fooled by **hiding** the
+    /// occurrence, not only by dressing it up.
+    ///
+    /// `Self::reduced_type` does the reducing, and it follows every binder of
+    /// a field type, because the arena's next test hides the occurrence one
+    /// binder deeper: `119_reduceCtorParamRefl.mk` has the field type
+    /// `(x : α) → constType (I α) (I α)`. It does **not** follow the arguments
+    /// of an application, so a negative occurrence inside `List (Bad α)` is
+    /// still refused rather than reduced. This stays a check that may say no
+    /// too often and never yes too often.
+    fn reduced_telescope(&mut self, ty: &Expr, count: usize) -> TypeResult<Option<Expr>> {
+        let mark = self.lctx.len();
+        let outcome = self.reduced_telescope_inner(ty, count);
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    /// Reduces a type, and every binder type and body inside it.
+    ///
+    /// See `Self::reduced_telescope`, which is the only caller and holds the
+    /// reason.
+    fn reduced_type(&mut self, ty: &Expr) -> TypeResult<Expr> {
+        let Expr::Forall {
+            binder_name,
+            binder_type,
+            body,
+            info,
+        } = self.whnf(ty)?
+        else {
+            // `whnf` already returns the reduced form, and there is no binder
+            // to go under.
+            return self.whnf(ty);
+        };
+        let domain = self.reduced_type(&binder_type.to_expr())?;
+        let mark = self.lctx.len();
+        let id = self.lctx.push(binder_name.clone(), domain.clone());
+        let opened = body.instantiate(&Expr::FVar(id));
+        let outcome = self.reduced_type(&opened);
+        self.truncate_locals(mark);
+        let codomain = outcome?;
+        Ok(Expr::Forall {
+            binder_name,
+            binder_type: Sub::new(domain),
+            body: Sub::new(codomain.abstract_fvar(id)),
+            info,
+        })
+    }
+
+    fn reduced_telescope_inner(&mut self, ty: &Expr, count: usize) -> TypeResult<Option<Expr>> {
+        let mut opened: Vec<(Name, Expr, FVarId, BinderInfo)> = Vec::new();
+        let mut rest = ty.clone();
+        for _ in 0..count {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                info,
+            } = self.whnf(&rest)?
+            else {
+                // Too few binders. The caller's own check reports that, and in
+                // its own words.
+                return Ok(None);
+            };
+            let reduced = self.reduced_type(&binder_type.to_expr())?;
+            let id = self.lctx.push(binder_name.clone(), reduced.clone());
+            rest = body.instantiate(&Expr::FVar(id));
+            opened.push((binder_name, reduced, id, info));
+        }
+        let mut out = rest;
+        for (binder_name, reduced, id, info) in opened.into_iter().rev() {
+            out = Expr::Forall {
+                binder_name,
+                binder_type: Sub::new(reduced),
+                body: Sub::new(out.abstract_fvar(id)),
+                info,
+            };
+        }
+        Ok(Some(out))
     }
 
     /// Checks that every field of a constructor fits inside the universe of
@@ -2517,6 +2842,37 @@ impl<'e> TypeChecker<'e> {
                 only.clone()
             }
         };
+
+        // **A recursor must be called `I.rec`.**
+        //
+        // Lean's own kernel does not read a recursor from a file at all. It
+        // **builds** one from the inductive declaration, under that name, and
+        // a file that ships a recursor of its own is shipping a rule. This
+        // kernel reads it and checks it, which is the harder half, and the name
+        // is the other half: it is what stops a second rule for one type.
+        //
+        // The arena has both halves of the attack.
+        //
+        // - `tutorial/136_misnamed_rec_user` declares `misnamed_rec.not_rec`
+        //   and then uses it. The checks above pass, because it is a correct
+        //   recursor. It is simply not the one Lean would have made, and in
+        //   Lean's environment `misnamed_rec.rec` would still be free.
+        // - `tutorial/137_dup_rec_def2` takes the name first: a definition
+        //   called `dup_rec_def2.rec`, and then the inductive, whose recursor
+        //   is pushed aside to `not_rec` to hide the clash. With this rule the
+        //   recursor is refused, and without it the definition sits where the
+        //   ι rule's name should be.
+        //
+        // It is asked after the nested bail-out above, and that is deliberate.
+        // A nested declaration names its recursors `Rose.rec_1` and up, for the
+        // auxiliary types that Lean compiles the nesting into, and those are
+        // exactly the declarations that section 7.5 says this kernel trusts.
+        if rec.name != target.name.str("rec") {
+            return Err(bad(format!(
+                "it takes `{}` apart, so it must be called `{}.rec`",
+                target.name, target.name
+            )));
+        }
 
         if rec.num_params != target.num_params || rec.num_indices != target.num_indices {
             return Err(bad(format!(
@@ -2932,19 +3288,30 @@ impl<'e> TypeChecker<'e> {
         motives: &[Expr],
     ) -> TypeResult<Option<Expr>> {
         // Strip the field's own binders.
-        let mut ty = field_type.clone();
+        //
+        // **Keep the reduced form.** The first version of this loop asked
+        // `whnf` whether the type was a `Forall` and then went on with the
+        // type it had before. The two differ exactly when a definition stands
+        // where a type should, and the arena has three tests on that:
+        // `good/tutorial/055_reduceCtorParam.mk` declares a field of type
+        // `constType (I α) (I α)`, where `constType a b := a`. Reduced, the
+        // field **is** the inductive type, so the field is recursive and the
+        // premise needs an induction hypothesis. Unreduced, its head is
+        // `constType`, the field looks like data, and we refused the recursor
+        // that Lean built.
+        let mut ty = self.whnf(field_type)?;
         let mut binders: Vec<(Name, Expr, FVarId)> = Vec::new();
         while let Expr::Forall {
             binder_name,
             binder_type,
             body,
             ..
-        } = self.whnf(&ty)?
+        } = ty
         {
             let inner = binder_type.to_expr();
             let id = self.lctx.push(binder_name.clone(), inner.clone());
             binders.push((binder_name, inner, id));
-            ty = body.instantiate(&Expr::FVar(id));
+            ty = self.whnf(&body.instantiate(&Expr::FVar(id)))?;
         }
 
         // Is the result one of the types in the group? A mutual group has one
@@ -3008,7 +3375,16 @@ impl<'e> TypeChecker<'e> {
         let Expr::Sort(level) = ind_type else {
             return Ok(());
         };
-        if !level.normalize().is_zero() {
+        // **"Can this be a Prop?", not "is this a Prop?"**
+        //
+        // `Sort u` is not `Prop` and it becomes one when somebody writes
+        // `u := 0`. Asking `is_zero` of a universe parameter gets `false` and
+        // lets through everything this rule exists to stop: the arena's
+        // `large-elim-param` declares `MyBool.{u} : Sort u` with two
+        // constructors, takes `u := 0` to get a `Prop` with two elements,
+        // eliminates it into `Type` with `MyBool.rec.{1, 0}`, and proves
+        // `False` eight lines later. We accepted it.
+        if level.normalize().is_never_zero() {
             return Ok(());
         }
         if self.is_subsingleton(ind)? {
@@ -3026,6 +3402,8 @@ impl<'e> TypeChecker<'e> {
         while let Expr::Forall { body, .. } = self.whnf(&result)? {
             result = body.to_expr();
         }
+        // And the same question of the motive, from the other side: a motive
+        // that lands in `Sort v` is only safe when `v` **must** be zero.
         if let Expr::Sort(motive_level) = result
             && !motive_level.normalize().is_zero()
         {
@@ -3120,10 +3498,47 @@ impl<'e> TypeChecker<'e> {
             .all(|id| indices.iter().any(|index| mentions_fvar(index, *id))))
     }
 
-    /// Checks one declaration: its type is a type, and its value has that type.    /// Checks one declaration: its type is a type, and its value has that type.
+    /// Checks one declaration: its type is a type, and its value has that type.
     ///
     /// This is the entry point of the level 1 checkpoint in `docs/ROADMAP.md`.
+    ///
+    /// # A declaration may not see itself
+    ///
+    /// [`Self::with_group`] makes a mutual group visible to its own members,
+    /// because an inductive type, its constructors and its recursor arrive on
+    /// one line and speak about each other. A definition, a theorem and an
+    /// opaque definition get a group of one, which is **themselves**, and the
+    /// arena has the four line attack that this allows:
+    ///
+    /// ```text
+    /// theorem selfProof : ∀ (p : Prop), p := selfProof
+    /// ```
+    ///
+    /// So those three are hidden from the group while they are checked. Hiding,
+    /// and not a test for a cycle, because hiding costs nothing: the name is
+    /// simply not there when [`Self::lookup`] asks, and Lean's own kernel
+    /// reports the same thing for the same reason, an unknown constant.
     pub fn check_declaration(&mut self, decl: &Declaration) -> TypeResult<()> {
+        let hidden = match decl {
+            Declaration::Definition(_) | Declaration::Theorem(_) | Declaration::Opaque(_) => self
+                .pending
+                .iter()
+                .position(|other| other.name() == decl.name())
+                .map(|at| self.pending.remove(at)),
+            _ => None,
+        };
+        if hidden.is_some() {
+            self.checking = Some(decl.name().clone());
+        }
+        let outcome = self.check_declaration_inner(decl);
+        self.checking = None;
+        if let Some(back) = hidden {
+            self.pending.push(back);
+        }
+        outcome
+    }
+
+    fn check_declaration_inner(&mut self, decl: &Declaration) -> TypeResult<()> {
         // Every declaration gets the whole budget, so one heavy neighbour does
         // not starve the rest of the file.
         self.fuel = self.budget;
@@ -3139,8 +3554,13 @@ impl<'e> TypeChecker<'e> {
         // A constructor and a recursor are where a user hands the kernel a new
         // rule, so they are where the kernel must push back.
         match decl {
-            Declaration::Constructor(ctor) => self.check_positivity(ctor)?,
+            Declaration::Inductive(ind) => self.check_inductive(ind)?,
+            Declaration::Constructor(ctor) => {
+                self.check_constructor_owner(ctor)?;
+                self.check_positivity(ctor)?;
+            }
             Declaration::Recursor(rec) => self.check_recursor(rec)?,
+            Declaration::Theorem(thm) => self.check_proposition(thm)?,
             _ => {}
         }
         if let Some(value) = declaration_value(decl) {
@@ -3148,6 +3568,142 @@ impl<'e> TypeChecker<'e> {
             if !self.is_def_eq(&got, decl.ty())? {
                 return Err(TypeError::mismatch(value, decl.ty().clone(), got));
             }
+        }
+        Ok(())
+    }
+
+    /// Checks that a theorem states a proposition.
+    ///
+    /// A theorem is the one kind of declaration whose **value nobody reads**.
+    /// Proof irrelevance makes any two proofs of one proposition equal, and
+    /// `rean show` never prints a proof term. So a theorem whose type is not a
+    /// `Prop` is a definition that hides its value behind a rule that does not
+    /// apply to it, and the arena spends `tutorial/012_nonPropThm` on it:
+    ///
+    /// ```text
+    /// theorem nonPropThm : Prop := ∀ (x : Prop), x
+    /// ```
+    ///
+    /// That term is a perfectly good `Prop`, and `Prop` is a perfectly good
+    /// type. It is the pair that is wrong: the statement of a theorem must be
+    /// a statement, which is to say it must live in `Sort 0`.
+    pub fn check_proposition(&mut self, thm: &crate::TheoremVal) -> TypeResult<()> {
+        let level = self.infer_sort(&thm.ty)?;
+        if level.normalize().is_zero() {
+            return Ok(());
+        }
+        Err(TypeError::NotAProposition {
+            declaration: thm.name.clone(),
+            level: level.to_string(),
+        })
+    }
+
+    /// Checks that an inductive declaration describes a type.
+    ///
+    /// Three questions, and the arena asks each one of them.
+    ///
+    /// 1. **No constructor name twice.** `tutorial/139_DupConCon` lists one
+    ///    name as both of its two constructors. The reader keeps one
+    ///    declaration per name, so the duplicate is invisible by the time the
+    ///    kernel sees a constructor, and the count of constructors is what
+    ///    decides whether a type is a subsingleton and whether it may
+    ///    eliminate into `Type`. A type that reports two and has one is a lie
+    ///    in both directions.
+    /// 2. **Enough binders.** `tutorial/049_inductTooFewParams` claims two
+    ///    parameters and has one binder. Every rule in this kernel that counts
+    ///    arguments, from ι to the positivity check, reads those two numbers.
+    /// 3. **It ends in a `Sort`.** `tutorial/047_inductBadNonSort2` ends in an
+    ///    axiom of type `Sort 1`, which is a term and not a universe. Then the
+    ///    type has no universe, and the field check of
+    ///    `Self::check_field_universes` has no limit to compare against.
+    pub fn check_inductive(&mut self, ind: &InductiveVal) -> TypeResult<()> {
+        // The locals this opens must go, by whichever door it leaves. That is
+        // the pattern of `Self::derive_minor_premise` and of
+        // `Self::reduced_telescope`, and the reason is the `?` below: a limit
+        // inside `whnf` leaves without reaching the end of the function.
+        let mark = self.lctx.len();
+        let outcome = self.check_inductive_inner(ind);
+        self.truncate_locals(mark);
+        outcome
+    }
+
+    fn check_inductive_inner(&mut self, ind: &InductiveVal) -> TypeResult<()> {
+        let bad = |reason: String| TypeError::BadInductive {
+            inductive: ind.name.clone(),
+            reason,
+        };
+        for (at, ctor) in ind.ctors.iter().enumerate() {
+            if ind.ctors[..at].contains(ctor) {
+                return Err(bad(format!("it lists the constructor `{ctor}` twice")));
+            }
+        }
+        let wanted = (ind.num_params + ind.num_indices) as usize;
+        let mut ty = ind.ty.clone();
+        for seen in 0..wanted {
+            let Expr::Forall {
+                binder_name,
+                binder_type,
+                body,
+                ..
+            } = self.whnf(&ty)?
+            else {
+                return Err(bad(format!(
+                    "it claims {} parameter(s) and {} index(es), and its type has {seen}",
+                    ind.num_params, ind.num_indices
+                )));
+            };
+            let id = self.lctx.push(binder_name, binder_type.to_expr());
+            ty = body.instantiate(&Expr::FVar(id));
+        }
+        let conclusion = self.whnf(&ty)?;
+        if matches!(conclusion, Expr::Sort(_)) {
+            return Ok(());
+        }
+        Err(bad(format!(
+            "after its {wanted} parameter(s) and index(es) its type does not \
+             end in a `Sort`, so the type it declares is in no universe"
+        )))
+    }
+
+    /// Checks that a constructor belongs to the type it names.
+    ///
+    /// A constructor is a rule the kernel cannot derive and must believe, and
+    /// what ties it to the type it builds is **this declaration**. The arena
+    /// has the attack as `other/orphan-ctor`, in nine lines:
+    ///
+    /// ```text
+    /// inductive False : Prop            -- declared with no constructors
+    /// ctor rogue : False, of Orphan     -- a constructor of a type that is
+    ///                                   -- not in the file at all
+    /// theorem inconsistent : False := rogue
+    /// ```
+    ///
+    /// Nothing in the term rules refuses that. `rogue` has the type the file
+    /// gives it, and the type is `False`. The only place to catch it is here,
+    /// where the constructor names the type it claims to come from, and the
+    /// type is asked whether it agrees.
+    pub fn check_constructor_owner(&mut self, ctor: &ConstructorVal) -> TypeResult<()> {
+        let bad = |reason: &str| TypeError::OrphanConstructor {
+            ctor: ctor.name.clone(),
+            inductive: ctor.induct.clone(),
+            reason: reason.to_string(),
+        };
+        let Some(Declaration::Inductive(owner)) = self.lookup(&ctor.induct) else {
+            return Err(bad("there is no such inductive type in this file"));
+        };
+        if owner.ctors.get(ctor.cidx as usize) != Some(&ctor.name) {
+            return Err(bad("that type does not list it under that number"));
+        }
+        if owner.num_params != ctor.num_params {
+            let reason = format!(
+                "that type has {} parameter(s) and this claims {}",
+                owner.num_params, ctor.num_params
+            );
+            return Err(TypeError::OrphanConstructor {
+                ctor: ctor.name.clone(),
+                inductive: ctor.induct.clone(),
+                reason,
+            });
         }
         Ok(())
     }

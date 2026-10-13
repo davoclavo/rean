@@ -1284,3 +1284,240 @@ fn the_kernel_computes_on_a_string_literal() {
     let open = Expr::const_("String.length", vec![]).app(Expr::prop());
     assert!(tc.whnf(&open).unwrap().alpha_eq(&open));
 }
+
+// --- chapter 20: the arena ----------------------------------------------
+//
+// Every test below is a declaration that this checker **accepted** until the
+// Lean Kernel Arena said otherwise. Six of the fourteen it caught are here;
+// the rest are in `tests/limits.rs` and in the arena harness itself.
+
+/// `inductive Proof : Prop` with one constructor that carries `n` fields.
+fn prop_structure(fields: &[Expr]) -> Environment {
+    let mut env = Environment::new();
+    env.add(inductive("U", Expr::type_(0), &["U.u"]));
+    env.add(constructor("U.u", "U", u()));
+    env.add(inductive("Proof", Expr::prop(), &["Proof.mk"]));
+    let mut ty = Expr::const_("Proof", vec![]);
+    for field in fields.iter().rev() {
+        ty = Expr::forall("f", field.clone(), ty);
+    }
+    env.add(Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("Proof.mk"),
+        level_params: Vec::new(),
+        ty,
+        induct: Name::from_dotted("Proof"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: fields.len() as u32,
+        is_unsafe: false,
+    }));
+    env
+}
+
+/// `proj Proof index p`, where `p` is a free variable of type `Proof`.
+fn project(tc: &mut TypeChecker, index: u32) -> Result<Expr, TypeError> {
+    let p = Expr::FVar(tc.push_local("p", Expr::const_("Proof", vec![])));
+    tc.infer_type(&Expr::Proj(Proj {
+        structure: Name::from_dotted("Proof"),
+        index,
+        value: Sub::new(p),
+    }))
+}
+
+#[test]
+fn a_proof_may_not_be_asked_for_its_data() {
+    // The lie, which is `bad/bugs/proj-of-imax-prop` of the arena. A `Prop`
+    // with a data field, and a projection that reads the field out.
+    //
+    // Proof irrelevance makes any two proofs of `Proof` equal, so the two
+    // values of the field would be equal as well, and that is `False` in four
+    // more lines.
+    let env = prop_structure(&[u()]);
+    let mut tc = TypeChecker::new(&env);
+    assert!(matches!(
+        project(&mut tc, 0),
+        Err(TypeError::ProofWithData { index: 0, .. })
+    ));
+}
+
+#[test]
+fn a_proof_may_be_asked_for_its_proofs() {
+    // The same shape with a field that is itself a `Prop`. `And.left` is this
+    // test, and refusing it would refuse the Lean prelude.
+    let env = prop_structure(&[Expr::const_("Proof", vec![])]);
+    let mut tc = TypeChecker::new(&env);
+    assert!(project(&mut tc, 0).is_ok());
+}
+
+#[test]
+fn the_fields_on_the_way_are_asked_as_well() {
+    // The pair the arena spends six tests on, `tutorial/089` to `094`.
+    //
+    // Field 1 is a proof in both halves of this test, and its type is the same
+    // `Proof` both times. What differs is field 0, which the walk steps over,
+    // and whether anything after it mentions it.
+    let data = u();
+
+    // Nothing mentions field 0, so reaching field 1 substitutes nothing.
+    let env = prop_structure(&[data.clone(), Expr::const_("Proof", vec![])]);
+    let mut tc = TypeChecker::new(&env);
+    assert!(project(&mut tc, 1).is_ok(), "nothing mentions field 0");
+
+    // Now field 1 mentions field 0. Reaching field 1 means putting `p.0` into
+    // its type, and `p.0` is the projection the test above refuses.
+    let mentions = Expr::forall("_", Expr::bvar(0).app(Expr::bvar(0)), Expr::prop());
+    let env = prop_structure(&[Expr::arrow(data, Expr::prop()), mentions]);
+    let mut tc = TypeChecker::new(&env);
+    assert!(
+        matches!(
+            project(&mut tc, 1),
+            Err(TypeError::ProofWithData { index: 0, .. })
+        ),
+        "field 1 mentions field 0, which is data"
+    );
+}
+
+#[test]
+fn a_recursor_must_carry_the_name_of_its_own_type() {
+    // `tutorial/136_misnamed_rec_user`. The recursor is correct in every other
+    // way, and it is not the one Lean would have built, so in Lean's
+    // environment the name `U.rec` is still free for a second rule.
+    let mut env = base();
+    let Declaration::Recursor(mut rec) = recursor(honest_recursor_type(), honest_rhs(), 1) else {
+        unreachable!()
+    };
+    let mut tc = TypeChecker::new(&env);
+    assert!(
+        tc.check_recursor(&rec).is_ok(),
+        "the honest one is accepted"
+    );
+    rec.name = Name::from_dotted("U.not_rec");
+    let err = tc.check_recursor(&rec).unwrap_err();
+    assert!(matches!(err, TypeError::BadRecursor { .. }), "{err:?}");
+    env.add(Declaration::Recursor(rec));
+}
+
+#[test]
+fn a_constructor_must_belong_to_the_type_it_names() {
+    // `other/orphan-ctor`. `False` is declared with no constructors, and a
+    // constructor of a type that is not in the file at all claims to build it.
+    // Nothing in the term rules refuses that: the type of `rogue` **is**
+    // `False`.
+    let env = base();
+    let rogue = Declaration::Constructor(ConstructorVal {
+        name: Name::from_dotted("rogue"),
+        level_params: Vec::new(),
+        ty: Expr::const_("False", vec![]),
+        induct: Name::from_dotted("Orphan"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 0,
+        is_unsafe: false,
+    });
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&rogue).unwrap_err();
+    assert!(
+        matches!(err, TypeError::OrphanConstructor { .. }),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn a_theorem_must_state_a_proposition() {
+    // `tutorial/012_nonPropThm`. The type is a good type and the value has
+    // that type, and the pair is still wrong: nobody ever reads the value of a
+    // theorem, because proof irrelevance says there is nothing to read.
+    let env = base();
+    let not_a_statement = Declaration::Theorem(TheoremVal {
+        name: Name::from_dotted("nonPropThm"),
+        level_params: Vec::new(),
+        ty: Expr::prop(),
+        value: Expr::forall("x", Expr::prop(), Expr::bvar(0)),
+        all: Vec::new(),
+    });
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&not_a_statement).unwrap_err();
+    assert!(matches!(err, TypeError::NotAProposition { .. }), "{err:?}");
+}
+
+#[test]
+fn a_declaration_may_not_be_its_own_proof() {
+    // `tutorial/014_selfProof`, which is the whole attack:
+    //
+    // ```text
+    // theorem selfProof : ∀ (p : Prop), p := selfProof
+    // ```
+    //
+    // The group of a theorem is itself, and `with_group` makes a group visible
+    // to its own members for the sake of a mutual inductive. So the proof was
+    // in the environment while it was being checked.
+    let env = base();
+    let itself = Declaration::Theorem(TheoremVal {
+        name: Name::from_dotted("selfProof"),
+        level_params: Vec::new(),
+        ty: Expr::forall("p", Expr::prop(), Expr::bvar(0)),
+        value: Expr::const_("selfProof", vec![]),
+        all: vec![Name::from_dotted("selfProof")],
+    });
+    let mut tc = TypeChecker::new(&env);
+    let group = vec![itself.clone()];
+    let err = tc
+        .with_group(&group, |tc| tc.check_declaration(&itself))
+        .unwrap_err();
+    assert_eq!(
+        err,
+        TypeError::SelfReference(Name::from_dotted("selfProof"))
+    );
+}
+
+#[test]
+fn an_inductive_declaration_must_describe_a_type() {
+    // Three lies in one test, and the arena has one test for each.
+    let env = base();
+    let mut tc = TypeChecker::new(&env);
+
+    // `tutorial/139_DupConCon`: one name, listed as both constructors. The
+    // count of constructors is what decides whether a type is a subsingleton
+    // and whether it may eliminate into `Type`, so a type that reports two and
+    // has one is a lie in both directions.
+    let twice = inductive("Dup", Expr::prop(), &["Dup.mk", "Dup.mk"]);
+    assert!(matches!(
+        tc.check_declaration(&twice),
+        Err(TypeError::BadInductive { .. })
+    ));
+
+    // `tutorial/049_inductTooFewParams`: two parameters and one binder.
+    let Declaration::Inductive(mut val) = inductive("Few", Expr::prop(), &[]) else {
+        unreachable!()
+    };
+    val.ty = Expr::forall("x", Expr::prop(), Expr::prop());
+    val.num_params = 2;
+    assert!(matches!(
+        tc.check_declaration(&Declaration::Inductive(val.clone())),
+        Err(TypeError::BadInductive { .. })
+    ));
+
+    // One parameter and one binder is the same declaration, told truthfully.
+    val.num_params = 1;
+    assert!(tc.check_declaration(&Declaration::Inductive(val)).is_ok());
+
+    // `tutorial/047_inductBadNonSort2`: a type that ends in a term of type
+    // `Sort 1` rather than in a `Sort`. Then the type is in no universe, and
+    // the field check has no limit to compare a field against.
+    env_with_an_axiom_ending(&env);
+}
+
+/// Checks the third lie of the test above, which needs one more declaration.
+fn env_with_an_axiom_ending(base: &Environment) {
+    let mut env = base.clone();
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("aType"),
+        level_params: Vec::new(),
+        ty: Expr::type_(0),
+        is_unsafe: false,
+    }));
+    let ends_in_a_term = inductive("NotASort", Expr::const_("aType", vec![]), &[]);
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&ends_in_a_term).unwrap_err();
+    assert!(matches!(err, TypeError::BadInductive { .. }), "{err:?}");
+}

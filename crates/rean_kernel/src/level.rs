@@ -61,6 +61,38 @@ impl Level {
         Level::Param(name.into())
     }
 
+    /// Returns `true` when no instantiation of `self` can be `Zero`.
+    ///
+    /// # Why a checker needs this and not [`Self::is_zero`]
+    ///
+    /// `Sort u` is not `Prop`, and it **becomes** `Prop` when somebody writes
+    /// `u := 0`. A rule that asks "is this level zero?" of a universe parameter
+    /// gets `false` and lets through everything the rule exists to stop.
+    ///
+    /// That is a soundness hole, and the Lean Kernel Arena has it as a test
+    /// called `large-elim-param`. `MyBool.{u} : Sort u` has two constructors,
+    /// so at `u := 0` it is a `Prop` with two elements and its recursor must
+    /// not eliminate into a `Type`. We accepted `MyBool.rec.{1, 0}`, and eight
+    /// lines later the file proves `False`. See chapter 20.
+    ///
+    /// The cases:
+    ///
+    /// - `Zero` is zero.
+    /// - `Succ _` is never zero, whatever is inside it.
+    /// - `Max a b` is never zero when **either** side is never zero.
+    /// - `IMax a b` is `0` exactly when `b` is `0`, and otherwise it is
+    ///   `Max a b`, so it is never zero exactly when `b` is never zero.
+    /// - `Param _` **can** be zero, and that is the whole point of this
+    ///   function.
+    pub fn is_never_zero(&self) -> bool {
+        match self {
+            Level::Zero | Level::Param(_) => false,
+            Level::Succ(_) => true,
+            Level::Max(a, b) => a.is_never_zero() || b.is_never_zero(),
+            Level::IMax(_, b) => b.is_never_zero(),
+        }
+    }
+
     /// Returns `true` if `self` is exactly `Zero`.
     pub fn is_zero(&self) -> bool {
         matches!(self, Level::Zero)
