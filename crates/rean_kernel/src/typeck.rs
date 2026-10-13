@@ -827,7 +827,7 @@ impl<'e> TypeChecker<'e> {
         }
         if worth_it
             && let Some(bucket) = self.whnf_cache.get(&key)
-            && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
+            && let Some((_, answer)) = bucket.iter().find(|(question, _)| cheap_eq(question, e))
         {
             tally::total(|| "whnf answered by a cache".to_string(), 1);
             return Ok(answer.clone());
@@ -876,7 +876,7 @@ impl<'e> TypeChecker<'e> {
         self.check_stack()?;
         let key = e.hash_value();
         if let Some(bucket) = self.core_cache.get(&key)
-            && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
+            && let Some((_, answer)) = bucket.iter().find(|(question, _)| cheap_eq(question, e))
         {
             return Ok(answer.clone());
         }
@@ -1098,7 +1098,7 @@ impl<'e> TypeChecker<'e> {
         // about how far to **descend**, and a cache hit descends nowhere.
         let key = e.hash_value();
         if let Some(bucket) = self.numbers.get(&key)
-            && let Some((_, value)) = bucket.iter().find(|(term, _)| term.alpha_eq(e))
+            && let Some((_, value)) = bucket.iter().find(|(term, _)| cheap_eq(term, e))
         {
             return Ok(NatRead::Number(*value));
         }
@@ -1516,7 +1516,7 @@ impl<'e> TypeChecker<'e> {
         // The cheap test. Most comparisons stop here, and it costs no fuel and
         // no stack: `alpha_eq` walks the two terms without recursing through
         // any rule.
-        if a.alpha_eq(b) {
+        if cheap_eq(a, b) {
             return Ok(true);
         }
         self.check_stack()?;
@@ -1526,7 +1526,7 @@ impl<'e> TypeChecker<'e> {
         if let Some(bucket) = self.def_eq_cache.get(&key)
             && let Some((.., answer)) = bucket
                 .iter()
-                .find(|(left, right, _)| left.alpha_eq(a) && right.alpha_eq(b))
+                .find(|(left, right, _)| cheap_eq(left, a) && cheap_eq(right, b))
         {
             return Ok(*answer);
         }
@@ -1598,7 +1598,7 @@ impl<'e> TypeChecker<'e> {
             Err(_) => {}
         }
         let (a, b) = self.lazy_delta(a, b)?;
-        if a.alpha_eq(&b) {
+        if cheap_eq(&a, &b) {
             return Ok(true);
         }
 
@@ -2087,7 +2087,7 @@ impl<'e> TypeChecker<'e> {
         }
         let key = e.hash_value();
         if let Some(bucket) = self.infer_cache.get(&key)
-            && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
+            && let Some((_, answer)) = bucket.iter().find(|(question, _)| cheap_eq(question, e))
         {
             return Ok(answer.clone());
         }
@@ -3707,6 +3707,40 @@ impl<'e> TypeChecker<'e> {
         }
         Ok(())
     }
+}
+
+/// How large a term may be before a cache stops walking it to confirm a hit.
+///
+/// See [`cheap_eq`].
+const CONFIRM_LIMIT: u32 = 65536;
+
+/// Returns `true` when a cache may answer the question `asked` with the entry
+/// `b`.
+///
+/// **A hash picks the bucket and this decides the entry.** Chapter 10 states
+/// the rule that makes it necessary: a hash may refuse an answer and it may not
+/// confirm one, so a cache keyed by a hash must check its hit. Every cache in
+/// this kernel checked it with `Expr::alpha_eq`, which walks the term, and the
+/// arena priced that walk. `good/perf/app-lam` builds 4,000 nested levels over
+/// a body that reads every binder above it, so a new term of the same **shape**
+/// arrives at every level. Each one found its earlier twin by hash and then
+/// walked it: 510,755 confirmations and 800 million node comparisons in eighty
+/// seconds, which was all of the time the test took.
+///
+/// So this asks two questions in the order of their cost.
+///
+/// 1. `Expr::same_node` compares the children by address. It is O(1), it can
+///    only say yes, and it says yes for every term that was handed back
+///    unchanged, which is the common case in a reduction.
+/// 2. `Expr::alpha_eq` walks, and only on a term of at most [`CONFIRM_LIMIT`]
+///    nodes. Most terms in a real library are small, and the bound is what
+///    stops one enormous term from being walked again and again.
+///
+/// A term too large for both tests is a **miss**, and a miss is sound: the
+/// answer is computed again. That is the one direction a cache is allowed to be
+/// wrong in.
+fn cheap_eq(a: &Expr, b: &Expr) -> bool {
+    a.same_node(b) || (a.size_up_to(CONFIRM_LIMIT + 1) <= CONFIRM_LIMIT && a.alpha_eq(b))
 }
 
 /// Returns `true` if `id` occurs anywhere in `e`.

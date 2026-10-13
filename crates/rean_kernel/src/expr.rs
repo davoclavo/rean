@@ -195,6 +195,25 @@ impl Sub {
         self.hash
     }
 
+    /// Returns `true` when both wrap the same node. See [`Sub::node_id`].
+    fn is_node(&self, other: &Sub) -> bool {
+        Arc::ptr_eq(&self.expr, &other.expr)
+    }
+
+    /// Returns the address of the shared node, which is an exact name for it.
+    ///
+    /// Two [`Sub`] values with the same `node_id` hold the **same** term, with
+    /// no walk and no doubt. That is what a hash cannot give: a hash may refuse
+    /// a pair and may not confirm one, which is chapter 10's rule.
+    ///
+    /// The name is only valid while the node is alive. A cache keyed by it must
+    /// therefore **hold the `Sub`**, which costs one reference count and keeps
+    /// the address from being handed to a later term. See
+    /// `TypeChecker::infer_sub`.
+    pub fn node_id(&self) -> usize {
+        Arc::as_ptr(&self.expr) as usize
+    }
+
     /// Returns a copy of the term inside.
     ///
     /// `Sub` is `Clone`, so `(*sub).clone()` would copy the wrapper and not the
@@ -217,22 +236,49 @@ impl Sub {
         self.expr.lift_opt(cutoff, amount).map(Sub::new)
     }
 
-    /// [`Expr::instantiate_at`] for a subterm, with the O(1) skip.
-    fn instantiate_at(&self, depth: u32, value: &Expr) -> Option<Sub> {
+    /// [`Expr::instantiate_at`] for a subterm, with the O(1) skip and the memo.
+    fn instantiate_at(&self, depth: u32, value: &Expr, memo: &mut SubMemo) -> Option<Sub> {
         // The binder being discharged is at `depth`, and nothing in here
         // reaches it. This test is why the cached range exists.
         if self.settled_at(depth) {
             return None;
         }
-        self.expr.instantiate_at(depth, value).map(Sub::new)
+        self.remember(depth, memo, |expr, memo| {
+            expr.instantiate_at(depth, value, memo)
+        })
     }
 
     /// [`Expr::instantiate_many_at`] for a subterm, with the same O(1) skip.
-    fn instantiate_many_at(&self, depth: u32, values: &[&Expr]) -> Option<Sub> {
+    fn instantiate_many_at(&self, depth: u32, values: &[&Expr], memo: &mut SubMemo) -> Option<Sub> {
         if self.settled_at(depth) {
             return None;
         }
-        self.expr.instantiate_many_at(depth, values).map(Sub::new)
+        self.remember(depth, memo, |expr, memo| {
+            expr.instantiate_many_at(depth, values, memo)
+        })
+    }
+
+    /// Rewrites this node with `rewrite`, once per node and depth.
+    ///
+    /// This is the whole of the sharing fix, and [`SubMemo`] holds the reason.
+    fn remember(
+        &self,
+        depth: u32,
+        memo: &mut SubMemo,
+        rewrite: impl FnOnce(&Expr, &mut SubMemo) -> Option<Expr>,
+    ) -> Option<Sub> {
+        // One owner means one parent, so this node occurs once, so an entry
+        // for it would be a write that nobody reads.
+        if Arc::strong_count(&self.expr) == 1 {
+            return rewrite(&self.expr, memo).map(Sub::new);
+        }
+        let key = (Arc::as_ptr(&self.expr) as usize, depth);
+        if let Some(found) = memo.get(&key) {
+            return found.clone();
+        }
+        let out = rewrite(&self.expr, memo).map(Sub::new);
+        memo.insert(key, out.clone());
+        out
     }
 
     /// [`Expr::alpha_eq`] for a subterm, with two O(1) answers in front of it.
@@ -280,6 +326,36 @@ impl std::ops::Deref for Sub {
         &self.expr
     }
 }
+
+/// What one substitution has already rewritten, by node and by depth.
+///
+/// **A substitution must keep a graph a graph.** A term shares its subterms
+/// through [`Arc`], and a rewrite that visits a shared node once per path
+/// rebuilds the **tree** the graph stands for. `good/perf/app-lam` of the
+/// arena is the input that shows it: 4,000 levels, each applying a constant to
+/// the same lambda twice, over a body that reads every binder above it, so the
+/// `settled_at` skip never fires. As a graph it is linear. As a tree it is
+/// 2ⁿ, and checking it never finished.
+///
+/// The key is the address of the node **and** the depth, because one node
+/// under two different binder depths is two different rewrites. The value is
+/// the answer, including the `None` that means "nothing changed", which is
+/// worth remembering as much as any other.
+///
+/// It is **exact** and not a hash. A collision here would substitute the wrong
+/// term, which is the one kind of mistake no cache in this kernel may make:
+/// the ones keyed by a hash all confirm the hit, and this one cannot, so it
+/// does not guess.
+///
+/// Only a node with more than one owner goes in. A node whose `Arc` has one
+/// handle has one parent, so it occurs once, so an entry for it would be a
+/// write that nobody reads.
+///
+/// It pays for itself on ordinary code as well, which is not what it was added
+/// for: the prelude checks **62 more** declarations with it and takes 7% less
+/// time. Lean's own kernel shares this way by construction, because its terms
+/// are maximally shared and a rewrite of one is a rewrite of all of its uses.
+type SubMemo = std::collections::HashMap<(usize, u32), Option<Sub>>;
 
 /// Computes the loose range of one node from its children, in constant time.
 ///
@@ -669,6 +745,95 @@ impl Expr {
         size_range(self).min(limit)
     }
 
+    /// Returns `true` when this node and `other` are the same node, by address.
+    ///
+    /// **A hash picks a bucket and a pointer confirms the entry.** Every cache
+    /// in this kernel is keyed by a hash, and a hash may not confirm a hit, so
+    /// each one used to confirm with [`Expr::alpha_eq`], which walks the term.
+    /// The arena priced that walk: `good/perf/app-lam` made 510,755 calls to
+    /// `alpha_eq` in eighty seconds and 800 million node comparisons inside
+    /// them, which is the whole of its running time.
+    ///
+    /// This test compares the **children** by address. Two nodes whose
+    /// children are the same objects are the same term, with no walk, because
+    /// an address is an exact name. It can only say yes: two distinct objects
+    /// that hold equal terms are a miss here, and the caller decides what a
+    /// miss costs.
+    ///
+    /// A binder name is skipped, exactly as `alpha_eq` skips it. A universe
+    /// level is compared, because a `Level` is not behind an `Arc` and has no
+    /// address of its own.
+    pub fn same_node(&self, other: &Expr) -> bool {
+        match (self, other) {
+            (Expr::App { fun: f1, arg: a1 }, Expr::App { fun: f2, arg: a2 }) => {
+                f1.is_node(f2) && a1.is_node(a2)
+            }
+            (
+                Expr::Lam {
+                    binder_type: t1,
+                    body: b1,
+                    info: i1,
+                    ..
+                },
+                Expr::Lam {
+                    binder_type: t2,
+                    body: b2,
+                    info: i2,
+                    ..
+                },
+            )
+            | (
+                Expr::Forall {
+                    binder_type: t1,
+                    body: b1,
+                    info: i1,
+                    ..
+                },
+                Expr::Forall {
+                    binder_type: t2,
+                    body: b2,
+                    info: i2,
+                    ..
+                },
+            ) => i1 == i2 && t1.is_node(t2) && b1.is_node(b2),
+            (
+                Expr::Let {
+                    binder_type: t1,
+                    value: v1,
+                    body: b1,
+                    ..
+                },
+                Expr::Let {
+                    binder_type: t2,
+                    value: v2,
+                    body: b2,
+                    ..
+                },
+            ) => t1.is_node(t2) && v1.is_node(v2) && b1.is_node(b2),
+            (Expr::Proj(a), Expr::Proj(b)) => {
+                a.structure == b.structure && a.index == b.index && a.value.is_node(&b.value)
+            }
+            // A leaf has no children, so the whole of it is here, and these are
+            // the same tests `alpha_eq_structural` makes.
+            (Expr::BVar(a), Expr::BVar(b)) => a == b,
+            (Expr::FVar(a), Expr::FVar(b)) => a == b,
+            (Expr::MVar(a), Expr::MVar(b)) => a == b,
+            (Expr::Sort(a), Expr::Sort(b)) => a.is_equiv(b),
+            (Expr::Lit(a), Expr::Lit(b)) => a == b,
+            (
+                Expr::Const {
+                    name: n1,
+                    levels: l1,
+                },
+                Expr::Const {
+                    name: n2,
+                    levels: l2,
+                },
+            ) => n1 == n2 && l1.len() == l2.len() && l1.iter().zip(l2).all(|(a, b)| a.is_equiv(b)),
+            _ => false,
+        }
+    }
+
     /// Returns the hash of `self`, in constant time.
     ///
     /// Two terms that [`Expr::alpha_eq`] accepts have the same hash. Two terms
@@ -696,6 +861,13 @@ impl Expr {
     }
 
     fn has_loose_bvar_at(&self, index: u32, depth: u32) -> bool {
+        // The same stored range, used to **prune**. This question is about one
+        // index and not about a range, so the answer still needs a walk when
+        // the index is in range. It needs no walk at all below a node that
+        // reaches nothing that deep.
+        if loose_range(self) <= index + depth {
+            return false;
+        }
         match self {
             Expr::BVar(i) => *i == index + depth,
             Expr::App { fun, arg } => {
@@ -727,33 +899,22 @@ impl Expr {
         }
     }
 
+    /// Returns `true` if any loose bound variable at `depth` or past it occurs.
+    ///
+    /// **The node already knows.** [`Sub`] stores the loose range of every
+    /// term it wraps, and [`loose_range`] reads it off the children of one
+    /// node, so this is two field reads and a comparison.
+    ///
+    /// It used to be a walk of the term, and that is the shape of the bug the
+    /// arena found: a term is a **graph**, so a walk of it is a walk of the
+    /// tree it stands for, and the two differ by an exponent.
+    /// `good/perf/shared-subterm` builds the perfect binary tree of depth
+    /// 1,000 in 1,000 steps that each share the tree so far. Checking it spent
+    /// **all** of its time here, 511 frames deep, and never finished. The
+    /// stored range answers the same question for the whole family in constant
+    /// time, which is what it was put there for. See chapter 29.
     fn has_loose_bvars_from(&self, depth: u32) -> bool {
-        match self {
-            Expr::BVar(index) => *index >= depth,
-            Expr::App { fun, arg } => {
-                fun.has_loose_bvars_from(depth) || arg.has_loose_bvars_from(depth)
-            }
-            Expr::Lam {
-                binder_type, body, ..
-            }
-            | Expr::Forall {
-                binder_type, body, ..
-            } => binder_type.has_loose_bvars_from(depth) || body.has_loose_bvars_from(depth + 1),
-            Expr::Let {
-                binder_type,
-                value,
-                body,
-                ..
-            } => {
-                binder_type.has_loose_bvars_from(depth)
-                    || value.has_loose_bvars_from(depth)
-                    || body.has_loose_bvars_from(depth + 1)
-            }
-            Expr::Proj(proj) => proj.value.has_loose_bvars_from(depth),
-            Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Const { .. } | Expr::Lit(_) => {
-                false
-            }
-        }
+        loose_range(self) > depth
     }
 
     /// Replaces each universe parameter of `self` with the level at the same
@@ -978,13 +1139,13 @@ impl Expr {
     /// use. Anything else is a free universe variable, and a free universe
     /// variable has no meaning.
     pub fn collect_level_params(&self, out: &mut Vec<Name>) {
-        // **A tree walk, on purpose, and that is a measurement.**
+        // **A graph walk, and the second measurement is why.**
         //
-        // [`Self::collect_constants`] walks the graph, with a visited set keyed
-        // by the address of the shared node, because walking it as a tree cost
-        // two minutes on one declaration of `Std`. This function has the same
-        // shape and the same hazard, so chapter 26 gave it the same treatment
-        // and then measured it:
+        // A term is a graph, so a walk of it as a tree is a walk of the tree it
+        // stands for, and the two differ by an exponent.
+        // [`Self::collect_constants`] was fixed for that reason. This function
+        // has the same shape and the same hazard, so chapter 26 gave it the
+        // same treatment and then measured it:
         //
         // | input | tree walk | graph walk |
         // |---|---|---|
@@ -993,48 +1154,69 @@ impl Expr {
         // | the whole `Lean` library | **231.64 s** | 233.90 s |
         //
         // Nothing, and a little worse on the biggest input, where the visited
-        // set is 343,634 allocations that find nothing to skip.
+        // set is 343,634 allocations that find nothing to skip. So it went
+        // back to a tree walk, with that table in its place.
         //
-        // The reason is **which declarations reach here**. `check_universes`
-        // runs on a declaration the kernel is about to check, and the colossal
-        // ones are `blocked` by a dependency that failed, so they never arrive.
-        // Its sibling is called by the **driver**, for every declaration in the
-        // file, before anything is blocked.
+        // The table is still true and the conclusion was still wrong.
+        // `good/perf/app-lam` of the arena is 28,578 lines of export that
+        // build a term of `n` levels, where every level applies a constant to
+        // **the same lambda twice**. As a graph it is linear in `n`. As a tree
+        // it is 2ⁿ, and `check_universes` is the first thing a declaration
+        // meets, so this function ran before any other rule and never
+        // returned. Every sample of a profile of that test, 4,743 of them, was
+        // in here.
         //
-        // So the pair is worth keeping in view: the same fault in two functions
-        // was worth 120 times in one of them and nothing in the other.
-        match self {
-            Expr::Sort(level) => level.collect_params(out),
-            Expr::Const { levels, .. } => {
-                for level in levels {
-                    level.collect_params(out);
+        // One corpus said the two are the same. One test says one of them does
+        // not terminate. A measurement answers the question it was given, and
+        // the question "is this faster on the prelude" is not the question
+        // "does this terminate on every input".
+        //
+        // The walk is iterative as well. A graph of a few hundred thousand
+        // nodes can still be deep, and nothing here is protected by the stack
+        // guard in the type checker.
+        let mut seen_nodes: HashSet<usize> = HashSet::new();
+        let mut stack: Vec<&Expr> = vec![self];
+        macro_rules! visit {
+            ($sub:expr) => {
+                if seen_nodes.insert(Arc::as_ptr(&$sub.expr) as usize) {
+                    stack.push(&$sub.expr);
                 }
+            };
+        }
+        while let Some(current) = stack.pop() {
+            match current {
+                Expr::Sort(level) => level.collect_params(out),
+                Expr::Const { levels, .. } => {
+                    for level in levels {
+                        level.collect_params(out);
+                    }
+                }
+                Expr::App { fun, arg } => {
+                    visit!(fun);
+                    visit!(arg);
+                }
+                Expr::Lam {
+                    binder_type, body, ..
+                }
+                | Expr::Forall {
+                    binder_type, body, ..
+                } => {
+                    visit!(binder_type);
+                    visit!(body);
+                }
+                Expr::Let {
+                    binder_type,
+                    value,
+                    body,
+                    ..
+                } => {
+                    visit!(binder_type);
+                    visit!(value);
+                    visit!(body);
+                }
+                Expr::Proj(proj) => visit!(proj.value),
+                Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
             }
-            Expr::App { fun, arg } => {
-                fun.collect_level_params(out);
-                arg.collect_level_params(out);
-            }
-            Expr::Lam {
-                binder_type, body, ..
-            }
-            | Expr::Forall {
-                binder_type, body, ..
-            } => {
-                binder_type.collect_level_params(out);
-                body.collect_level_params(out);
-            }
-            Expr::Let {
-                binder_type,
-                value,
-                body,
-                ..
-            } => {
-                binder_type.collect_level_params(out);
-                value.collect_level_params(out);
-                body.collect_level_params(out);
-            }
-            Expr::Proj(proj) => proj.value.collect_level_params(out),
-            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
         }
     }
 
@@ -1256,7 +1438,9 @@ impl Expr {
             // A closed term has no binder to discharge.
             return self.clone();
         }
-        self.instantiate_at(0, value)
+        // An empty `HashMap` allocates nothing, so a term with no sharing to
+        // remember pays nothing for the memo. See [`SubMemo`].
+        self.instantiate_at(0, value, &mut SubMemo::new())
             .unwrap_or_else(|| self.clone())
     }
 
@@ -1286,7 +1470,7 @@ impl Expr {
         if values.is_empty() || loose_range(self) == 0 {
             return self.clone();
         }
-        self.instantiate_many_at(0, values)
+        self.instantiate_many_at(0, values, &mut SubMemo::new())
             .unwrap_or_else(|| self.clone())
     }
 
@@ -1297,7 +1481,12 @@ impl Expr {
     /// `depth + values.len()`. An index inside that window reads a value, and
     /// an index above it moves down by the whole width, because every one of
     /// those binders disappears together.
-    fn instantiate_many_at(&self, depth: u32, values: &[&Expr]) -> Option<Expr> {
+    fn instantiate_many_at(
+        &self,
+        depth: u32,
+        values: &[&Expr],
+        memo: &mut SubMemo,
+    ) -> Option<Expr> {
         let width = values.len() as u32;
         let top = depth + width;
         match self {
@@ -1310,8 +1499,8 @@ impl Expr {
             // Above the window, so all of these binders now stand gone.
             Expr::BVar(index) if *index >= top => Some(Expr::BVar(index - width)),
             Expr::App { fun, arg } => {
-                let new_fun = fun.instantiate_many_at(depth, values);
-                let new_arg = arg.instantiate_many_at(depth, values);
+                let new_fun = fun.instantiate_many_at(depth, values, memo);
+                let new_arg = arg.instantiate_many_at(depth, values, memo);
                 rebuild_app(fun, arg, new_fun, new_arg)
             }
             Expr::Lam {
@@ -1320,8 +1509,8 @@ impl Expr {
                 body,
                 info,
             } => {
-                let new_type = binder_type.instantiate_many_at(depth, values);
-                let new_body = body.instantiate_many_at(depth + 1, values);
+                let new_type = binder_type.instantiate_many_at(depth, values, memo);
+                let new_body = body.instantiate_many_at(depth + 1, values, memo);
                 rebuild_binder(
                     true,
                     binder_name,
@@ -1338,8 +1527,8 @@ impl Expr {
                 body,
                 info,
             } => {
-                let new_type = binder_type.instantiate_many_at(depth, values);
-                let new_body = body.instantiate_many_at(depth + 1, values);
+                let new_type = binder_type.instantiate_many_at(depth, values, memo);
+                let new_body = body.instantiate_many_at(depth + 1, values, memo);
                 rebuild_binder(
                     false,
                     binder_name,
@@ -1356,9 +1545,9 @@ impl Expr {
                 value: bound,
                 body,
             } => {
-                let new_type = binder_type.instantiate_many_at(depth, values);
-                let new_value = bound.instantiate_many_at(depth, values);
-                let new_body = body.instantiate_many_at(depth + 1, values);
+                let new_type = binder_type.instantiate_many_at(depth, values, memo);
+                let new_value = bound.instantiate_many_at(depth, values, memo);
+                let new_body = body.instantiate_many_at(depth + 1, values, memo);
                 rebuild_let(
                     binder_name,
                     binder_type,
@@ -1371,7 +1560,7 @@ impl Expr {
             }
             Expr::Proj(proj) => proj
                 .value
-                .instantiate_many_at(depth, values)
+                .instantiate_many_at(depth, values, memo)
                 .map(|inner| rebuild_proj(proj, inner)),
             _ => None,
         }
@@ -1380,7 +1569,7 @@ impl Expr {
     /// The worker for [`Expr::instantiate`]. `None` means "nothing changed".
     ///
     /// See [`Expr::lift_opt`] for why it returns an `Option`.
-    fn instantiate_at(&self, depth: u32, value: &Expr) -> Option<Expr> {
+    fn instantiate_at(&self, depth: u32, value: &Expr, memo: &mut SubMemo) -> Option<Expr> {
         match self {
             // This use points at the binder that disappears.
             Expr::BVar(index) if *index == depth => Some(value.lift(0, depth)),
@@ -1388,8 +1577,8 @@ impl Expr {
             // between.
             Expr::BVar(index) if *index > depth => Some(Expr::BVar(index - 1)),
             Expr::App { fun, arg } => {
-                let new_fun = fun.instantiate_at(depth, value);
-                let new_arg = arg.instantiate_at(depth, value);
+                let new_fun = fun.instantiate_at(depth, value, memo);
+                let new_arg = arg.instantiate_at(depth, value, memo);
                 rebuild_app(fun, arg, new_fun, new_arg)
             }
             Expr::Lam {
@@ -1398,8 +1587,8 @@ impl Expr {
                 body,
                 info,
             } => {
-                let new_type = binder_type.instantiate_at(depth, value);
-                let new_body = body.instantiate_at(depth + 1, value);
+                let new_type = binder_type.instantiate_at(depth, value, memo);
+                let new_body = body.instantiate_at(depth + 1, value, memo);
                 rebuild_binder(
                     true,
                     binder_name,
@@ -1416,8 +1605,8 @@ impl Expr {
                 body,
                 info,
             } => {
-                let new_type = binder_type.instantiate_at(depth, value);
-                let new_body = body.instantiate_at(depth + 1, value);
+                let new_type = binder_type.instantiate_at(depth, value, memo);
+                let new_body = body.instantiate_at(depth + 1, value, memo);
                 rebuild_binder(
                     false,
                     binder_name,
@@ -1434,9 +1623,9 @@ impl Expr {
                 value: bound,
                 body,
             } => {
-                let new_type = binder_type.instantiate_at(depth, value);
-                let new_value = bound.instantiate_at(depth, value);
-                let new_body = body.instantiate_at(depth + 1, value);
+                let new_type = binder_type.instantiate_at(depth, value, memo);
+                let new_value = bound.instantiate_at(depth, value, memo);
+                let new_body = body.instantiate_at(depth + 1, value, memo);
                 rebuild_let(
                     binder_name,
                     binder_type,
@@ -1449,7 +1638,7 @@ impl Expr {
             }
             Expr::Proj(proj) => proj
                 .value
-                .instantiate_at(depth, value)
+                .instantiate_at(depth, value, memo)
                 .map(|inner| rebuild_proj(proj, inner)),
             _ => None,
         }

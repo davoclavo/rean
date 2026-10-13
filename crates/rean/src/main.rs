@@ -36,6 +36,29 @@ use rean::{
 };
 use std::process::ExitCode;
 
+/// The four answers this program can give, and the number each one exits with.
+///
+/// The Lean Kernel Arena runs a checker as `run: ... $IN` and reads the exit
+/// code, so these numbers are an **interface** and not a convention:
+///
+/// | code | the arena calls it | what we mean |
+/// |---|---|---|
+/// | 0 | accepted | every declaration checked |
+/// | 1 | rejected | the kernel refused one, by a rule |
+/// | 2 | declined | a limit stopped us, so there is no verdict |
+/// | 3 | an error in the checker | we could not read the file, or the command was wrong |
+///
+/// The one that matters is 2. `OutOfFuel` and `OutOfStack` mean "we did not
+/// check it", and exiting 1 for those would claim that a valid proof is
+/// invalid. Eleven tests of the arena's `perf/` set are exactly that case, and
+/// before this distinction existed we called all eleven of them wrong.
+///
+/// 3 is the honest code for "this is our fault". A file the reader cannot
+/// parse says nothing about the proof inside it.
+const REJECTED: u8 = 1;
+const DECLINED: u8 = 2;
+const OUR_FAULT: u8 = 3;
+
 fn main() -> ExitCode {
     let child = std::thread::Builder::new()
         .stack_size(stack_bytes(std::env::var("REAN_STACK").ok().as_deref()))
@@ -74,7 +97,7 @@ fn run() -> ExitCode {
 
 fn fail(message: &str) -> ExitCode {
     eprintln!("error: {message}\n\n{USAGE}");
-    ExitCode::FAILURE
+    ExitCode::from(OUR_FAULT)
 }
 
 fn run_lex(path: &str) -> ExitCode {
@@ -111,7 +134,7 @@ fn run_target(args: &[String], checks: bool) -> ExitCode {
         // text, so print it on its own.
         Err(message) => {
             eprintln!("error: {message}");
-            return ExitCode::FAILURE;
+            return ExitCode::from(OUR_FAULT);
         }
     };
     if let Some(report) = &ready.export {
@@ -131,6 +154,7 @@ fn run_check(path: &str) -> ExitCode {
         let (label, message) = match &outcome.verdict {
             Verdict::Ok => ("ok   ", None),
             Verdict::Failed(message) => ("FAIL ", Some(message)),
+            Verdict::Declined(message) => ("decl ", Some(message)),
             Verdict::Blocked(message) => ("block", Some(message)),
         };
         println!("  {label} {:10} {}", outcome.kind, outcome.name);
@@ -168,10 +192,15 @@ fn run_check(path: &str) -> ExitCode {
     println!("\n  {}", report.meta);
     println!("\n{}", report.score());
     println!("{}", report.trust());
-    if report.failed() == 0 && report.blocked() == 0 {
-        ExitCode::SUCCESS
+    // See the table at the top of this file. A refusal outranks a decline: if
+    // one declaration is a lie, the file is rejected whatever else we ran out
+    // of.
+    if report.failed() > 0 {
+        ExitCode::from(REJECTED)
+    } else if report.declined() > 0 || report.blocked() > 0 {
+        ExitCode::from(DECLINED)
     } else {
-        ExitCode::FAILURE
+        ExitCode::SUCCESS
     }
 }
 

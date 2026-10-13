@@ -119,6 +119,16 @@ pub enum Verdict {
     Ok,
     /// The kernel refused it.
     Failed(String),
+    /// A limit stopped the check, so there is **no verdict**.
+    ///
+    /// This is not a refusal. `OutOfFuel` and `OutOfStack` mean "we did not
+    /// check it", and reporting that as a refusal claims a declaration is
+    /// wrong when all we know is that we gave up. The arena's own interface
+    /// has the same three answers and the same reason for them: exit 0 to
+    /// accept, 1 to reject, **2 to decline**, where a decline says "you are
+    /// not claiming that the proof is not valid". See the arena chapter of
+    /// the guide, and `tools/arena.py`.
+    Declined(String),
     /// It was not checked, because it rests on a declaration that failed.
     ///
     /// A failed declaration must **not** go into the environment. A bogus
@@ -203,6 +213,11 @@ impl CheckReport {
         self.count(|v| matches!(v, Verdict::Failed(_)))
     }
 
+    /// Returns the number that a limit stopped. See [`Verdict::Declined`].
+    pub fn declined(&self) -> usize {
+        self.count(|v| matches!(v, Verdict::Declined(_)))
+    }
+
     /// Returns the number that rest on a failure and were not checked.
     pub fn blocked(&self) -> usize {
         self.count(|v| matches!(v, Verdict::Blocked(_)))
@@ -219,12 +234,18 @@ impl CheckReport {
             self.passed(),
             self.outcomes.len()
         );
-        if self.failed() > 0 || self.blocked() > 0 {
-            line.push_str(&format!(
-                " ({} failed, {} blocked)",
-                self.failed(),
-                self.blocked()
-            ));
+        let mut parts = Vec::new();
+        if self.failed() > 0 {
+            parts.push(format!("{} failed", self.failed()));
+        }
+        if self.declined() > 0 {
+            parts.push(format!("{} declined", self.declined()));
+        }
+        if self.blocked() > 0 {
+            parts.push(format!("{} blocked", self.blocked()));
+        }
+        if !parts.is_empty() {
+            line.push_str(&format!(" ({})", parts.join(", ")));
         }
         line
     }
@@ -497,7 +518,7 @@ pub fn check_export_streaming(
                 Some(blocker) => Verdict::Blocked(format!("`{blocker}` did not check")),
                 None => {
                     let mut tc = TypeChecker::new(&known);
-                    if let Some(fuel) = fuel_from_env() {
+                    if let Some(fuel) = budget_for(module.order.len()) {
                         tc.set_fuel(fuel);
                     }
                     if let Some(depth) = nat_depth_from_env() {
@@ -506,17 +527,20 @@ pub fn check_export_streaming(
                     tc.set_stack_budget(kernel_stack_budget(stack_bytes(
                         std::env::var("REAN_STACK").ok().as_deref(),
                     )));
-                    // The rendered message, and the name of the constant that
-                    // was missing if that is what went wrong. The name is kept
-                    // because a constant can be missing for two very different
-                    // reasons, and the next `match` tells them apart.
+                    // The rendered message, the name of the constant that was
+                    // missing if that is what went wrong, and whether a limit
+                    // stopped us. The name is kept because a constant can be
+                    // missing for two very different reasons, and the next
+                    // `match` tells them apart. The limit is kept because it is
+                    // the difference between "this is wrong" and "we did not
+                    // check it", and only the kernel knows which it was.
                     let outcome = tc.with_group(&decls, |tc| {
                         tc.check_declaration(decl).map_err(|err| {
                             let missing = match &err {
                                 rean_kernel::TypeError::UnknownConstant(name) => Some(name.clone()),
                                 _ => None,
                             };
-                            (err.render(tc.lctx()), missing)
+                            (err.render(tc.lctx()), missing, err.is_a_limit())
                         })
                     });
                     deepest = tc.deepest();
@@ -525,13 +549,13 @@ pub fn check_export_streaming(
                             accepted.push(decl.clone());
                             Verdict::Ok
                         }
-                        Err((message, missing)) => {
+                        Err((message, missing, a_limit)) => {
                             // The tally is taken here and not at the end of the
                             // file, because the next declaration clears it.
                             if rean_kernel::tally::on() {
                                 tally = rean_kernel::tally::take();
                             }
-                            verdict_for_failure(message, missing, &rejected)
+                            verdict_for_failure(message, missing, a_limit, &rejected)
                         }
                     }
                 }
@@ -1177,6 +1201,53 @@ fn fuel_from_env() -> Option<u64> {
     std::env::var("REAN_FUEL").ok()?.parse().ok()
 }
 
+/// How many declarations make a file a **batch** rather than a question.
+///
+/// See [`budget_for`].
+const A_BATCH: usize = 10_000;
+
+/// The budget one declaration of a file of `count` declarations may spend.
+///
+/// A budget exists so that one declaration cannot stall the rest, and a file
+/// with one declaration in it **has** no rest. So the two cases are not the
+/// same question, and giving them one answer served neither.
+///
+/// | the file | the budget | why |
+/// |---|---|---|
+/// | up to [`A_BATCH`] declarations | 20,000,000,000 | nothing is waiting. The clock is the limit, and the reader is holding it. |
+/// | more than that | the kernel's own default | a report that arrives is worth more than a declaration that might. |
+///
+/// The numbers are measured, on the arena's `perf/` set, which is built to be
+/// expensive:
+///
+/// | test | nodes it needs | time |
+/// |---|---|---|
+/// | `beta-ladder` | under 20 G | 1 s |
+/// | `fueled-chain` | under 20 G | 1 s |
+/// | `grind-ring-5` | under 20 G | 2 s |
+/// | `magma-list-pair-n21` | under 20 G | 14 s |
+/// | `proj-lazy-struct` | under 20 G | 25 s |
+/// | `magma-list-deep-n36` | **more** | declines at 26 s |
+///
+/// Seven of those nine are correct declarations that the default budget
+/// refused, and every one of them answers in seconds. The same budget over the
+/// prelude would spend half an hour on the 72 declarations that cannot be
+/// checked at all, which is why the rule reads the size of the file first.
+///
+/// The threshold is measured too. The largest single-declaration test of the
+/// arena carries its whole dependency tree with it, so `grind-ring-5` is 2,275
+/// declarations and the arena's own `init-prelude` is 1,824, while the real
+/// libraries start at 59,349. Ten thousand sits in that gap with room on both
+/// sides.
+///
+/// `REAN_FUEL` still overrides both.
+fn budget_for(count: usize) -> Option<u64> {
+    if let Some(asked) = fuel_from_env() {
+        return Some(asked);
+    }
+    (count <= A_BATCH).then_some(20_000_000_000)
+}
+
 /// Decides whether a failed check is a **failure** or a **block**.
 ///
 /// A missing constant that we refused is a block, not a failure.
@@ -1198,12 +1269,19 @@ fn fuel_from_env() -> Option<u64> {
 fn verdict_for_failure(
     message: String,
     missing: Option<rean_core::Name>,
+    a_limit: bool,
     rejected: &HashSet<rean_core::Name>,
 ) -> Verdict {
     match missing {
         Some(name) if rejected.contains(&name) => {
             Verdict::Blocked(format!("`{name}` did not check"))
         }
+        // A limit is carried here as a **bit from the kernel** and not read
+        // back out of the message. `TypeError::is_a_limit` is the one place
+        // that knows which errors mean "we did not check it", and a driver
+        // that matched on the words would go stale the first time one of
+        // those messages was reworded.
+        _ if a_limit => Verdict::Declined(message),
         _ => Verdict::Failed(message),
     }
 }
@@ -1267,6 +1345,7 @@ mod tests {
         let verdict = verdict_for_failure(
             "unknown constant `Splits.mk`".to_string(),
             Some(Name::from_dotted("Splits.mk")),
+            false,
             &rejected_set(&["Splits.mk"]),
         );
         assert_eq!(
@@ -1282,6 +1361,7 @@ mod tests {
         let verdict = verdict_for_failure(
             "unknown constant `Nowhere.at_all`".to_string(),
             Some(Name::from_dotted("Nowhere.at_all")),
+            false,
             &rejected_set(&["Splits.mk"]),
         );
         assert!(matches!(verdict, Verdict::Failed(_)), "{verdict:?}");
@@ -1290,11 +1370,40 @@ mod tests {
     #[test]
     fn any_other_error_stays_a_failure() {
         let verdict = verdict_for_failure(
-            "this declaration needed more than 20000000 units of work".to_string(),
+            "`Nat.le` is not a function".to_string(),
             None,
+            false,
             &rejected_set(&["Splits.mk"]),
         );
         assert!(matches!(verdict, Verdict::Failed(_)), "{verdict:?}");
+    }
+
+    #[test]
+    fn a_limit_is_a_decline_and_not_a_failure() {
+        // The arena's own interface draws this line, and so does the kernel:
+        // `OutOfFuel` means "we did not check it". Calling that a failure
+        // claims a valid proof is invalid, and eleven tests of the arena's
+        // `perf/` set are exactly that case.
+        let verdict = verdict_for_failure(
+            "this declaration needed more than 20000000 units of work".to_string(),
+            None,
+            true,
+            &rejected_set(&["Splits.mk"]),
+        );
+        assert!(matches!(verdict, Verdict::Declined(_)), "{verdict:?}");
+    }
+
+    #[test]
+    fn a_question_gets_a_bigger_budget_than_a_batch() {
+        // See `budget_for`. The numbers are measured on the arena's `perf/`
+        // set, and the threshold on the size of its largest test.
+        if std::env::var_os("REAN_FUEL").is_some() {
+            return;
+        }
+        assert_eq!(budget_for(1), Some(20_000_000_000));
+        assert_eq!(budget_for(2_275), Some(20_000_000_000));
+        // The prelude is a batch, and it keeps the kernel's own default.
+        assert_eq!(budget_for(59_349), None);
     }
 
     #[test]
