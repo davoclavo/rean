@@ -309,7 +309,7 @@ cargo run --release -p rean -- check Lean
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
 | **stage 5** | **a program runs** | `rean run Prog.lean main`, and the output matches Lean's. [Chapter 19](docs/19-a-program-that-runs.md) |
-| tests | **494** | `devbox run test` |
+| tests | **496** | `devbox run test` |
 | citations | every chapter's test names resolve | `devbox run cite` |
 | coverage | **93.1% of regions, 95.1% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
