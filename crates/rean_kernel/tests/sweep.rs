@@ -198,7 +198,7 @@ fn lift_and_instantiate_and_abstract_reach_every_binder() {
 #[test]
 fn a_subterm_reports_its_cached_numbers() {
     // Every subterm carries two numbers, and both come from its children. See
-    // chapter 9.
+    // chapter 17.
     let nat = Expr::const_("Nat", vec![]);
     let leaf = Sub::new(nat.clone());
     assert_eq!(leaf.loose(), 0, "a constant has no loose variable");

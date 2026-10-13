@@ -162,7 +162,7 @@ fn a_stack_size_nobody_wrote_is_the_default() {
 #[test]
 fn the_usage_text_names_both_knobs_and_their_coupling() {
     // A reader who raises the budget and then meets a stack overflow has been
-    // failed by this text. See chapter 9, section 9.8.
+    // failed by this text. See chapter 17, section 17.8.
     assert!(USAGE.contains("REAN_FUEL"), "{USAGE}");
     assert!(USAGE.contains("REAN_STACK"), "{USAGE}");
     assert!(USAGE.contains("needs more stack to reduce"), "{USAGE}");
@@ -172,7 +172,7 @@ fn the_usage_text_names_both_knobs_and_their_coupling() {
 
 #[test]
 fn the_usage_text_names_the_three_kinds_of_target() {
-    // The front door of chapter 16. A reader who does not know that `prelude`
+    // The front door of chapter 24. A reader who does not know that `prelude`
     // is a target will never type it.
     assert!(USAGE.contains(".ndjson"), "{USAGE}");
     assert!(USAGE.contains("Demo.lean"), "{USAGE}");

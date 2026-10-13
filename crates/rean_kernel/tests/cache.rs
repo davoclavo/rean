@@ -1,7 +1,7 @@
 //! The hash in every node, and the cache it serves.
 //!
 //! The one rule that keeps a cache sound: a hash **finds** an answer, and
-//! [`Expr::alpha_eq`] **decides** whether to trust it. Chapter 10 explains why.
+//! [`Expr::alpha_eq`] **decides** whether to trust it. Chapter 18 explains why.
 
 use rean_core::Name;
 use rean_kernel::{
@@ -164,7 +164,7 @@ fn a_cached_answer_does_not_outlive_its_declaration() {
 #[test]
 fn a_negative_answer_is_remembered_too() {
     // "These two are not equal" is a decision, so it is worth keeping. A
-    // comparison that ran out of budget returns an error instead, and §10.4
+    // comparison that ran out of budget returns an error instead, and §18.4
     // says why no error may be kept.
     let env = with_a_definition();
     let mut tc = TypeChecker::new(&env);

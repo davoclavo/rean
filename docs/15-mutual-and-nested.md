@@ -1,10 +1,19 @@
-# Chapter 7 — Mutual and nested
+# Chapter 15 — Mutual and nested
 
-Chapter 6 said the honest summary had not changed in shape: a **plain**
-declaration was hard to lie to, a **mutual** or **nested** one still stepped
-past three checks.
+> **Where you are.** Chapter 15 of 28, in Part IV of [the guide](README.md).
+>
+> **Before this.** The two chapters before it, and
+> Part I chapter [6](book/06-inductive-types.md), section 6.8, which shows both
+> shapes.
+>
+> **After it you can** check a group of inductive types that refer to each
+> other, and say why a nested type gets a weaker rule.
 
-This chapter closes two of the three, and finds one bug along the way.
+Two shapes of inductive declaration step past every check so far: a **mutual**
+group, and a **nested** type. Part I chapter 6, section 6.8 shows both of them.
+
+This chapter checks them. It closes two gaps of three, and it finds one bug on
+the way.
 
 ```sh
 devbox run -- cargo test -p rean_kernel --test soundness
@@ -12,7 +21,7 @@ devbox run -- cargo test -p rean_kernel --test soundness
 
 ---
 
-## 7.1 A mutual group has one motive per type
+## 15.1 A mutual group has one motive per type
 
 For a group declared together
 
@@ -67,7 +76,7 @@ rather than misread.
 
 Give the two minor premises in the wrong order and each one is still perfectly
 type correct on its own. The ι rule still delivers what the type promises. Every
-check before chapter 6 passes.
+check before chapter 14 passes.
 
 The derived premise does not. It knows that the premise at slot 0 belongs to the
 first constructor of the first type in the group, so a swap is a mismatch and
@@ -82,7 +91,7 @@ consistency. A mutual fixture is the next thing to get. See
 
 ---
 
-## 7.2 A group must be checked together
+## 15.2 A group must be checked together
 
 Writing the mutual test found a real bug.
 
@@ -90,7 +99,7 @@ Writing the mutual test found a real bug.
 the field it takes apart is a `B`. And `B.rec`'s rule calls `A.rec`. So neither
 recursor is in the environment when the other is checked.
 
-Chapter 5 solved the single case with a `pending` slot holding the declaration
+Chapter 13 solved the single case with a `pending` slot holding the declaration
 under check. A mutual group needs more than one, so `pending` became a list:
 
 ```rust
@@ -143,9 +152,9 @@ and pointed at a hole.
 
 ---
 
-## 7.3 A nested inductive gets a weaker rule, not a free pass
+## 15.3 A nested inductive gets a weaker rule, not a free pass
 
-Chapter 4 **skipped** positivity for a nested declaration. A skip is a free
+Chapter 12 **skipped** positivity for a nested declaration. A skip is a free
 pass, and a free pass on positivity is a way to prove `False`.
 
 The reason for the skip is real. A nested inductive puts its own type inside
@@ -156,7 +165,7 @@ inductive Tree | node : List Tree → Tree
 ```
 
 `Tree` is an **argument** of `List`, not the head, so the strict rule of
-chapter 4 refuses it. Lean handles the case by compiling the declaration into an
+chapter 12 refuses it. Lean handles the case by compiling the declaration into an
 auxiliary non nested one, and we do not do that.
 
 So a nested declaration now gets a weaker rule instead of nothing:
@@ -190,7 +199,7 @@ so beats a skip that does not.
 
 ---
 
-## 7.4 A field must fit inside its own type
+## 15.4 A field must fit inside its own type
 
 An inductive type declares a `Sort`. A constructor field has a `Sort` of its
 own. If a field were larger, the type would hold something bigger than itself,
@@ -203,7 +212,7 @@ inductive Small : Type | mk : Type → Small     -- refused
 `Type` lives in `Type 1`, and `Small` only reaches `Type 0`.
 
 `Prop` is the exception, because `Prop` is impredicative. A proposition may
-quantify over anything. That is chapter 0, section 0.10, showing up as a check.
+quantify over anything. That is Part I chapter 4, section 4.4, showing up as a check.
 
 ### The order on levels
 
@@ -235,18 +244,18 @@ and the module still checks 32 of 32.
 
 ---
 
-## 7.5 Where the checker stands
+## 15.5 Where the checker stands
 
 | Job | Status |
 |---|---|
-| every reduction rule | chapters 1, 2, 4 |
-| strict positivity, plain inductive | chapter 4 |
-| recursor shape and ι rule types | chapter 5 |
-| large elimination, universe hygiene, duplicates, structure eta | chapter 5 |
-| derived minor premises, axiom trust report, unsafe isolation | chapter 6 |
-| **mutual groups: motives, premises, ordering, and group visibility** | **chapter 7** |
-| **nested positivity, with a weaker rule** | **chapter 7** |
-| **the inductive universe constraint** | **chapter 7** |
+| every reduction rule | chapters 9, 10, 12 |
+| strict positivity, plain inductive | chapter 12 |
+| recursor shape and ι rule types | chapter 13 |
+| large elimination, universe hygiene, duplicates, structure eta | chapter 13 |
+| derived minor premises, axiom trust report, unsafe isolation | chapter 14 |
+| **mutual groups: motives, premises, ordering, and group visibility** | **chapter 15** |
+| **nested positivity, with a weaker rule** | **chapter 15** |
+| **the inductive universe constraint** | **chapter 15** |
 
 ### Still missing
 
@@ -255,7 +264,7 @@ and the module still checks 32 of 32.
 | full recursor re-derivation | soundness | derive the motive and the recursor type as well, not only the premises |
 | nested, as Lean does it | soundness | understand the auxiliary form, and unfold before checking positivity |
 | `Quot`'s four types | soundness | the kernel should know them. We have no fixture with a `Quot`, and a hand written type we cannot validate is a liability. |
-| a mutual fixture | **validation** | the ordering of chapter 7 is untested against real Lean |
+| a mutual fixture | **validation** | the ordering of chapter 15 is untested against real Lean |
 | big number arithmetic | completeness | a big integer in place of `u128` |
 | `String` literal operations | completeness | the same treatment `Nat` got |
 | a full level normal form | completeness | sort and flatten nested `max` |
@@ -272,12 +281,12 @@ grow, and it is the honest measure of a checker.
 
 ---
 
-## 7.6 Exercises
+## 15.6 Exercises
 
 1. `A.rec` has a minor premise for `B.mkB`, and no ι rule for it. Say why.
 2. The checker reads the eliminated type off the rules and not off the name.
    Give a file where the two disagree.
-3. Swap two minor premises of a mutual recursor. Every check before chapter 6
+3. Swap two minor premises of a mutual recursor. Every check before chapter 14
    passes. Say precisely which one refuses it and why the others cannot.
 4. `with_group` makes a group visible without adding it to the environment.
    What breaks if it adds it?
@@ -310,3 +319,57 @@ grow, and it is the honest measure of a checker.
    Lean, and a false refusal is as useless as a false acceptance. The cost is
    that a crafted declaration with two unrelated open levels can hide a field
    that is too large.
+
+---
+
+## 15.7 How other systems do it
+
+A nested inductive type is the hard case, and the three systems answer it in
+three ways.
+
+- **Lean turns a nested type into a mutual one.** The frontend builds an
+  auxiliary type for the nest, declares the group as a mutual group, and then
+  derives the recursor for the group. The kernel refuses to let an auxiliary
+  name leak out of that construction, in `check_no_nested_aux`. So by the time
+  a declaration reaches a checker, the nest is already gone, which is why
+  section 15.3 gives a nested type a weaker rule and not a new mechanism.
+- **Rocq accepts a nest directly.** Its guard condition understands a
+  constructor whose field mentions the type under another inductive type, and
+  the recursion check follows the nest.
+- **Agda asks for a termination proof instead.** A pattern match over a nested
+  type is checked by the termination checker, and the checker can be told to
+  stop checking. That flag is the same loaded gun as the positivity flag of
+  chapter 12, section 12.10.
+
+One honest limit, stated again. Section 7.1 reads the shape of a mutual
+recursor from our own reasoning, because our fixture holds no mutual inductive
+type from the real Lean. Chapter 11, section 11.9 says how to get one.
+
+## 15.8 References
+
+**Our code**
+
+- `crates/rean_kernel/src/typeck.rs`, the method `with_group`
+- `crates/rean_kernel/src/positivity.rs`, the nested case
+- `crates/rean_kernel/tests/soundness.rs`
+- `crates/rean_export/src/reader.rs`, which records the grouping of a line
+
+**Lean's own source**
+
+- `src/kernel/inductive.cpp`. The group arrives as one declaration, and
+  `check_positivity`, `check_uniform_ind_occs` and `check_no_nested_aux` are
+  the three tests this chapter mirrors.
+
+**Read more**
+
+- Dybjer, *Inductive families*, 1994, for a family declared at once.
+  DOI [10.1007/BF01211308](https://doi.org/10.1007/BF01211308)
+- Paulin-Mohring, *Inductive definitions in the system Coq*, 1993, for the
+  positivity condition on a mutual group.
+  DOI [10.1007/BFb0037116](https://doi.org/10.1007/BFb0037116)
+- Rocq, inductive types, for a nest accepted directly.
+  <https://rocq-prover.org/doc/master/refman/language/core/inductive.html>
+
+---
+
+**Next:** [The frontend](16-the-frontend.md)

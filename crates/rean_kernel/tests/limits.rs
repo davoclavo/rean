@@ -1,8 +1,8 @@
 //! The two limits, and the rule they both obey: **a limit is a verdict.**
 //!
 //! A checker meets two things it cannot finish: work without end, and
-//! recursion without end. Chapter 9 bounded the first with a work budget.
-//! Chapter 16 bounds the second with the stack, after a run at a hundred times
+//! recursion without end. Chapter 17 bounded the first with a work budget.
+//! Chapter 24 bounds the second with the stack, after a run at a hundred times
 //! the default budget overflowed 4 GB and **aborted**, which is the one answer
 //! a report cannot carry.
 //!

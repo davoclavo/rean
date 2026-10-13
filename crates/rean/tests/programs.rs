@@ -5,7 +5,7 @@
 //! in it, checked by our kernel and run by our evaluator.
 //!
 //! Every expected line was compared with Lean's own `#eval main`. That is the
-//! only oracle that settles whether a value is right, and chapter 19 says so.
+//! only oracle that settles whether a value is right, and chapter 27 says so.
 //!
 //! The file skips itself when no Lean is installed, for the reason the front
 //! door tests give: a test that fails for a missing tool teaches a reader to

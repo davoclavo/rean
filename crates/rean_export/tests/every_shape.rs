@@ -1,6 +1,6 @@
 //! Every line shape of the export format, and every way a file can be wrong.
 //!
-//! The fixture of chapter 3 is one real module, so it only uses the shapes that
+//! The fixture of chapter 11 is one real module, so it only uses the shapes that
 //! one module needed. It has no `letE`, no `mdata`, no literal, no `axiom`, no
 //! `opaque`, and no `quot`. This file covers the rest, so that a shape we never
 //! met in the wild still has a test.

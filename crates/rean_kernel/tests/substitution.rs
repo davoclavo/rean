@@ -6,7 +6,7 @@
 //! is the same answer and much less work, and a substitution that is **nearly**
 //! right is a soundness bug, so this file compares the two directly.
 //!
-//! Chapter 14 explains the cost. This file is about the correctness.
+//! Chapter 22 explains the cost. This file is about the correctness.
 
 use rean_kernel::{Expr, FVarId};
 
@@ -139,7 +139,7 @@ fn instantiate_many_with_nothing_changes_nothing() {
 
 /// The same rule, for a **universe** substitution.
 ///
-/// Chapter 9 gave `instantiate_at` and `lift` an answer that means "nothing
+/// Chapter 17 gave `instantiate_at` and `lift` an answer that means "nothing
 /// changed", so an unchanged subterm keeps its `Arc`. `instantiate_levels`
 /// never had one, and the δ rule calls it on every unfold of a universe
 /// polymorphic definition. These tests state both halves of the rule: nothing

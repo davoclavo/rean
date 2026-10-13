@@ -1,5 +1,9 @@
 # Roadmap
 
+> **New here?** Read [Part I of the book](book/README.md) first, and then
+> [the guide](README.md), which holds the reading order. This file is the plan
+> for the code, and it names what is built and what is not.
+
 ## The strategy
 
 This project is an educational experiment. The goal is to understand a proof
@@ -31,8 +35,8 @@ Lean's kernel.
 | — the elaborator | `Syntax` | `Expr` | missing |
 | **B** the kernel | `Expr` | yes or no | works. Every reduction rule, plus strict positivity. |
 | **B** the importer | `.ndjson` | `Environment` | works |
-| **B** the front door | `.lean` text | `.ndjson` | works, **by calling the real Lean**. See chapter 16. |
-| **B** the evaluator | `Expr` | a value, and output | works. Stage 5, chapter 19. |
+| **B** the front door | `.lean` text | `.ndjson` | works, **by calling the real Lean**. See chapter 24. |
+| **B** the evaluator | `Expr` | a value, and output | works. Stage 5, chapter 27. |
 
 The two islands still do not touch. Nothing in a `.lean` file reaches the kernel
 **through our own stages**. But island B now reads real Lean terms, so it is
@@ -70,7 +74,7 @@ foo.ndjson  ──>  [ our importer ]  ──>  Expr  ──>  [ our kernel ]  �
 ```
 
 Needs no parser and no elaborator. It makes `rean` an independent checker, which
-is the whole reason `lean4export` exists. See chapter 0, section 0.16.
+is the whole reason `lean4export` exists. See Part I chapter 8, section 8.5.
 
 **Metric:** we check N of M declarations of a module.
 
@@ -128,7 +132,7 @@ ours. Only the library comes from outside.
 | 5 | recursor shape and rule checking, large elimination, universe hygiene, structure eta. **Done.** | a checker that is hard to **lie to** |
 | 6 | derived minor premises, the axiom trust report, unsafe isolation. **Done.** | a plain declaration is hard to lie to |
 | 7 | mutual groups, nested positivity, the inductive universe constraint. **Done.** | a mutual or nested declaration is hard to lie to as well |
-| 7b | a **mutual fixture**, full recursor re-derivation, `Quot` types | the ordering of chapter 7 validated against real Lean |
+| 7b | a **mutual fixture**, full recursor re-derivation, `Quot` types | the ordering of chapter 15 validated against real Lean |
 | 5 | the Pratt parser, with the extensible precedence table | `Vec<Token>` becomes `Syntax` |
 | 6 | the elaborator: name resolution, implicit arguments, unification | **Level 2 opens** |
 | 7 | metavariables, instance search, tactics | real proofs from real text |
@@ -136,17 +140,17 @@ ours. Only the library comes from outside.
 | 19 | the evaluator. **Done.** | **a program that runs** |
 | later | LCNF and a backend | a program that runs **fast** |
 
-Chapter 16 sits outside that table on purpose. It adds no rule and no stage. It
+Chapter 24 sits outside that table on purpose. It adds no rule and no stage. It
 makes the kernel **reachable**, and it turns the one answer a report cannot
 carry — a stack overflow — into a verdict.
 
-Chapter 19 broke the order of the table. Stage 5 was the last row of it and it
+Chapter 27 broke the order of the table. Stage 5 was the last row of it and it
 arrived before stages 2 and 3, because **it does not need them**: it needs an
-`Expr`, and chapter 16's front door hands over the `Expr` of any Lean program
+`Expr`, and chapter 24's front door hands over the `Expr` of any Lean program
 there is. The order of the pipeline is not the order of the work.
 
-Note where the exporter sits. It is last and it is small, because by chapter 8
-the reader in chapter 3 will have pinned down every detail of the format.
+Note where the exporter sits. It is last and it is small, because by chapter 16
+the reader in chapter 11 will have pinned down every detail of the format.
 
 ## Ground truth hygiene
 
@@ -261,7 +265,7 @@ own variable measures nothing, and three equal rows should have been the clue.
 
 ### What is left, and the honest fix
 
-Both caches named below are now **done**, and chapter 9 reports what each one
+Both caches named below are now **done**, and chapter 17 reports what each one
 bought. The summary:
 
 | change | checked | time |
@@ -289,7 +293,7 @@ trusting any performance claim.
 Of these, the two caches moved the count by making the work smaller. The last
 row moved it by making the work **unnecessary**, and it is the smallest diff of
 them all: `spine_eq` already existed, and the change is where it is called. See
-chapter 11, which is as much about how the fault was found as about the fix.
+chapter 19, which is as much about how the fault was found as about the fix.
 
 Raising the budget then found a third fault that had nothing to do with either:
 a **stack overflow**. The kernel recurses over terms, a reduced term can be very
@@ -303,7 +307,7 @@ constructor, and not a gap in the rules.
 
 Both caches are now **done**, and they are the first changes that moved the
 declaration count rather than only the time. Together they took 1,287
-declarations out of `blocked`, and 1,253 of those passed. Chapter 10 reports
+declarations out of `blocked`, and 1,253 of those passed. Chapter 18 reports
 them, including the threshold sweep and the one rule that keeps a cache in a
 proof checker honest: a hash **finds** an answer, and `alpha_eq` **decides**
 whether to trust it, because two terms can share a hash and a checker may not be
@@ -316,7 +320,7 @@ then report the wrong cause: "reduction did not stop" for a declaration that was
 correct and simply expensive. It changed no verdict and cost about 33 s at the
 larger budget. We kept the removal for the message and for one constant fewer.
 
-**Lazy δ by height is retired, unwritten.** Chapter 12 followed the method onto
+**Lazy δ by height is retired, unwritten.** Chapter 20 followed the method onto
 `Nat.mul_add_div._f` and the profile showed the two heads already **matching**,
 so a rule that picks the taller of two different heads had nothing to do. That
 is the second plan this roadmap has dropped without writing a line of it, and
@@ -330,7 +334,7 @@ One item is left:
 
 **The budget matters again, and that is because the work got cheaper.** Chapter
 12 recorded "the budget is no longer the lever" and that sentence was true for
-the code it was measured on. After chapter 13 it was false: a larger budget buys
+the code it was measured on. After chapter 21 it was false: a larger budget buys
 real work once the waste is gone. A conclusion about a knob is only true for the
 code you measured it on.
 
@@ -339,16 +343,16 @@ code you measured it on.
 | 20,000,000, the default | 54,308 | 115 | 252 s |
 | 800,000,000 | **57,264** | 68 | 2,637 s |
 
-Those two rows are Lean 4.27 and the numbers that chapters 13 to 15 measured.
-Chapter 16 re-measured against Lean **4.35.0-rc3**, which is a different and
+Those two rows are Lean 4.27 and the numbers that chapters 21 to 23 measured.
+Chapter 24 re-measured against Lean **4.35.0-rc3**, which is a different and
 larger prelude, and the first row of the new table is the one to compare
 against:
 
 | settings, Lean 4.35.0-rc3 | checked of 59,349 | failed | blocked | time |
 |---|---|---|---|---|
-| default, chapter 16 | 55,754 | 71 | 3,524 | 199 s |
-| default, after chapter 17's honest meter | 55,835 | 72 | 3,442 | 231 s |
-| default, after chapter 18 | 55,835 | 72 | 3,442 | **155 s** |
+| default, chapter 24 | 55,754 | 71 | 3,524 | 199 s |
+| default, after chapter 25's honest meter | 55,835 | 72 | 3,442 | 231 s |
+| default, after chapter 26 | 55,835 | 72 | 3,442 | **155 s** |
 
 Every library the toolchain ships, with the same binary as the last row:
 
@@ -358,16 +362,16 @@ Every library the toolchain ships, with the same binary as the last row:
 | `Std` | 99,619 | 95,237 | 120 | 268 s |
 | `Lean`, the compiler | 171,817 | 150,420 | 127 | 299 s |
 
-Chapter 18 took **34%** off and moved no verdict. Its profile says where the
+Chapter 26 took **34%** off and moved no verdict. Its profile says where the
 rest is: **two fifths of this kernel is still building term nodes and dropping
 them**, and `mimalloc` made each one cheaper without making them fewer.
 
-Making them fewer is the next tier, and chapter 18 section 18.9 measured how
+Making them fewer is the next tier, and chapter 26 section 26.9 measured how
 many there are to make: **82% of the nodes this kernel builds, it has built
 already.** 71,312,529 against 15,582,296, on one declaration.
 
 It also ruled one cure out. Sharing a node **after** it is built is slower, both
-with a hash map and with a direct-mapped cache in 2 MB, because section 18.1 made
+with a hash map and with a direct-mapped cache in 2 MB, because section 26.1 made
 an allocation cheaper than remembering that you did not need one. The saving has
 to be collected where the duplicate is **built**, and the largest of those sites
 is the application spine that every reduction step rebuilds.
@@ -376,22 +380,22 @@ So the list of cures is one shorter:
 
 | cure | state |
 |---|---|
-| a term as a pointer plus a shift | **ruled out**, chapter 15 section 15.7 |
-| sharing a node after it is built | **ruled out**, chapter 18 section 18.9 |
+| a term as a pointer plus a shift | **ruled out**, chapter 23 section 23.7 |
+| sharing a node after it is built | **ruled out**, chapter 26 section 26.9 |
 | a cache that persists across declarations | untested. It needs the driver to stop building a fresh `TypeChecker` per declaration, which is a borrow and not a measurement. |
 | an evaluator that never builds the spine | untested, and now the strongest. It is also the only cure for the 40 declarations that run out of stack. |
 
 And one row of the old table was never a timeout. At a hundred times the default
 budget the run **crashed**, after 16,583 declarations, on a 4 GB stack. Chapter
-16 section 16.4 has it. The kernel now measures the stack it has used and
+16 section 24.4 has it. The kernel now measures the stack it has used and
 reports `OutOfStack`, so a large budget is a setting and not a way to kill the
 process.
 
 At the larger budget that is **99.57%**, and the 68 that remain are one family:
-`Int32`, `Int64`, `ISize`. Chapter 15 asks **nine** questions of them. Eight answers changed nothing,
+`Int32`, `Int64`, `ISize`. Chapter 23 asks **nine** questions of them. Eight answers changed nothing,
 including the budget at two hundred times the default and one of the two
-rewrites chapter 14 had named. The ninth, **lazy δ by height**, is now built and
-bought twelve declarations: chapter 12 had retired it on the evidence of a
+rewrites chapter 22 had named. The ninth, **lazy δ by height**, is now built and
+bought twelve declarations: chapter 20 had retired it on the evidence of a
 single case, and 31% of the comparisons in this family turn out to need it.
 
 What is left is normalisation by evaluation, and that is a different project.
@@ -413,15 +417,15 @@ That one passes at a budget of **800,000,000**, in thirty seconds. So the
 remaining question is the budget and the time it costs, not whether the kernel
 can do it.
 
-**What chapter 14 took from the other external checkers**, and what it did not:
+**What chapter 22 took from the other external checkers**, and what it did not:
 
 - **Taken:** three-valued proof irrelevance, from a `nanoda` bug report. It
   bought nothing on our input and is right anyway.
 - **Taken:** a batched β spine, from `nanoclo`'s delayed instantiation. Our step
   was the O(n²) version it names.
-- **Ruled out by measurement**, chapter 15 §15.7: a term as a pointer **plus a
+- **Ruled out by measurement**, chapter 23 §23.7: a term as a pointer **plus a
   shift**, as `nanobruijn` does. Eight million lifts in one declaration and
-  **not one did any work**, because the `loose` number chapter 9 caches already
+  **not one did any work**, because the `loose` number chapter 17 caches already
   makes a lift of a closed term free. That rewrite would replace something that
   costs nothing.
 - **Not taken:** normalisation by evaluation, which the fastest checker in the
@@ -452,14 +456,14 @@ crashes   none, at any setting
 ```
 
 99.75%, and the 45 failures that remain are one family of signed integer
-lemmas. **No rule is missing**, and chapter 16, section 16.7, is the correction
-of the sentence that chapter 15 ended on.
+lemmas. **No rule is missing**, and chapter 24, section 24.7, is the correction
+of the sentence that chapter 23 ended on.
 
 **There is an oracle for speed now, and it is not us.** `leanchecker Init`, the
 kernel of the Lean that made this export, re-checks the whole prelude in
-**12 seconds** and fails nothing. Chapter 17 has the table. That number is the
+**12 seconds** and fails nothing. Chapter 25 has the table. That number is the
 one to work against, because fifteen chapters of measuring against our own last
-week is how chapter 15 reached a conclusion that chapter 16 had to take back.
+week is how chapter 23 reached a conclusion that chapter 24 had to take back.
 
 Those 45 split in two, and the split is what to work on next:
 
@@ -469,7 +473,7 @@ Those 45 split in two, and the split is what to work on next:
   from 8 GB to 16 GB and **not one of them closed**. They need Rust stack
   because the descent into a major premise is a Rust recursion, so the cure is
   an evaluator with an explicit stack, on the heap. That is the measured case
-  for normalisation by evaluation, and it replaces the guess that chapter 14
+  for normalisation by evaluation, and it replaces the guess that chapter 22
   recorded.
 
 The first number cannot grow without a bigger fixture, and the ordering of a
@@ -489,19 +493,19 @@ The project now uses five, and each one found something the others could not.
 | **another checker**, `leanchecker` | how far off our **speed** is | 12 seconds against our 155, on the same input |
 | **a library nobody chose for us** | rules that one library does not need | five nested `_sizeOf` lemmas of `Lean` that we refuse and Lean accepts |
 
-The fourth and fifth are new in chapter 17. The fourth changes what the others
+The fourth and fifth are new in chapter 25. The fourth changes what the others
 mean, because a project that measures only against itself can learn that it is
 improving and nothing else. The fifth is the cheapest of the five and it waited
 sixteen chapters: **run it on a library you did not choose.**
 
-The third is still the one to grow. See chapter 5, section 5.8, for the full
+The third is still the one to grow. See chapter 13, section 13.8, for the full
 inventory of what a checker must check and where we stand.
 
 ## Coverage is part of the oracle
 
-Chapter 3 said the ground truth beats a hand written test. Chapter 4 found the
+Chapter 11 said the ground truth beats a hand written test. Chapter 12 found the
 other half of that: **one real module exercises only the paths that one module
-needs.** The chapter 3 fixture left the NDJSON reader at 72%, because it has no
+needs.** The chapter 11 fixture left the NDJSON reader at 72%, because it has no
 `letE`, no `mdata`, no literal, no `axiom`, no `opaque`, and no `quot`.
 
 So the two are complementary, not substitutes:
@@ -511,8 +515,32 @@ So the two are complementary, not substitutes:
 - **Coverage** finds the paths that no data took. It found a driver that could
   not be tested, and two dead branches in `level.rs`.
 
-Target every branch that an input can reach, not a round number. See chapter 4,
-section 4.6, for the 51 lines that stay and why.
+Target every branch that an input can reach, not a round number. See chapter 12,
+section 12.6, for the 51 lines that stay and why.
 
 That beats a hand written test as a correctness oracle, and it is how the other
 independent checkers were built.
+
+## References
+
+The plan above rests on four claims about the real Lean. These are the sources
+for each one.
+
+| The claim | The source |
+|---|---|
+| the five stages, and that only stage 4 must be trusted | de Moura and Ullrich, 2021. <https://lean-lang.org/papers/lean4.pdf> |
+| a file can extend the grammar, so stages 1 and 2 need a table and not a `match` | Ullrich and de Moura, 2020. <https://arxiv.org/abs/2001.10490> |
+| an export file is the right checkpoint, and a second checker is the point of it | `lean4export` and `lean4checker`. <https://github.com/leanprover/lean4export>, <https://github.com/leanprover/lean4checker> |
+| the rules our kernel must have, and no others | Carneiro, *The Type Theory of Lean*. <https://github.com/digama0/lean-type-theory> |
+
+Two more that set the standard this project is measured against.
+
+- The Lean Kernel Arena, for what an independent checker is expected to accept,
+  to refuse, and to cost. <https://arena.lean-lang.org/>
+- *The Lean Language Reference*, validating proofs, for the project's own
+  statement of why an external checker exists.
+  <https://lean-lang.org/doc/reference/latest/ValidatingProofs/>
+
+Every source the chapters use is in [the references](REFERENCES.md).
+
+[`Expr::size_up_to`]: ../crates/rean_kernel/src/expr.rs

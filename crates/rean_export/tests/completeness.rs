@@ -1,8 +1,8 @@
-//! Chapter 4. Does the checker handle what a beginner writes?
+//! Chapter 12. Does the checker handle what a beginner writes?
 //!
-//! Every test here failed before chapter 4. Each one is a shape that a person
+//! Every test here failed before chapter 12. Each one is a shape that a person
 //! writes on their first day with Lean, and each one needs a rule that the
-//! fixture of chapter 3 never exercised.
+//! fixture of chapter 11 never exercised.
 
 use rean_kernel::{Expr, Level, TypeChecker};
 
@@ -29,7 +29,7 @@ fn add(a: Expr, b: Expr) -> Expr {
 
 #[test]
 fn arithmetic_on_literals_computes() {
-    // Before chapter 4 this unfolded through `Nat.rec` once per unit and got
+    // Before chapter 12 this unfolded through `Nat.rec` once per unit and got
     // stuck in a wall of `Nat.brecOn`.
     let m = module();
     let mut tc = TypeChecker::new(&m.env);
@@ -135,7 +135,7 @@ fn a_huge_literal_stays_stuck_rather_than_lie() {
 
 #[test]
 fn the_fixture_still_passes_with_every_new_rule() {
-    // Chapter 4 added five rules. None of them may break chapter 3.
+    // Chapter 12 added five rules. None of them may break chapter 11.
     let m = module();
     let mut known = rean_kernel::Environment::new();
     let mut failures = Vec::new();

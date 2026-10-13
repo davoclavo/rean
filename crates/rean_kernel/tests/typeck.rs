@@ -1,4 +1,4 @@
-//! Executable examples for `docs/01-the-type-checker.md` and chapter 2.
+//! Executable examples for `docs/09-the-type-checker.md` and chapter 10.
 
 use rean_core::Name;
 use rean_kernel::positivity::PositivityError;
@@ -42,7 +42,7 @@ fn a_def(name: &str, ty: Expr, value: Expr) -> Declaration {
     })
 }
 
-// --- chapter 1: the headline result ---------------------------------------
+// --- chapter 9: the headline result ---------------------------------------
 
 #[test]
 fn the_identity_proof_checks() {
@@ -78,7 +78,7 @@ fn a_sort_sits_in_the_next_sort_up() {
     assert_eq!(tc.infer_type(&Expr::type_(4)).unwrap().pretty(), "Type 5");
 }
 
-// --- chapter 1: the combinators -------------------------------------------
+// --- chapter 9: the combinators -------------------------------------------
 
 #[test]
 fn the_k_combinator_checks() {
@@ -178,7 +178,7 @@ fn the_s_combinator_checks() {
     );
 }
 
-// --- chapter 1: the application rule --------------------------------------
+// --- chapter 9: the application rule --------------------------------------
 
 #[test]
 fn applying_the_identity_gives_the_concrete_proposition() {
@@ -201,7 +201,7 @@ fn the_result_type_depends_on_the_argument_value() {
     assert_eq!(tc.lctx().pretty(&at_b), "b → b");
 }
 
-// --- chapter 1: reduction --------------------------------------------------
+// --- chapter 9: reduction --------------------------------------------------
 
 #[test]
 fn whnf_does_a_beta_step() {
@@ -257,7 +257,7 @@ fn a_let_in_the_expected_type_still_matches() {
     assert!(tc.check(&hp, &alias).is_ok());
 }
 
-// --- chapter 2: the delta rule --------------------------------------------
+// --- chapter 10: the delta rule --------------------------------------------
 
 #[test]
 fn an_empty_environment_does_not_unfold_a_constant() {
@@ -312,7 +312,7 @@ fn the_wrong_number_of_universe_arguments_fails() {
     assert!(matches!(err, TypeError::LevelArity { .. }), "{err}");
 }
 
-// --- chapter 2: the iota rule ---------------------------------------------
+// --- chapter 10: the iota rule ---------------------------------------------
 
 /// Builds `inductive Bool2 | f | t`, with its recursor.
 ///
@@ -453,7 +453,7 @@ fn iota_needs_enough_arguments() {
     assert!(tc.whnf(&partial).unwrap().alpha_eq(&partial));
 }
 
-// --- chapter 2: eta and proof irrelevance now work -----------------------
+// --- chapter 10: eta and proof irrelevance now work -----------------------
 
 #[test]
 fn eta_makes_a_wrapper_equal_to_the_function() {
@@ -601,7 +601,7 @@ fn check_declaration_rejects_a_bad_definition() {
     assert!(tc.check_declaration(&bad).is_err());
 }
 
-// --- chapter 4: the quotient rules ----------------------------------------
+// --- chapter 12: the quotient rules ----------------------------------------
 
 /// Builds the four `Quot` constants.
 ///
@@ -666,7 +666,7 @@ fn a_quotient_rule_waits_for_quot_mk() {
     assert!(tc.whnf(&term).unwrap().alpha_eq(&term));
 }
 
-// --- chapter 4: a bad inductive declaration is refused --------------------
+// --- chapter 12: a bad inductive declaration is refused --------------------
 
 #[test]
 fn an_inductive_that_could_prove_false_is_refused() {

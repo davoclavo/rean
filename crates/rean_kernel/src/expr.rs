@@ -159,12 +159,12 @@ impl Sub {
     /// structural confirmation, the clone of the node that was found, and the
     /// drop of the one just built, with a decrement for each child again.
     ///
-    /// Chapter 18 made an allocation cheap. It is now cheaper than remembering
+    /// Chapter 26 made an allocation cheap. It is now cheaper than remembering
     /// that you did not need one.
     ///
     /// The 82% is still real, and it still says where the work is. It cannot be
     /// collected **here**, after the node exists. It has to be collected at the
-    /// call sites that build the duplicate, in the way chapter 9 taught
+    /// call sites that build the duplicate, in the way chapter 17 taught
     /// [`Expr::instantiate_at`] to return "nothing changed" and keep the `Arc`
     /// it already had.
     pub fn new(expr: Expr) -> Sub {
@@ -399,7 +399,7 @@ fn hash_name(name: &Name) -> u64 {
 /// Hashes a term, in constant time, from the hashes of its children.
 ///
 /// This is the third number every node caches, and it exists so that the
-/// checker can **look a term up**. See chapter 10.
+/// checker can **look a term up**. See chapter 18.
 ///
 /// The hash is a **filter and not a decision.** Two different terms can share a
 /// hash, so a cache that finds an entry must still confirm it with
@@ -513,7 +513,7 @@ pub enum Expr {
     /// `Vec` allocates nothing, while an `Arc<[Level]>` always allocates its
     /// header. The change made the common case worse to make the rare case
     /// better, and the slice that holds the declaration blocking 2,283 others
-    /// said so: 16.77 s against 16.97 s. See chapter 18.
+    /// said so: 16.77 s against 16.97 s. See chapter 26.
     Const { name: Name, levels: Vec<Level> },
     /// An application of one argument. `f x y` is `App(App(f, x), y)`.
     App { fun: Sub, arg: Sub },
@@ -770,17 +770,17 @@ impl Expr {
     /// Like [`Self::instantiate_levels`], and returns `None` when nothing
     /// changed.
     ///
-    /// This is chapter 9's rule, applied to the one substitution that never
+    /// This is chapter 17's rule, applied to the one substitution that never
     /// got it. [`Self::instantiate_at`] and [`Self::lift`] already return
     /// "nothing changed" so that an unchanged subterm keeps its [`Arc`], and
-    /// the profile of chapter 9 moved by a factor of fifteen when they did.
+    /// the profile of chapter 17 moved by a factor of fifteen when they did.
     ///
     /// The δ rule asks for this on **every** unfold of a universe polymorphic
     /// definition, and most of such a value holds no universe parameter at all.
     /// On one declaration of the prelude the kernel unfolds `Nat.casesOn`
     /// 283,803 times and `Nat.sub._f` 220,848 times, and the old version
     /// rebuilt every node of both values each time, only to drop the copy a
-    /// moment later. Chapter 15, section 15.6, tried to cache those answers
+    /// moment later. Chapter 23, section 23.6, tried to cache those answers
     /// instead and measured nothing, which is the clue this reading explains:
     /// a cache cannot help when the work it saves was never needed.
     pub fn instantiate_levels_opt(&self, params: &[Name], args: &[Level]) -> Option<Expr> {
@@ -983,7 +983,7 @@ impl Expr {
         // [`Self::collect_constants`] walks the graph, with a visited set keyed
         // by the address of the shared node, because walking it as a tree cost
         // two minutes on one declaration of `Std`. This function has the same
-        // shape and the same hazard, so chapter 18 gave it the same treatment
+        // shape and the same hazard, so chapter 26 gave it the same treatment
         // and then measured it:
         //
         // | input | tree walk | graph walk |
@@ -1057,12 +1057,12 @@ impl Expr {
     /// ```
     ///
     /// This method still compares [`BinderInfo`]. Whether the kernel should
-    /// ignore that field as well is a separate question, and chapter 2 revisits
+    /// ignore that field as well is a separate question, and chapter 10 revisits
     /// it.
     pub fn alpha_eq(&self, other: &Expr) -> bool {
         // **A hash may not confirm an answer, and it may refuse one.**
         //
-        // Chapter 10 states the first half, because two terms can share a hash.
+        // Chapter 18 states the first half, because two terms can share a hash.
         // The second half is free and this function never used it: two terms
         // with **different** hashes cannot be alpha-equal, so one comparison of
         // two numbers settles most calls without walking anything.

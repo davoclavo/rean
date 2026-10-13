@@ -1,4 +1,16 @@
-# Chapter 0 — Introduction to the kernel
+# Chapter 0 — The foundations, in one file
+
+> **This is the appendix, and not the first read.**
+> [Part I of the book](book/README.md) is this same material in eight short
+> chapters, with more examples, a `Try it` section each, and three questions at
+> the end of each one. A first-time reader should start there and be kind to
+> themselves.
+>
+> **Read this file when** you want every rule in one place, or when a later
+> chapter points at a section of it.
+>
+> **A new word?** Read [the glossary](GLOSSARY.md). **A source?** Read
+> [the references](REFERENCES.md). **Lost?** Read [the guide](README.md).
 
 This chapter answers one question: **what is the smallest thing that can check a
 proof?**
@@ -150,7 +162,7 @@ One warning about our code. `Expr::Lam` still keeps a `binder_name` field, and
 Expr::lam("x", nat(), Expr::bvar(0)) != Expr::lam("y", nat(), Expr::bvar(0))
 ```
 
-The name exists only for the printer. A real `is_def_eq` must skip it. Chapter 1
+The name exists only for the printer. A real `is_def_eq` must skip it. Chapter 9
 adds `alpha_eq` for that job.
 
 ---
@@ -403,8 +415,8 @@ type is a proposition, **whatever the size of `A` is**. So both of these are a
 `Prop`:
 
 ```lean
-∀ (p : Prop), p → p             -- Sort (imax 1 0) = Sort 0
-∀ (α : Type 99), α = α          -- Sort (imax 100 0) = Sort 0
+#check ∀ (p : Prop), p → p        -- ∀ (p : Prop), p → p : Prop
+#check ∀ (α : Type 9), α = α      -- ∀ (α : Type 9), α = α : Prop
 ```
 
 Walk the first one. The domain is `Prop`, and `Prop : Sort 1`, so `u` is 1. The
@@ -415,13 +427,21 @@ Look at what just happened. The term quantifies over **every** proposition, and
 the result is itself a proposition. So the term quantifies over a collection that
 holds the term. That self-reference is what the word impredicative means.
 
-The second line quantifies over a huge universe, and `α = α` is a `Prop`, so the
-whole term stays at level 0. The test is `a_function_into_prop_stays_in_prop`.
+Walk the second one, and count carefully. The domain is `Type 9`, which is
+`Sort 10`, and `Sort 10 : Sort 11`, so `u` is 11. The body `α = α` is a `Prop`,
+so `v` is 0. The whole term is `imax 11 0 = 0`. A huge domain, and the term
+stays at level 0. The test is `a_function_into_prop_stays_in_prop`.
 
-One trap. `∀ (α : Type 99), α → α` is **not** a `Prop`. Here `α : Type 99`, so
-`α : Sort 100`, so the body `α → α` sits at `imax 100 100 = 100`. The whole term
-is `imax 100 100 = 100`, which is `Type 99`. The body must land at level 0 for
-`imax` to collapse. A big domain alone is not enough.
+One trap, and Lean prints it for you:
+
+```lean
+#check ∀ (α : Type 9), α → α      -- (α : Type 9) → α → α : Type 10
+```
+
+That one is **not** a `Prop`. Here `u` is 11 again, and the body `α → α` sits
+at `imax 10 10 = 10`, so `v` is 10. The whole term is `imax 11 10 = 11`, which
+is `Sort 11`, which prints as `Type 10`. The body must land at level 0 for
+`imax` to collapse. A large domain alone is not enough.
 
 `Type` does not work this way. A function type over `Type u` lands in
 `Type (max u v)`. The level grows. `Type` is predicative.
@@ -955,7 +975,7 @@ trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
   the compiler's own evaluation rather than the kernel's. `native_decide` uses
   them, and a proof that rests on one asks you to trust the compiler too.
 
-`#print axioms myTheorem` lists which ones a theorem uses. Chapter 6 adds the
+`#print axioms myTheorem` lists which ones a theorem uses. Chapter 14 adds the
 same report here, as `Environment::axioms_of`.
 
 ---
@@ -1028,20 +1048,17 @@ trust: no accepted declaration rests on an axiom
 
 Two fixtures, 95 declarations of real Lean, every one checked. See
 [the roadmap](ROADMAP.md) for what is still missing, and
-[chapter 7](07-mutual-and-nested.md) section 7.5 for the inventory.
+[chapter 15](15-mutual-and-nested.md) section 15.5 for the inventory.
 
 ### Where to read next
 
-| Chapter | What it adds |
+| If you want | Go to |
 |---|---|
-| [1](01-the-type-checker.md) | `infer_type`, `is_def_eq`, `whnf`. The first real proof. |
-| [2](02-the-environment.md) | the environment, and the rest of the reduction rules |
-| [3](03-the-ground-truth.md) | reading a real Lean export file |
-| [4](04-making-it-work.md) | `Nat` literals, K-like ι, quotients, positivity, coverage |
-| [5](05-what-a-checker-must-check.md) | the red team. It accepted a proof of `False`. |
-| [6](06-what-a-theorem-rests-on.md) | derived premises, the axiom report, unsafe isolation |
-| [7](07-mutual-and-nested.md) | mutual groups, nesting, field universes |
-| [8](08-the-frontend.md) | the frontend: text to tokens to a tree. Independent of this chapter. |
+| this material slowly, with examples and exercises | [Part I of the book](book/README.md) |
+| the whole reading order, part by part | [the guide](README.md) |
+| the code that runs these rules | [the type checker](09-the-type-checker.md) |
+| every rule the environment adds | [the environment](10-the-environment.md) |
+| the first stage of the pipeline, which needs none of this | [the frontend](16-the-frontend.md) |
 
 ---
 
@@ -1088,12 +1105,72 @@ Two fixtures, 95 declarations of real Lean, every one checked. See
 
 ---
 
-## 0.19 References
+## 0.19 How other systems do it
 
-- *The Lean 4 Theorem Prover and Programming Language*, de Moura and Ullrich.
-- *Beyond Notations: Hygienic Macro Expansion for Theorem Proving Languages*,
-  Ullrich and de Moura.
-- The Lean 4 source. `src/kernel` is the part that this chapter describes.
-- Our code. `crates/rean_kernel/src/level.rs`,
-  `crates/rean_kernel/src/expr.rs`, and
-  `crates/rean_kernel/tests/universes.rs`.
+Lean is one point in a space, and the other points are the fastest way to see
+what Lean chose.
+
+| System | The home of a proposition | How it decides sameness | The part you must trust |
+|---|---|---|---|
+| **Lean 4** | `Prop`, which is `Sort 0`. It is impredicative, and the kernel treats two proofs of one proposition as equal. | β δ ι ζ η, proof irrelevance, and rules for `Nat` | `src/kernel`, about 6,000 lines of C++ |
+| **Rocq**, formerly Coq | `Prop`, impredicative. `SProp` is the sort with proof irrelevance. | the same Greek letters, and **cumulativity** as well | its own kernel. The tool `coqchk` re-checks a whole library. |
+| **Agda** | `Set u` for data, and an optional `Prop` with irrelevance | β δ ι η, by normalisation by evaluation | the type checker itself. There is **no** small kernel. |
+| **Isabelle/HOL** | a formula of higher order logic. There are no dependent types. | rewriting, inside a proof, not a conversion rule | an LCF kernel. A theorem is a value that only an inference rule can build. |
+| **Metamath Zero** | a formula of a chosen axiom system | nothing. A proof names every step, so the checker never computes. | a verifier of a few thousand lines |
+
+Four differences are worth a sentence each.
+
+- **Cumulativity.** In Rocq, `Type 0` is a subtype of `Type 1`. In Lean it is
+  not, and a declaration takes its universe levels as parameters instead.
+  Section 0.9 is where that choice shows.
+- **Proof irrelevance.** Lean puts it in the kernel, for `Prop` itself. Rocq
+  gives it to a second sort, `SProp`, because adding it to `Prop` breaks other
+  things that Rocq wants. Chapter 10, section 10.7 implements the rule and finds
+  the bug it exposes.
+- **A solver in place of a kernel.** A tool such as Dafny or F★ sends the hard
+  part to an SMT solver. That is powerful, and it ends the De Bruijn criterion:
+  you must then trust a large program that was not written to be read.
+- **The nearest thing in an ordinary compiler.** GHC can re-check its own
+  intermediate language with the flag `-dcore-lint`. The idea is the same as a
+  kernel, and the status is not. It is a debugging aid, and nobody ships a
+  proof that rests on it.
+
+One last likeness. Rust and Haskell erase every type before the program runs,
+because nothing computes with a type. Lean erases a proof for the same reason.
+Chapter 27 is where that matters.
+
+## 0.20 References
+
+**Our code**
+
+- `crates/rean_kernel/src/level.rs`, `expr.rs`, and
+  `crates/rean_kernel/tests/universes.rs`
+
+**Lean's own source**
+
+- `src/kernel/expr.h`, the eleven term formers
+- `src/kernel/level.h`, a universe level
+- `src/kernel/type_checker.cpp`, the two algorithms of section 0.13
+- `src/Init/Prelude.lean`, which declares `Quot.sound`, `sorryAx` and
+  `Classical.choice` as axioms
+
+**Read more**
+
+- Carneiro, *The Type Theory of Lean*, for the rules as rules.
+  <https://github.com/digama0/lean-type-theory>
+- *The Lean Language Reference*, the type system.
+  <https://lean-lang.org/doc/reference/latest/The-Type-System/>
+- *Theorem Proving in Lean 4*, for propositions as types with Lean's own words.
+  <https://lean-lang.org/theorem_proving_in_lean4/>
+- de Bruijn, *Lambda calculus notation with nameless dummies*, 1972, for
+  section 0.5. DOI [10.1016/1385-7258(72)90034-0](https://doi.org/10.1016/1385-7258%2872%2990034-0)
+- Coquand and Huet, *The Calculus of Constructions*, 1988, for the theory Lean
+  extends. DOI [10.1016/0890-5401(88)90005-3](https://doi.org/10.1016/0890-5401%2888%2990005-3)
+- Harper and Pollack, *Type checking with universes*, 1991, for section 0.9.
+  DOI [10.1016/0304-3975(90)90108-T](https://doi.org/10.1016/0304-3975%2890%2990108-T)
+- Barendregt and Barendsen, *Autarkic computations in formal proofs*, 2002, for
+  the De Bruijn criterion of section 0.16.
+  DOI [10.1023/A:1015761529444](https://doi.org/10.1023/A:1015761529444)
+- Carneiro, *Metamath Zero*, 2019, for how small a trusted checker can get.
+  <https://arxiv.org/abs/1910.10703>
+- Every source in one list: [the references](REFERENCES.md).

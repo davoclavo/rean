@@ -1,6 +1,15 @@
-# Chapter 2 — The environment and the five equations
+# Chapter 10 — The environment and the five equations
 
-Chapter 1 could check a term but it could not **name** one. Nothing had a type
+> **Where you are.** Chapter 10 of 28, in Part II of [the guide](README.md).
+>
+> **Before this.** [The type checker](09-the-type-checker.md), and Part I
+> chapters [6](book/06-inductive-types.md) and
+> [7](book/07-definitional-equality.md).
+>
+> **After it you can** follow every reduction rule a Lean kernel has, and say
+> what each of the eight declarations gives the checker.
+
+Chapter 9 could check a term but it could not **name** one. Nothing had a type
 unless the local context held it, so `Nat` was an error and `3` had no type.
 
 This chapter adds the environment. That one addition unlocks four of the five
@@ -12,9 +21,9 @@ devbox run -- cargo test -p rean_kernel
 
 ---
 
-## 2.1 Why the free functions became a struct
+## 10.1 Why the free functions became a struct
 
-Chapter 1 had three free functions. Now they all need the environment, and they
+Chapter 9 had three free functions. Now they all need the environment, and they
 call each other, so threading two parameters through every call would be noise.
 
 ```rust
@@ -37,7 +46,7 @@ Two signatures changed shape as well. `whnf` and `is_def_eq` now return a
 
 ---
 
-## 2.2 The environment
+## 10.2 The environment
 
 A map from [`Name`] to one of eight declarations.
 
@@ -55,12 +64,12 @@ A map from [`Name`] to one of eight declarations.
 Note `Opaque`. It has a value and `unfoldable_value` returns `None` for it. A
 reader of the code should see that asymmetry and ask why, so the method says so.
 
-The field names follow the `lean4export` format on purpose. Chapter 3 reads a
+The field names follow the `lean4export` format on purpose. Chapter 11 reads a
 real Lean file straight into these structs with no translation layer.
 
 ---
 
-## 2.3 δ: a definition unfolds
+## 10.3 δ: a definition unfolds
 
 ```rust
 if let Some(decl) = self.env.get(name)
@@ -86,7 +95,7 @@ definition. The test is `delta_substitutes_the_universe_arguments`.
 
 ---
 
-## 2.4 ι: a recursor meets a constructor
+## 10.4 ι: a recursor meets a constructor
 
 This is the largest new rule. It needs the argument layout to be exact:
 
@@ -134,7 +143,7 @@ stuck. That is correct, and the test is `iota_waits_for_a_constructor`.
 
 ---
 
-## 2.5 Projections
+## 10.5 Projections
 
 Two separate jobs, and both are needed.
 
@@ -163,7 +172,7 @@ earlier field and substitutes it in.
 
 ---
 
-## 2.6 η
+## 10.6 η
 
 ```rust
 fn eta_eq(&mut self, lam: &Expr, other: &Expr) -> TypeResult<bool> {
@@ -206,7 +215,7 @@ its type.** Section 2.7 found it first.
 
 ---
 
-## 2.7 Proof irrelevance, and a bug it exposed
+## 10.7 Proof irrelevance, and a bug it exposed
 
 ```rust
 if a.has_loose_bvars() || b.has_loose_bvars() { return Ok(false) }
@@ -223,15 +232,15 @@ proposition `P`, and the question is whether `P` itself lives in `Sort 0`.
 
 ### The bug
 
-Chapter 1 compared two binder bodies directly:
+Chapter 9 compared two binder bodies directly:
 
 ```rust
-// chapter 1, and wrong once proof irrelevance exists
+// chapter 9, and wrong once proof irrelevance exists
 if self.is_def_eq(t1, t2)? && self.is_def_eq(b1, b2)? { ... }
 ```
 
 That works for a purely structural comparison. Both bodies sit under one binder
-each, so the two index spaces line up with no renumber. Chapter 1 even called
+each, so the two index spaces line up with no renumber. Chapter 9 even called
 that a de Bruijn dividend.
 
 But each body still holds a **loose** bound variable. Proof irrelevance calls
@@ -258,7 +267,7 @@ for its type.
 
 ---
 
-## 2.8 Level normalization
+## 10.8 Level normalization
 
 `is_def_eq` compares two universe levels often, and two different shapes can
 mean one level. `Level::normalize` applies three rules:
@@ -274,7 +283,7 @@ harder pair of open levels can still fail to match.
 
 ---
 
-## 2.9 `check_declaration`
+## 10.9 `check_declaration`
 
 The entry point of a proof checker over a whole module:
 
@@ -299,12 +308,12 @@ and a circular definition could prove itself.
 
 ---
 
-## 2.10 Where the five equations stand
+## 10.10 Where the five equations stand
 
 | Rule | Status |
 |---|---|
-| β beta | done in chapter 1 |
-| ζ zeta | done in chapter 1 |
+| β beta | done in chapter 9 |
+| ζ zeta | done in chapter 9 |
 | δ delta | **done** |
 | ι iota | **done** |
 | η eta | **done** |
@@ -322,11 +331,11 @@ Still missing, and each is honest in the module documentation:
 | the quotient rules | `Quot` is stored and never computed |
 
 The last three are what separates a useful checker from a trustworthy one. See
-chapter 3, section 3.8.
+chapter 11, section 11.8.
 
 ---
 
-## 2.11 Exercises
+## 10.11 Exercises
 
 1. `unfoldable_value` returns `None` for `Opaque`, but `check_declaration` still
    checks its value. Explain both.
@@ -336,7 +345,8 @@ chapter 3, section 3.8.
 4. Why does `proof_irrelevant` call `infer_type` twice?
 5. `binders_eq` pushes one free variable and uses it for both bodies. What goes
    wrong with two different free variables?
-6. `whnf` has a step budget. The theory says reduction terminates, so why?
+6. `whnf` has a limit on the number of steps it may take. The later chapters
+   call that limit a budget. The theory says reduction ends, so why have one?
 
 ### Answers
 
@@ -354,3 +364,78 @@ chapter 3, section 3.8.
    comparison meaningful.
 6. A corrupt input file does not have to obey the theory. The budget turns an
    infinite loop into an error message.
+
+---
+
+## 10.12 How other systems do it
+
+The Greek letters are older than Lean. They come from the literature on the
+Calculus of Constructions, and Rocq uses the same ones. The differences are in
+which rules the kernel has.
+
+| Rule | Lean 4 | Rocq | Agda |
+|---|---|---|---|
+| β, ζ | yes | yes | yes |
+| δ | yes, and `opaque` turns it off | yes | yes |
+| ι | on a **recursor** | on `match` and `fix`, with a guard condition | on a pattern match, with a termination check |
+| η for a function | yes | yes | yes |
+| η for a structure | yes, and a later chapter, [structures and cost](17-structures-and-cost.md), builds it | yes, for a record with primitive projections | yes, for a record |
+| proof irrelevance | yes, for `Prop`, in the kernel | only for `SProp` | by an irrelevance annotation, and for `Prop` |
+| a projection as a term former | yes, `Expr::Proj` | yes, a primitive projection | yes, a record field |
+
+Three notes.
+
+- **ι is the big one.** Lean gives you a recursor and the kernel computes with
+  it. Rocq gives you `match` and `fix`, and its kernel then needs a guard
+  condition to be sure the recursion ends. One rule each way: Lean moves the
+  work into the declaration of the inductive type, and Rocq keeps it in the
+  conversion check.
+- **A projection exists for cost, not for power.** `p.1` is what `S.rec` would
+  compute anyway. Both systems added a term former for it because a structure
+  is everywhere, and the chapters on cost are why.
+- **Universe levels.** Lean normalises a level expression built from `0`,
+  `succ`, `max`, `imax` and a parameter. Rocq keeps a graph of constraints
+  between universe variables and solves it. Section 2.8 is the small end of
+  that job, and it says where it is weaker than Lean's own.
+
+## 10.13 References
+
+**Our code**
+
+- `crates/rean_kernel/src/environment.rs`, the eight declarations
+- `crates/rean_kernel/src/typeck.rs`, every rule in this chapter
+- `crates/rean_kernel/src/level.rs`, the normal form of section 10.8
+- `crates/rean_kernel/tests/typeck.rs`
+
+**Lean's own source**
+
+- `src/kernel/declaration.h`, the kinds of declaration, in the same order
+- `src/kernel/environment.cpp`, the map from a name to a declaration
+- `src/kernel/type_checker.cpp`. The δ rule is `unfold_definition`, the ι rule
+  is `reduce_recursor`, the projection rule is `reduce_proj`, and η for a
+  structure is `try_eta_struct_core`.
+- `src/kernel/instantiate.cpp`, which holds the universe substitution of
+  section 10.3
+- `src/kernel/level.cpp`, the real normal form
+
+**Read more**
+
+- Pfenning and Paulin-Mohring, *Inductively defined types in the Calculus of
+  Constructions*, 1990, for where a recursor and ι come from.
+  DOI [10.1007/BFb0040259](https://doi.org/10.1007/BFb0040259)
+- Dybjer, *Inductive families*, 1994, for a parameter against an index, which
+  section 10.4 has to get exactly right.
+  DOI [10.1007/BF01211308](https://doi.org/10.1007/BF01211308)
+- Gilbert, Cockx, Sozeau and Tabareau, *Definitional proof-irrelevance without
+  K*, 2019, for why section 10.7 is harder than it looks.
+  DOI [10.1145/3290316](https://doi.org/10.1145/3290316)
+- Rocq, the conversion rules, for the same Greek letters in another system.
+  <https://rocq-prover.org/doc/master/refman/language/core/conversion.html>
+- Rocq, `SProp`, for proof irrelevance as a separate sort.
+  <https://rocq-prover.org/doc/master/refman/addendum/sprop.html>
+
+[`Name`]: ../crates/rean_core/src/name.rs
+
+---
+
+**Next:** [The ground truth](11-the-ground-truth.md)

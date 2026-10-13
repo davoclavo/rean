@@ -1,11 +1,20 @@
-# Chapter 8 — The frontend
+# Chapter 16 — The frontend
 
-Chapters 0 to 7 are all about the kernel. This one is about the other end: how
-text becomes something a kernel can read.
+> **Where you are.** Chapter 16 of 28, Part V of [the guide](README.md). It
+> stands alone.
+>
+> **Before this.** Part I chapter [1](book/01-a-proof-is-a-program.md), and
+> nothing else. This chapter is the other end of the pipeline.
+>
+> **After it you can** say why a Lean lexer holds no keyword list, and what a
+> lossless syntax tree is for.
 
-It is **independent of the kernel**, so read it whenever you like. A reader who
-wants the logic first should skip it. A reader who wants to see where a compiler
-begins should start here.
+Every chapter so far is about the kernel, which is the **last** stage. This one
+is about the first stage: how text becomes something a kernel can read.
+
+It needs no other chapter, so read it whenever you like. A reader who wants the
+logic first may leave it for later. A reader who wants to see where a compiler
+**begins** should start here.
 
 ```sh
 devbox run -- cargo run -p rean -- lex examples/tokens.lean
@@ -14,7 +23,7 @@ devbox run -- cargo test -p rean_lexer
 
 ---
 
-## 8.1 Why the frontend is a separate story
+## 16.1 Why the frontend is a separate story
 
 A C compiler owns its grammar. The keywords are in the lexer, the precedence is
 in the parser, and no program can change either.
@@ -33,7 +42,7 @@ That single fact shapes everything in this chapter.
 
 ---
 
-## 8.2 The shared vocabulary
+## 16.2 The shared vocabulary
 
 Three types that every later stage speaks. They live in `rean_core`.
 
@@ -52,7 +61,7 @@ Three reasons, and all three come up later:
   string. And the real Lean export is full of them: `Nat.add.match_1`,
   `Nat.brecOn.go`.
 - A `Syntax` node kind is **also** a `Name`. One type serves both jobs. See
-  section 8.6.
+  section 16.6.
 
 ### `Span`: a byte range
 
@@ -99,12 +108,12 @@ line. A test holds that too.
 
 ---
 
-## 8.3 `TokenTable`: the lexer has no keyword list
+## 16.3 `TokenTable`: the lexer has no keyword list
 
 This is the idea worth the chapter.
 
 A C lexer holds its keywords in a `match`. A Lean lexer cannot, because of the
-`infixl` line in section 8.1. So the lexer holds **no** keyword list. It asks a
+`infixl` line in section 16.1. So the lexer holds **no** keyword list. It asks a
 table, and the table can grow:
 
 ```rust
@@ -185,7 +194,7 @@ adds the symbols and watches the count drop to zero.
 
 ---
 
-## 8.4 Which characters make a name
+## 16.4 Which characters make a name
 
 Lean lets you write `α`, `Γ₀`, and `𝒞` as ordinary identifiers, so the lexer
 needs explicit Unicode ranges:
@@ -217,7 +226,7 @@ tests.
 
 ---
 
-## 8.5 The lexer, and the rule that no error stops it
+## 16.5 The lexer, and the rule that no error stops it
 
 `rean_lexer` produces ten kinds of token:
 
@@ -248,7 +257,7 @@ So `p.1` lexes as three tokens, because `1` is not a name part and `p.1` is a
 projection. The test is `a_dot_before_a_digit_stays_separate`.
 
 **A number keeps its digits as text.** `Nat { radix, digits: Arc<str> }`, not a
-machine integer, because a Lean `Nat` has no upper bound. Chapter 4 found out
+machine integer, because a Lean `Nat` has no upper bound. Chapter 12 found out
 how much that choice matters, and the export format made the same one.
 
 **A doc comment is a token, and a block comment is not.** Both nest. The
@@ -275,7 +284,7 @@ not only the first.
 
 ---
 
-## 8.6 `Syntax`: one lossless tree
+## 16.6 `Syntax`: one lossless tree
 
 Most compilers give each construct its own struct. Lean has **one** tree type
 with four cases:
@@ -341,7 +350,7 @@ stays open to extension, and the elaborator carries the cost.
 
 ---
 
-## 8.7 What is missing
+## 16.7 What is missing
 
 | Missing | Effect |
 |---|---|
@@ -352,7 +361,7 @@ stays open to extension, and the elaborator carries the cost.
 The first row is the one that matters. **The lexer and the kernel are two
 islands, and nothing crosses between them.** Nothing you write in a `.lean`
 file reaches `infer_type`. The kernel's input comes from a `lean4export` file,
-which chapter 3 explains, or from Rust written by hand.
+which chapter 11 explains, or from Rust written by hand.
 
 That is why `rean demo` labels its stage 2 output "hand built". It shows the
 shape a parser must produce. It is not a parser.
@@ -370,7 +379,7 @@ examples/universes.lean
 
 ---
 
-## 8.8 Exercises
+## 16.8 Exercises
 
 1. `is_id_first` and `is_id_rest` are two functions. Give a name that needs the
    difference, and say what breaks if there is only one function.
@@ -402,9 +411,45 @@ examples/universes.lean
 6. Because the table is the **starting** set, not the language. A `notation` or
    `syntax` command adds to it while the file is read, so the number is only
    what Lean's own prelude would have inserted before any user code runs. See
-   section 8.3.
+   section 16.3.
 
-## 8.9 References
+---
+
+## 16.9 How other systems do it
+
+The idea of section 16.3 is rare. Most languages fix the token set and the
+grammar when the compiler is built. Here is the spread.
+
+| Language | Can a program add an operator? | Can it add a **token**? | Can it add a grammar rule? |
+|---|---|---|---|
+| **Lean 4** | yes, `infixl` and friends | **yes.** The token table grows while the file is read. | yes, with `syntax` and a macro |
+| Racket | yes | yes, with a reader macro | yes. A `#lang` can replace the whole reader. |
+| Haskell | yes, with a fixity declaration | not needed. Any run of symbol characters already lexes as an operator. | no |
+| Rust | no. An operator is fixed. | no. A macro reads a stream of ordinary Rust tokens. | inside a macro call only |
+| C | no, and the preprocessor works on text | no | no |
+
+Four notes.
+
+- **Haskell is the near miss.** `infixl 6 <+>` changes how an expression
+  parses, and it needs no new token, because the lexer already treats any run
+  of symbol characters as one operator. Lean needs more, because a `notation`
+  may introduce any string at all, including ` ⊹ `.
+- **Racket is the real relative.** A Racket program can replace the reader, so
+  a module can be written in another language entirely. Lean does not go that
+  far, and it does go further than any mainstream compiler.
+- **Hygiene is the hard half, and it is not in this chapter.** A macro that
+  expands into a binder must not capture a name from the call site. Lean
+  carries a macro scope on each identifier for that, and the paper *Beyond
+  Notations* is the reference.
+- **One tree type, not one struct per construct.** Section 8.6 explains why:
+  a `syntax` command declares a node kind at run time, so the kind has to be a
+  `Name` and not a Rust enum variant. Lean declares the same four cases in
+  `src/Init/Prelude.lean`, and every tool downstream, the pretty printer and
+  the language server among them, depends on the tree keeping every atom.
+
+## 16.10 References
+
+**Our code**
 
 - `crates/rean_core/src/name.rs`, `source.rs`, `diag.rs`
 - `crates/rean_lexer/src/table.rs`, `chars.rs`, `lexer.rs`, `token.rs`
@@ -412,5 +457,33 @@ examples/universes.lean
 - `crates/rean_lexer/tests/lex.rs`, 25 tests;
   `tests/errors.rs`, 22 tests; `tests/examples.rs`, 3 tests
 - `examples/tokens.lean` and `examples/notation.lean`
-- *Beyond Notations: Hygienic Macro Expansion for Theorem Proving Languages*,
-  Ullrich and de Moura, for why the frontend is extensible at all
+
+**Lean's own source**
+
+- `src/Init/Prelude.lean`, where `Syntax` is declared, with four cases
+- `src/Lean/Syntax.lean`, the operations on the tree
+- `src/Lean/Parser/Basic.lean`, the parser combinators, and `tokenFn`, which
+  reads the token table as a trie
+- `src/Lean/Parser.lean`, the parser as a whole
+- `src/Lean/Elab/Term.lean`, stage 3, which reads the tree
+
+**Read more**
+
+- Ullrich and de Moura, *Beyond Notations: Hygienic Macro Expansion for Theorem
+  Proving Languages*, 2020, for why the frontend is extensible at all, and what
+  hygiene costs. <https://arxiv.org/abs/2001.10490>
+- Ullrich, *An Extensible Theorem Proving Frontend*, 2023, for the long form,
+  with the parser in full. <https://lean-lang.org/papers/thesis-sebastian.pdf>
+- Pratt, *Top down operator precedence*, 1973, for the parser that section 16.7
+  says is missing. DOI [10.1145/512927.512931](https://doi.org/10.1145/512927.512931)
+- Flatt, *Composable and compilable macros*, 2002, for the other language whose
+  reader a program may replace.
+  DOI [10.1145/581478.581486](https://doi.org/10.1145/581478.581486)
+- *Metaprogramming in Lean 4*, for `Syntax`, macros and the elaborator, with
+  code to run. <https://leanprover-community.github.io/lean4-metaprogramming-book/>
+- *The Lean Language Reference*, notations and macros.
+  <https://lean-lang.org/doc/reference/latest/Notations-and-Macros/>
+
+---
+
+**Next:** [Structures, and what the kernel costs](17-structures-and-cost.md), which opens the lab notebook

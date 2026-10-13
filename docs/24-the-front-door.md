@@ -1,4 +1,13 @@
-# Chapter 16 — The front door
+# Chapter 24 — The front door
+
+> **Where you are.** Chapter 24 of 28, in Part VI of [the guide](README.md). This
+> one is a tool rather than a measurement, and it is the one to run first.
+>
+> **Before this.** [The ground truth](11-the-ground-truth.md), for the export
+> file. You need a real Lean toolchain to run the commands.
+>
+> **After it you can** point the checker at a `.lean` file of your own, and
+> read what three lines of Lean really cost.
 
 Fifteen chapters built a kernel that reads 99.57% of the Lean prelude, and
 there was no way to point it at a file of your own.
@@ -10,7 +19,7 @@ failure, it **aborted**.
 
 ---
 
-## 16.1 The command that was missing
+## 24.1 The command that was missing
 
 `rean check foo.ndjson` needed an export file, and making one took a page of
 `fixtures/lean4export/PROVENANCE.md`: clone `lean4export`, match its toolchain,
@@ -64,7 +73,7 @@ cmp /tmp/pre/Init.ndjson prelude.ndjson
 
 ---
 
-## 16.2 What three lines of Lean cost
+## 24.2 What three lines of Lean cost
 
 ```lean
 def twice (n : Nat) : Nat := n + n
@@ -99,7 +108,7 @@ to one declaration and what that declaration needs. Test:
 
 ---
 
-## 16.3 One substitution that rebuilt everything
+## 24.3 One substitution that rebuilt everything
 
 Before any of the above could be measured honestly, a profile of the hardest
 declaration said something embarrassing.
@@ -129,7 +138,7 @@ with the arguments at the call site, and the δ rule calls it on **every single
 unfold**. It rebuilt every node of the value, every time, whether or not any
 universe parameter appeared anywhere in it.
 
-Chapter 9 fixed exactly this fault for `instantiate_at` and `lift`, and
+Chapter 17 fixed exactly this fault for `instantiate_at` and `lift`, and
 measured a factor of fifteen in the frames it moved. The rule it set is "return
 **nothing changed** and keep the existing `Arc`". `instantiate_levels` is the
 one substitution in the kernel that never got the rule, and it is the one the δ
@@ -153,12 +162,12 @@ Tests: `a_term_with_no_universe_parameter_is_not_rebuilt`,
 Two things to take from that table, and the second one matters more.
 
 The **verdicts did not move.** Not one more declaration checked. That is
-chapter 9's rule stated for the fourth time: the budget is charged by work, so
+chapter 17's rule stated for the fourth time: the budget is charged by work, so
 a faster kernel does the same work faster. A reader who wants more declarations
 must make the work **smaller** or the budget **bigger**. Speed alone buys
 nothing.
 
-And it explains a measurement that chapter 15 recorded as a mystery. Section
+And it explains a measurement that chapter 23 recorded as a mystery. Section
 15.6 cached the result of this very substitution, keyed by name and levels, and
 got **nothing** for it, slightly slower. The reading was "a cache for an
 unmeasurable gain is a cost with no payment", which is true and is not the
@@ -168,10 +177,10 @@ changed".**
 
 ---
 
-## 16.4 A hundred times the budget, and the crash it found
+## 24.4 A hundred times the budget, and the crash it found
 
 With the front door working, the obvious measurement is the whole prelude at a
-budget large enough to finish it. Chapter 15 had reached 99.57% at forty times
+budget large enough to finish it. Chapter 23 had reached 99.57% at forty times
 the default.
 
 ```sh
@@ -189,7 +198,7 @@ A hundred times the budget, a stack eight times the default, and the run
 **died** after 16,583 declarations. Not a slow declaration: a dead process, and
 a dead process reports nothing about the 42,766 declarations it had not reached.
 
-Chapter 15 section 15.11 had met this shape and read it correctly: *a
+Chapter 23 section 23.11 had met this shape and read it correctly: *a
 measurement that reads a crash as a timeout is a measurement that has not been
 checked*. The cause is the same one it named. To reduce a recursor the kernel
 must first reduce the **major premise**, and the major premise can be another
@@ -205,7 +214,7 @@ guard where the recursion is.
 
 ---
 
-## 16.5 The guard that counted the wrong thing
+## 24.5 The guard that counted the wrong thing
 
 The obvious guard is Lean's. Lean bounds its own recursion with `maxRecDepth`,
 a count of levels, and reports when it is reached. So the kernel counted levels
@@ -292,7 +301,7 @@ being saved.
 
 This also kills the third knob. The first version had `REAN_DEPTH`, and a
 reader would have had to learn that it moves with `REAN_STACK`, which moves
-with `REAN_FUEL`. Now there are two knobs again, as chapter 9 section 9.8 says,
+with `REAN_FUEL`. Now there are two knobs again, as chapter 17 section 17.8 says,
 and the sentence in that chapter about a stack overflow after 4,034
 declarations is no longer what happens.
 
@@ -309,10 +318,10 @@ is that distinction, and it now covers both limits rather than only the budget.
 
 ---
 
-## 16.6 The fourth instrument, and the rule it found
+## 24.6 The fourth instrument, and the rule it found
 
-Chapters 13 and 15 each wrote a counter, measured, learned something, and
-deleted it. Chapter 15 section 15.3 paid for the lesson that an instrument
+Chapters 21 and 23 each wrote a counter, measured, learned something, and
+deleted it. Chapter 23 section 23.3 paid for the lesson that an instrument
 needs review as much as the kernel does: a counter that watched **one exit of
 three** reported a fact about the counter and cost hours.
 
@@ -341,7 +350,7 @@ REAN_TALLY=1 rean check one.ndjson
                   5964  delta Nat.pred
 ```
 
-It is kept for the reason chapter 13 found and did not act on: after a certain
+It is kept for the reason chapter 21 found and did not act on: after a certain
 point a profiler stops helping. "`whnf` is 41%" is true in every run. `delta
 Nat.sub._f` names a cause. The kernel is the only thing that knows which
 recursor, which number, which definition, so the kernel counts them. It watches
@@ -356,7 +365,7 @@ Read the row that says `declined read_nat: nested too deep`, 5,980 times,
 beside `delta Nat.sub._f`, 5,980 times.
 
 `read_nat` reads a number out of a term, and it forces nested arithmetic at
-most sixteen levels deep, because section 15.11 found that descent overflowing
+most sixteen levels deep, because section 23.11 found that descent overflowing
 a 32 GB stack. When it declines, the kernel falls back to unfolding the
 definition — and that unfold happens **inside the dynamic extent of the
 decline**, so `nat_depth` is still at its limit for the whole subtree below it.
@@ -380,9 +389,9 @@ in this project that a measurement retired before a line of it was written.
 
 ---
 
-## 16.7 The ceiling was the crash
+## 24.7 The ceiling was the crash
 
-Chapter 15 ends with a sentence that this chapter has to take back.
+Chapter 23 ends with a sentence that this chapter has to take back.
 
 > **99.57% is where an eager kernel with four caches gets to.** The last 0.43%
 > is not a missing rule, not a budget, and not a cache. It is the
@@ -408,7 +417,7 @@ recursion touches it, and a run at 32 GB took this machine from 36 GB of free
 memory to 4 GB and had to be stopped. The right stack is the smallest one that
 gives the answer, and the way to find it is to ask.
 
-Chapter 15 asked eleven questions of this family and every measurement it made
+Chapter 23 asked eleven questions of this family and every measurement it made
 was sound. The conclusion was not, and the reason is written in its own section
 15.11: the runs at four billion units and at sixteen billion **crashed**, in the
 same 345 seconds, and a crash that is read as a ceiling becomes a fact about the
@@ -423,11 +432,11 @@ from runs that died before they could answer.
 > **A measurement that ends in a crash has not measured the thing you asked
 > about. It has measured the crash.**
 
-Chapter 15 said that about one sweep. It is true of a conclusion as well.
+Chapter 23 said that about one sweep. It is true of a conclusion as well.
 
 ---
 
-## 16.8 Where the prelude stands
+## 24.8 Where the prelude stands
 
 Lean 4.35.0-rc3, `lean4export` 3.1.0, the whole `Init` closure: 59,349
 declarations in 345 MB of NDJSON, exported in 16 seconds.
@@ -440,7 +449,7 @@ declarations in 345 MB of NDJSON, exported in 16 seconds.
 | `REAN_FUEL=2000000000`, 512 MB stack | 55,949 | 53 | 3,347 | 461 s |
 | **`REAN_FUEL=2000000000 REAN_STACK=8192`** | **59,199** | **45** | **105** | 2,172 s |
 
-**59,199 of 59,349 is 99.75%**, in 36 minutes, with no crash. Chapter 15
+**59,199 of 59,349 is 99.75%**, in 36 minutes, with no crash. Chapter 23
 reached 99.57% of a smaller prelude in 44 minutes and left 180 declarations
 blocked; this leaves 105.
 
@@ -496,11 +505,11 @@ One declaration blocks 3,231 of the 3,521, which is 92% of them, and
 budget and a 4 GB stack, in 25 seconds, and 3,231 declarations come with it.
 
 The cost of an **eager** `whnf` that builds a term for every step is still what
-makes all of this expensive. It is not what stops it. See section 16.7.
+makes all of this expensive. It is not what stops it. See section 24.7.
 
 ---
 
-## 16.9 What is left, and what it would take
+## 24.9 What is left, and what it would take
 
 The honest statement of where this project's kernel stands.
 
@@ -511,7 +520,7 @@ The honest statement of where this project's kernel stands.
 - **The representation is why this is expensive, not why it stops.** Half the
   profile is the allocator, building and dropping terms that one reduction step
   made and the next discarded. Normalisation by evaluation is the cure that
-  chapter 14 named, and section 16.7 is the correction: it would make the work
+  chapter 22 named, and section 24.7 is the correction: it would make the work
   cheaper and faster, and it is no longer the thing standing between this
   kernel and the prelude.
 - **The five that want budget are reachable.** One of them,
@@ -529,7 +538,7 @@ The honest statement of where this project's kernel stands.
   | **8,000,000,000** | **206 of 206**, in 313 s |
 
   It is real work, and five minutes of it for one theorem. The method of
-  chapters 11 and 12 is now one command, and that is the front door earning
+  chapters 19 and 20 is now one command, and that is the front door earning
   its place in a performance chapter rather than a usability one.
 
 - **The forty that want stack are not reachable by that knob.** The stack was
@@ -547,8 +556,64 @@ The honest statement of where this project's kernel stands.
   free memory twice in one evening.
 - **Level 2 is still zero.** A `.lean` file reaches our kernel through Lean's
   elaborator, not ours. That is the next island, and it needs the parser of
-  chapter 8 with an elaborator behind it.
+  chapter 16 with an elaborator behind it.
 
 The front door adds no rule and no stage. What it does is make the project's
 own claim checkable by somebody else: point it at your file, and read what our
 kernel says about every declaration underneath it.
+
+---
+
+## 24.10 How other systems do it
+
+The front door raises a question that every external checker has to answer:
+**who elaborated the term you are checking?**
+
+- **We call the real Lean.** `rean check Demo.lean` runs Lean, runs
+  `lean4export`, and checks what comes out. So stages 1 to 3 are Lean's and
+  stage 4 is ours. The usage text says so, because a reader must not mistake
+  the command for a parser of our own.
+- **Lean ships the same idea.** `lean4checker` loads a compiled library and
+  re-checks every declaration with a fresh kernel, which catches a declaration
+  that reached the environment without the kernel seeing it. Recent toolchains
+  ship it as the binary `leanchecker`.
+- **Rocq ships `coqchk`,** which re-checks a compiled library outside the
+  interactive tool, for the same reason.
+- **The closure is the real lesson.** Section 16.2 shows three lines of Lean
+  costing 39 declarations. `coqchk` and `leanchecker` both check a whole
+  library, so they never have to compute a closure. An export file for one
+  declaration does, and `--decl` is that.
+
+One note on limits. Section 16.5 is a guard that counted the wrong thing.
+Lean's kernel guards the same two hazards in a different unit: a recursion
+depth guard raises an error before the stack ends, and `LEAN_NAT_MAX_SIZE`
+refuses a numeral too large to work with. A limit that counts the wrong thing
+reports a failure that is not there, and a limit that counts nothing crashes.
+
+## 24.11 References
+
+**Our code**
+
+- `crates/rean/src/export.rs`, which finds Lean and runs the exporter
+- `crates/rean/src/lib.rs`, the commands and what each one returns
+- `crates/rean/tests/frontdoor.rs` and `crates/rean/tests/cli.rs`
+- `crates/rean_kernel/tests/limits.rs`, for section 24.5
+- `fixtures/lean4export/PROVENANCE.md`, the page of instructions this chapter
+  replaced
+
+**The tools**
+
+- `lean4export`. <https://github.com/leanprover/lean4export>
+- `lean4checker`. <https://github.com/leanprover/lean4checker>
+
+**Read more**
+
+- *The Lean Language Reference*, validating proofs, for the official version of
+  this chapter's argument.
+  <https://lean-lang.org/doc/reference/latest/ValidatingProofs/>
+- The Lean Kernel Arena, for the same interface as a contract: read a file,
+  exit 0 to accept and 1 to refuse. <https://arena.lean-lang.org/>
+
+---
+
+**Next:** [Twelve seconds](25-twelve-seconds.md)

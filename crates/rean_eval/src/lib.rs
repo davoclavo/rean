@@ -65,7 +65,7 @@ pub const STEPS: u64 = 50_000_000;
 /// How deep the evaluator will recurse.
 ///
 /// The walk is a Rust recursion, so the depth of a term is the depth of the
-/// stack. Chapter 16 learned this the hard way in the kernel, where a run died
+/// stack. Chapter 24 learned this the hard way in the kernel, where a run died
 /// of a 32 GB stack before it could spend its budget.
 pub const DEPTH: u32 = 10_000;
 
@@ -646,7 +646,7 @@ impl Evaluator<'_> {
     ///
     /// So this asks **Lean's own function**, `String.toList`, and walks the
     /// list it gives back. The decoding that function does is real work, and
-    /// it is the `utf8DecodeChar` family that chapters 16 and 17 found so
+    /// it is the `utf8DecodeChar` family that chapters 24 and 17 found so
     /// expensive **to check**. Running it is cheap.
     ///
     /// A literal is still a literal, and that is the fast path.

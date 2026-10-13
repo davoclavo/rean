@@ -4,7 +4,7 @@
 //! **what does Lean actually hand the kernel?** `demo` shows a term that was
 //! built by hand, and a hand built term is always tidier than a real one.
 //!
-//! It is also an instrument. Chapter 17 was stuck on why one signed integer
+//! It is also an instrument. Chapter 25 was stuck on why one signed integer
 //! proof costs a billion units of work, and three `rean show` calls answered
 //! it. One of them found a bug in `Name::from_dotted` that had been quietly
 //! emptying the trust report.

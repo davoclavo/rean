@@ -2,7 +2,7 @@
 //!
 //! A **structure** is an inductive type with one constructor and no index.
 //! Three rules of the kernel exist only for it, and the Lean prelude needs all
-//! three. Chapter 9 explains why each one exists.
+//! three. Chapter 17 explains why each one exists.
 
 use rean_core::Name;
 use rean_kernel::{

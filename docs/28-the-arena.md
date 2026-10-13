@@ -1,17 +1,17 @@
-# Chapter 20 — The arena
+# Chapter 28 — The arena
 
 > **Where you are.** The last chapter, and it belongs with Part IV of
 > [the guide](README.md), which is about what a checker must refuse.
 >
-> **Before this.** [What a checker must check](05-what-a-checker-must-check.md),
+> **Before this.** [What a checker must check](13-what-a-checker-must-check.md),
 > which built the refusals, and
-> [Mutual and nested](07-mutual-and-nested.md), which left some of them open.
+> [Mutual and nested](15-mutual-and-nested.md), which left some of them open.
 >
 > **After it you can** say what an outside test suite found that nineteen
 > chapters of our own tests did not.
 
-Chapter 5 asked "so does it have full coverage as a checker?" and answered
-**no**, with an inventory. Chapter 5 wrote that inventory from the inside. This
+Chapter 13 asked "so does it have full coverage as a checker?" and answered
+**no**, with an inventory. Chapter 13 wrote that inventory from the inside. This
 chapter runs somebody else's.
 
 The Lean Kernel Arena is a test suite for kernel checkers, from the Lean project
@@ -22,7 +22,7 @@ Fourteen of the 72 lies were accepted. Every one of them is a soundness bug.
 
 ---
 
-## 20.1 What the suite is, and the order it scores in
+## 28.1 What the suite is, and the order it scores in
 
 ```sh
 curl -sSLO https://arena.lean-lang.org/lean-arena-tests.tar.gz
@@ -31,7 +31,7 @@ python3 tools/arena.py /tmp/arena
 ```
 
 The files are `lean4export` NDJSON, format 3.1.0, written by Lean 4.34.1. So
-chapter 16's front door reads them with no new code at all, and the whole suite
+chapter 24's front door reads them with no new code at all, and the whole suite
 is one command.
 
 The arena scores a bad test above a good one, and so does `tools/arena.py`.
@@ -51,12 +51,12 @@ everything would score perfectly on the bad half and be useless, and the way
 that failure starts is one test at a time.
 
 So `tools/arena.py` reads the message. A rejection by a limit is counted and
-named apart from a rejection by a rule, which is the same rule chapter 17 sets
+named apart from a rejection by a rule, which is the same rule chapter 25 sets
 for `TypeError::is_a_limit`.
 
 ---
 
-## 20.2 The score
+## 28.2 The score
 
 | | before | after |
 |---|---|---|
@@ -66,7 +66,7 @@ for `TypeError::is_a_limit`.
 | wrongly rejected by a **rule** | 3 | **0** |
 | wrongly rejected by a **limit**, or no answer in 300 s | 11 | 11 |
 
-The 11 that remain are chapter 17's subject and not this chapter's. They are
+The 11 that remain are chapter 25's subject and not this chapter's. They are
 `perf/` tests, built to be expensive, and each one reports a budget rather than
 a verdict.
 
@@ -84,7 +84,7 @@ changed its verdict. That is the shape a soundness fix should have.
 
 ---
 
-## 20.3 Five of the six rules were not about terms at all
+## 28.3 Five of the six rules were not about terms at all
 
 Nineteen chapters built the term rules: β, δ, ι, ζ, η, proof irrelevance,
 projection, strict positivity, universes, recursor shape. The arena found one
@@ -140,7 +140,7 @@ constant.
 
 ---
 
-## 20.4 Two questions about a universe, one rule apart, opposite answers
+## 28.4 Two questions about a universe, one rule apart, opposite answers
 
 The first soundness bug and the second are both about whether a `Sort` is
 `Prop`. They need opposite questions, and that is the part worth keeping.
@@ -149,7 +149,7 @@ The first soundness bug and the second are both about whether a `Sort` is
 
 `bad/bugs/large-elim-param` declares `MyBool.{u} : Sort u` with two
 constructors, and a recursor that eliminates into `Sort v`. A `Prop` with two
-elements may not do that. Chapter 5, section 5.3 is the rule, and
+elements may not do that. Chapter 13, section 13.3 is the rule, and
 `check_elimination_universe` had it.
 
 It asked `Level::is_zero`, which answers "is this level **written** as zero".
@@ -161,14 +161,14 @@ answers it. A universe parameter is not a proof that the universe is not zero.
 
 ### The definite question, for a projection
 
-The projection rule of section 20.5 asks the same thing about the structure it
+The projection rule of section 28.5 asks the same thing about the structure it
 is projecting, and asking it carefully would refuse real code.
 `PProd.{u, v} : Sort (max u v)` **can** be a `Prop`, its fields are `Sort u`
 and `Sort v`, and the Lean prelude projects one of them millions of times
-inside `Nat.below`. Chapter 17, section 17.4 counted those.
+inside `Nat.below`. Chapter 25, section 25.4 counted those.
 
 The definite question is safe there, and the reason is the universe constraint
-of chapter 7, section 7.4: an inductive type's universe bounds its fields. A
+of chapter 15, section 15.4: an inductive type's universe bounds its fields. A
 structure whose level really is zero has fields whose levels are zero, and one
 whose level is a parameter becomes a `Prop` only in an instantiation where its
 fields do too. The attack needs a `Prop` with a field that is not a proof, and
@@ -182,7 +182,7 @@ the constraint forbids that unless the declaration lied, which is what
 
 ---
 
-## 20.5 A proof has no fields
+## 28.5 A proof has no fields
 
 Proof irrelevance makes any two proofs of one proposition definitionally equal.
 So a `Prop` that carried **data** would have two equal proofs whose data
@@ -241,7 +241,7 @@ if a_proof {
 }
 ```
 
-`Sub::loose` is the count this kernel stores on every node, from chapter 1. It
+`Sub::loose` is the count this kernel stores on every node, from chapter 9. It
 was put there to make instantiation cheap, and here it is the thing that
 separates a good test from a bad one.
 
@@ -254,7 +254,7 @@ no claim here rests on a line of it that was not read.
 
 ---
 
-## 20.6 A new rule broke an old one, twice, in the same way
+## 28.6 A new rule broke an old one, twice, in the same way
 
 The projection rule refused four theorems of `Std`:
 
@@ -268,8 +268,8 @@ for that projection. **The kernel built it.**
 
 Two rules build a projection out of nothing:
 
-- `struct_eta_eq`, which compares `p` with `S.mk p.1 p.2` and is chapter 5,
-  section 5.5;
+- `struct_eta_eq`, which compares `p` with `S.mk p.1 p.2` and is chapter 13,
+  section 13.5;
 - the ι rule's structure case, which rewrites a recursor over an opaque
   structure into its constructor applied to the projections of that structure.
 
@@ -305,7 +305,7 @@ A limit is the one answer that still has to travel. It does not mean "no".
 
 ---
 
-## 20.7 Reduce before you judge
+## 28.7 Reduce before you judge
 
 Three **good** tests were refused, and all three were one missing rule.
 `good/tutorial/055_reduceCtorParam.mk` is the smallest:
@@ -363,19 +363,19 @@ occurrence that strict positivity exists to stop.
 
 ---
 
-## 20.8 What is still open
+## 28.8 What is still open
 
 The arena is a sample, and these are the things it leaves or confirms.
 
 - **11 tests report a limit** and not a verdict. All 11 are `perf/`, which is
-  chapter 17's subject: a budget of 40,000,000 nodes and a 6 MiB stack are what
-  stand between us and an answer. Chapter 18 made the same work 34% cheaper and
+  chapter 25's subject: a budget of 40,000,000 nodes and a 6 MiB stack are what
+  stand between us and an answer. Chapter 26 made the same work 34% cheaper and
   did not change what a budget buys.
 - **5 declarations of `Lean` still fail**, all of the shape
   `Lean.Elab.Term.Do.Code._sizeOf_4_eq`. They are nested inductives, which
-  chapter 7, section 7.5 says this kernel trusts rather than checks.
+  chapter 15, section 15.5 says this kernel trusts rather than checks.
 - **Nested positivity is still trusted.** `tutorial/` has no test that attacks
-  it, and chapter 5's inventory still names it first.
+  it, and chapter 13's inventory still names it first.
 - **Mutual recursors above one motive are still skipped**, for the same reason
   and with the same honesty.
 - **Scale is not tested.** The arena's files are tens of declarations. Mathlib
@@ -383,7 +383,7 @@ The arena is a sample, and these are the things it leaves or confirms.
 
 ---
 
-## 20.9 How other systems do it
+## 28.9 How other systems do it
 
 | | what it is | what it reads |
 |---|---|---|
@@ -400,7 +400,7 @@ Four notes.
   for the format.
 - **Lean's own kernel does not read a recursor from a file.** It builds one from
   the inductive declaration. This kernel reads it and checks it, which is the
-  harder half, and section 20.3's name rule is the other half: it is what stops
+  harder half, and section 28.3's name rule is the other half: it is what stops
   a second rule for one type.
 - **`lean4lean` is the strongest statement of the same idea.** It is Lean's
   kernel written in Lean and proved correct against the paper rules, so a bug
@@ -411,7 +411,7 @@ Four notes.
 
 ---
 
-## 20.10 References
+## 28.10 References
 
 **Our code**
 
@@ -419,7 +419,7 @@ Four notes.
 - `crates/rean_kernel/src/level.rs`, for `Level::is_never_zero`
 - `crates/rean_kernel/tests/soundness.rs`, the red team file. Eight of its
   tests are the arena's, and every one of them failed before this chapter.
-- `tools/arena.py`, the harness of section 20.1
+- `tools/arena.py`, the harness of section 28.1
 
 **The suite**
 

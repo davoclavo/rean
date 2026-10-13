@@ -1,6 +1,15 @@
-# Chapter 6 — What a theorem rests on
+# Chapter 14 — What a theorem rests on
 
-Chapter 5 closed the hole that let a recursor smuggle in an axiom. It left two
+> **Where you are.** Chapter 14 of 28, in Part IV of [the guide](README.md).
+>
+> **Before this.** [What a checker must check](13-what-a-checker-must-check.md),
+> and Part I chapter [8](book/08-what-you-must-trust.md), section 8.4, for the
+> axioms.
+>
+> **After it you can** read the `trust:` line of `rean check`, and say what it
+> means for a theorem to rest on an axiom.
+
+Chapter 13 closed the hole that let a recursor smuggle in an axiom. It left two
 things on the table, and this chapter takes both.
 
 ```sh
@@ -10,9 +19,9 @@ devbox run -- cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjso
 
 ---
 
-## 6.1 Type correct is not the same as correct
+## 14.1 Type correct is not the same as correct
 
-Chapter 5 checks that every ι rule delivers the type the recursor promises.
+Chapter 13 checks that every ι rule delivers the type the recursor promises.
 That is the property that makes ι sound, and it is not enough.
 
 A recursor could offer minor premises of **some other shape**, keep its rules
@@ -30,7 +39,7 @@ type correct:
 fun motive minor => minor U.u        delivers motive U.u, exactly as promised
 ```
 
-Every check of chapter 5 passes. What is left is not induction.
+Every check of chapter 13 passes. What is left is not induction.
 
 The sharper case drops an induction hypothesis. For `N.s : N → N`, induction
 needs
@@ -48,7 +57,7 @@ Offer this instead:
 and the rule `fun motive mz ms k => ms k` delivers `motive (N.s k)`, which is
 what the type promises. Type correct, and no induction at all.
 
-## 6.2 So derive the premises
+## 14.2 So derive the premises
 
 The cure is to stop accepting and start deriving. For a constructor
 
@@ -88,9 +97,9 @@ would be worse than none, because it would refuse correct code.
 
 ---
 
-## 6.3 The trust report
+## 14.3 The trust report
 
-The De Bruijn criterion of chapter 0, section 0.16, says the kernel re-checks
+The De Bruijn criterion of Part I chapter 8, section 8.1, says the kernel re-checks
 everything, so no tactic and no elaborator can lie. There is one exception, and
 it is deliberate: an **axiom** asks to be trusted.
 
@@ -125,7 +134,7 @@ would say so, by name, on that line.
 
 ---
 
-## 6.4 Unsafe may not reach into safe code
+## 14.4 Unsafe may not reach into safe code
 
 An `unsafe` or `partial` declaration may not terminate. The kernel evaluates a
 term while it checks it, so a proof that rests on one could make the checker
@@ -147,20 +156,20 @@ all**, so a safe declaration may not touch it.
 
 ---
 
-## 6.5 Where the checker stands
+## 14.5 Where the checker stands
 
 | Job | Status |
 |---|---|
-| the reduction rules, all of them | chapters 1, 2, 4 |
-| strict positivity, plain inductive | chapter 4 |
-| recursor shape and ι rule types | chapter 5 |
-| no large elimination out of a non subsingleton `Prop` | chapter 5 |
-| universe hygiene, one name per declaration | chapter 5 |
-| eta for a structure | chapter 5 |
-| a failed declaration stays out of the environment | chapter 5 |
-| **derived minor premises** | **chapter 6** |
-| **the axiom trust report** | **chapter 6** |
-| **unsafe isolation** | **chapter 6** |
+| the reduction rules, all of them | chapters 9, 10, 12 |
+| strict positivity, plain inductive | chapter 12 |
+| recursor shape and ι rule types | chapter 13 |
+| no large elimination out of a non subsingleton `Prop` | chapter 13 |
+| universe hygiene, one name per declaration | chapter 13 |
+| eta for a structure | chapter 13 |
+| a failed declaration stays out of the environment | chapter 13 |
+| **derived minor premises** | **chapter 14** |
+| **the axiom trust report** | **chapter 14** |
+| **unsafe isolation** | **chapter 14** |
 
 ### Still missing
 
@@ -187,10 +196,10 @@ trust     every axiom reported, by name
 
 ---
 
-## 6.6 Exercises
+## 14.6 Exercises
 
 1. Give a recursor whose rules are type correct and which is still not an
-   induction principle. Then say which check of chapter 6 refuses it.
+   induction principle. Then say which check of chapter 14 refuses it.
 2. Why does the dependency walk need a seen set?
 3. The driver asks the trusted environment for axioms, not the full module.
    Give the wrong report that the other choice would produce.
@@ -204,7 +213,7 @@ trust     every axiom reported, by name
 
 ### Answers
 
-1. The one in section 6.1: ask for `(x : U) → motive U.u` where induction needs
+1. The one in section 14.1: ask for `(x : U) → motive U.u` where induction needs
    `motive U.u`. `check_minor_premises` refuses it, because the derived premise
    and the declared one are not definitionally equal.
 2. A recursor's ι rules call the recursor, so the graph has a cycle and the
@@ -223,3 +232,61 @@ trust     every axiom reported, by name
    mismatch. But every real Lean recursor would then be refused, and the
    fixture would drop from 32 of 32. The ordering is not a free choice. It has
    to match the one Lean uses.
+
+---
+
+## 14.7 How other systems do it
+
+Every proof assistant has this report, because every one of them has a way to
+assume a thing without proving it.
+
+| System | The command | What it finds |
+|---|---|---|
+| Lean 4 | `#print axioms foo` | the axioms that `foo` rests on, `sorryAx` among them |
+| our checker | the `trust:` line of `rean check` | the same closure, computed from the export file |
+| Rocq | `Print Assumptions foo` | axioms, and any variable left open |
+| Agda | a search for `postulate` | the same idea, with no built-in report |
+| Isabelle | the oracles recorded in a theorem | a theorem carries the oracles used to make it |
+
+Three notes.
+
+- **Lean's library rests on three axioms, and they are named.** They are
+  `propext`, `Classical.choice` and `Quot.sound`. A fourth name, `sorryAx`,
+  means a proof is not finished. The reference manual lists them.
+- **A fast decision procedure can add an axiom.** Lean's `native_decide`
+  compiles a proposition and runs it, and it records a fresh axiom for that
+  run, so the trust report tells you. This is the honest design: the tactic
+  does not hide what it added.
+- **`unsafe` is a different kind of trust.** Section 6.4 keeps an `unsafe`
+  declaration out of safe code. The reason is not logic but termination: an
+  `unsafe` function may never return, and a value that never returns can
+  inhabit any type.
+
+## 14.8 References
+
+**Our code**
+
+- `crates/rean_kernel/src/environment.rs`, the closure over what a declaration
+  mentions
+- `crates/rean/src/lib.rs`, which prints the `trust:` line
+- `crates/rean_kernel/tests/soundness.rs`
+
+**Lean's own source**
+
+- `src/Init/Prelude.lean`, which declares `Quot.sound`, `sorryAx` and
+  `Classical.choice`
+- `src/kernel/declaration.h`, where an axiom is one of the eight kinds
+
+**Read more**
+
+- *The Lean Language Reference*, axioms, for the three axioms and for what
+  `native_decide` adds. <https://lean-lang.org/doc/reference/latest/Axioms/>
+- Barendregt and Barendsen, *Autarkic computations in formal proofs*, 2002, for
+  the criterion a trust report serves.
+  DOI [10.1023/A:1015761529444](https://doi.org/10.1023/A:1015761529444)
+- Isabelle, the implementation manual, for an LCF kernel and its oracles.
+  <https://isabelle.in.tum.de/doc/implementation.pdf>
+
+---
+
+**Next:** [Mutual and nested](15-mutual-and-nested.md)

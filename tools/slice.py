@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cuts a `lean4export` file after one declaration.
 
-Chapters 11 and 12 use this, and the method is the point: **take one failing
+Chapters 19 and 20 use this, and the method is the point: **take one failing
 declaration, not the class of them.** 676 failures with one guessed cause is
 worse than one failure with a measured one.
 

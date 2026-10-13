@@ -8,7 +8,7 @@
 /// Nearly **half** of a profile of this checker was `malloc` and `free`. The
 /// kernel builds a term for every reduction step and drops it on the next one,
 /// so the allocator is not a detail of the work: for a while it **was** the
-/// work, and chapter 15 found `drop_slow` at the top of the list.
+/// work, and chapter 23 found `drop_slow` at the top of the list.
 ///
 /// Measured on the slice that holds the declaration which blocks 2,283 others,
 /// at `REAN_FUEL=1600000000 REAN_STACK=4096`, three runs of each. The numbers
@@ -289,7 +289,7 @@ fn run_run(args: &[String]) -> ExitCode {
     // `String.toList` is **not** asked for, and that is measured. It reads a
     // string the program built as a byte array, which is the other half of the
     // same idea, and asking for it took this program's export from 4.6 MB to
-    // **16.9 MB** and brought in the UTF-8 decoding family that chapters 16 and
+    // **16.9 MB** and brought in the UTF-8 decoding family that chapters 24 and
     // 17 are about: ten declarations our kernel cannot check at the default
     // budget. So the runtime asks for it only if the program did, which
     // `Evaluator::ask` handles by looking before it leaps.
@@ -378,7 +378,7 @@ fn run_prove() -> ExitCode {
         "rejected:\n  {}",
         report.bad_proof_message.replace('\n', "\n  ")
     );
-    println!("\n== what still needs chapter 2 ==");
+    println!("\n== what still needs chapter 10 ==");
     for line in &report.needs_environment {
         println!("{line}");
     }

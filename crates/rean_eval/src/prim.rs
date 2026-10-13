@@ -2,7 +2,7 @@
 //!
 //! Lean marks these `@[extern]` and its compiler emits a call into C. The
 //! kernel accelerates most of the same list, for the same reason and with a
-//! different purpose: chapter 13 found the checker counting down from a hundred
+//! different purpose: chapter 21 found the checker counting down from a hundred
 //! million one `Nat.succ` at a time to answer one comparison.
 //!
 //! Here it is not an optimisation, it is the **definition** of what running

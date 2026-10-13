@@ -1,6 +1,6 @@
 //! The environment: a map from [`Name`] to a declaration.
 //!
-//! Chapter 1 could check a term but it could not name one. Nothing had a type
+//! Chapter 9 could check a term but it could not name one. Nothing had a type
 //! unless the local context held it. The environment fixes that, and it unlocks
 //! two reduction rules at once:
 //!

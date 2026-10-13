@@ -1,6 +1,16 @@
-# Chapter 11 — Compare before you unfold
+# Chapter 19 — Compare before you unfold
 
-Chapter 10 ended with 676 declarations of the Lean prelude out of budget, all of
+> **Where you are.** Chapter 19 of 28, in Part VI of [the guide](README.md). The
+> lab notebook. Read it for the method.
+>
+> **Before this.** [The cache](18-the-cache.md), and
+> Part I chapter [7](book/07-definitional-equality.md), section 7.7, which
+> states the rule this chapter measures.
+>
+> **After it you can** take one failing declaration out of hundreds, and let
+> the measurement choose the fix.
+
+Chapter 18 ended with 676 declarations of the Lean prelude out of budget, all of
 them well-founded recursion, and a plan: make `whnf` lazy.
 
 The plan was wrong, and one measurement said so. This chapter is about that
@@ -12,7 +22,7 @@ devbox run -- cargo test -p rean_kernel --test comparison
 
 ---
 
-## 11.1 Look at one declaration, not at 676
+## 19.1 Look at one declaration, not at 676
 
 676 failures with one cause is a guess. A guess about 676 things is worse than a
 guess about one.
@@ -50,7 +60,7 @@ that fraction.
 
 ---
 
-## 11.2 But a bigger budget was not the answer either
+## 19.2 But a bigger budget was not the answer either
 
 The obvious move is to raise the budget. So I raised it, a long way, on a slice
 of 1,905 declarations.
@@ -77,7 +87,7 @@ did not have to reduce at all.
 
 ---
 
-## 11.3 What it was reducing, and why it did not have to
+## 19.3 What it was reducing, and why it did not have to
 
 Here is the order `is_def_eq` used to ask its questions.
 
@@ -123,14 +133,14 @@ same number.
 
 So only a `true` answer is a decision. A `false` answer falls through to the
 full comparison, which is unchanged. This is the same discipline as the cache of
-chapter 10, read from the other side: there, a hit had to be confirmed; here, a
+chapter 18, read from the other side: there, a hit had to be confirmed; here, a
 miss must not conclude.
 
 Test: `a_shared_head_with_unequal_arguments_falls_through`.
 
 ---
 
-## 11.4 A test that measures work, not time
+## 19.4 A test that measures work, not time
 
 A performance fix needs a test, or the next person undoes it. But a test that
 reads a clock is a test that fails on a slow machine and passes on a fast one.
@@ -166,11 +176,11 @@ Tests: `the_same_head_is_compared_before_it_is_unfolded`,
 
 ---
 
-## 11.5 What it bought
+## 19.5 What it bought
 
 | | checked | failed | blocked | time |
 |---|---|---|---|---|
-| chapter 10 ended at | 35,115 | 684 | 21,713 | 190 s |
+| chapter 18 ended at | 35,115 | 684 | 21,713 | 190 s |
 | compare before unfold | **39,066** | **229** | 18,217 | 205 s |
 
 3,951 more declarations, and **two thirds of the failures gone**, for one moved
@@ -195,7 +205,7 @@ diff of the eight.
 
 ---
 
-## 11.6 The method, which is the real lesson
+## 19.6 The method, which is the real lesson
 
 The fix is three lines. Finding it took five steps, and none of them was a
 guess.
@@ -213,14 +223,14 @@ guess.
 5. **Make the test measure the thing you fixed.** The budget is a count, so the
    test is deterministic. Then break the fix on purpose and watch the test fail.
 
-Chapter 10 reported two changes that moved no declaration at all. This chapter
-is why that reporting mattered. Had I trusted the plan at the end of chapter 10,
+Chapter 18 reported two changes that moved no declaration at all. This chapter
+is why that reporting mattered. Had I trusted the plan at the end of chapter 18,
 I would have rewritten `whnf` to be lazy — a long change, across every rule —
 and the three lines here would still have been missing.
 
 ---
 
-## 11.7 What is left
+## 19.7 What is left
 
 **221 declarations out of budget**, and the same 8 from one rejected
 constructor.
@@ -238,6 +248,64 @@ Two candidates are already in view, and both are things Lean does and we do not.
 - **A lazy `whnf`.** Still true, still the deeper change, and no longer the
   first thing to try.
 
-[Chapter 12](12-ask-the-cheapest-question.md) asks the question again, and the
+[Chapter 20](20-ask-the-cheapest-question.md) asks the question again, and the
 answer is neither of those two. The method works a second time, and it retires
 the first candidate before a line of it is written.
+
+---
+
+## 19.8 How other systems do it
+
+The fix of this chapter is one line moved, and Lean's kernel has the same line
+in the same place. Read `is_def_eq_core` in `src/kernel/type_checker.cpp` from
+the top.
+
+1. A cheap structural test, with the positive cache.
+2. `whnf_core` on both sides, told **not** to unfold a definition and to treat
+   a projection cheaply. The comment says why: for `a.i =?= b.i` it wants to
+   try `a =?= b` before it reduces either side.
+3. Proof irrelevance. That is chapter 20.
+4. `lazy_delta_reduction`, which unfolds **one** side at a time, by height, and
+   compares again after each step.
+5. Only then the congruence test on an application spine, `is_def_eq_app`.
+
+So the order is the lesson: every question that can be asked without unfolding
+is asked first. Rocq does the same thing in its conversion machine, and the
+name there is a lazy reduction machine rather than a lazy delta step.
+
+Two notes.
+
+- **The name of step 4 is worth knowing.** Lean unfolds the side whose
+  definition was declared **later**, which it tracks as a height. That keeps a
+  pair of mutually recursive definitions from unfolding for ever. Chapter 23,
+  section 23.9 is us trying it.
+- **This is also why a profiler was not enough.** A profile says `whnf` is hot.
+  It cannot say that `whnf` should not have been called. The instrument that
+  answers the second question is a counter in the language of the problem, and
+  chapter 21 builds it.
+
+## 19.9 References
+
+**Our code**
+
+- `crates/rean_kernel/src/typeck.rs`, the congruence test and where it sits
+- `crates/rean_kernel/tests/comparison.rs`, the test that measures work rather
+  than time
+- `tools/slice.py`, the cut of section 19.1
+
+**Lean's own source**
+
+- `src/kernel/type_checker.cpp`, the function `is_def_eq_core`, and the comment
+  above the `whnf_core` calls, which states this chapter's rule in two lines
+
+**Read more**
+
+- Grégoire and Leroy, *A compiled implementation of strong reduction*, 2002,
+  for the other approach to the same cost.
+  <https://xavierleroy.org/publi/strong-reduction.pdf>
+- Rocq, the conversion rules, for the same question in another kernel.
+  <https://rocq-prover.org/doc/master/refman/language/core/conversion.html>
+
+---
+
+**Next:** [Ask the cheapest question first](20-ask-the-cheapest-question.md)

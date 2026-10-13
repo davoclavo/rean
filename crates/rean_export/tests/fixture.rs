@@ -246,7 +246,7 @@ fn index_zero_is_implicit_for_names_and_levels() {
 #[test]
 fn the_fixture_rests_on_no_axiom() {
     // `Nat.add_succ` is proved by `rfl`, so nothing is taken on trust. This is
-    // the trust report of chapter 6, run against the real file.
+    // the trust report of chapter 14, run against the real file.
     let m = module();
     let axioms = m.env.axioms_of(&Name::from_dotted("Nat.add_succ"));
     assert!(axioms.is_empty(), "got {axioms:?}");

@@ -1,4 +1,12 @@
-# Chapter 3 — The ground truth
+# Chapter 11 — The ground truth
+
+> **Where you are.** Chapter 11 of 28, in Part III of [the guide](README.md).
+>
+> **Before this.** Part II, both chapters. You need an environment to read a
+> file into.
+>
+> **After it you can** check terms that the real Lean elaborated, out of a file
+> that any program may read.
 
 Every test so far was written by hand. That proves the checker agrees with its
 author, and nothing more.
@@ -36,7 +44,7 @@ from a file that the real Lean wrote. That is the level 1 checkpoint of
 
 ---
 
-## 3.1 What `lean4export` is for
+## 11.1 What `lean4export` is for
 
 Chapter 0, section 0.16 described the De Bruijn criterion. The elaborator, the
 macro system, and every tactic are **untrusted**, because the kernel re-checks
@@ -51,7 +59,7 @@ same bug is small.
 
 ---
 
-## 3.2 The format
+## 11.2 The format
 
 NDJSON. One JSON object per line. The first line is a `meta` object with three
 version numbers. Every later line defines one object at an index, and refers to
@@ -76,7 +84,7 @@ term. A line with none of those three is a declaration.
 
 ---
 
-## 3.3 Four facts that came from the file, not the document
+## 11.3 Four facts that came from the file, not the document
 
 The format document answers none of these. A real file answers all four in a
 minute.
@@ -97,7 +105,7 @@ levels.insert(0, Level::Zero);
 
 The test is `index_zero_is_implicit_for_names_and_levels`.
 
-## 3.4 Two places where the document is wrong for this file
+## 11.4 Two places where the document is wrong for this file
 
 | Thing | The document says | The file says |
 |---|---|---|
@@ -119,7 +127,7 @@ JSON key order also varies from line to line, so the reader never depends on it.
 
 ---
 
-## 3.5 Our `Expr` already matched
+## 11.5 Our `Expr` already matched
 
 The term layer needed no translation. Every former lines up:
 
@@ -149,7 +157,7 @@ section 0.14 predicted that. A finished declaration holds neither.
 
 ---
 
-## 3.6 The harness
+## 11.6 The harness
 
 ```rust
 let mut known = Environment::new();
@@ -174,7 +182,7 @@ the whole point. It turns every later chapter into a measurable step.
 
 ---
 
-## 3.7 What the fixture found that hand-written tests did not
+## 11.7 What the fixture found that hand-written tests did not
 
 The fixture is the transitive closure of one theorem: 32 declarations, 103
 names, 15 levels, 434 terms. It covers an inductive declaration, a recursor
@@ -234,7 +242,7 @@ what it guards.
 
 ---
 
-## 3.8 What is still missing
+## 11.8 What is still missing
 
 The fixture passes, and the checker is still not one you should trust.
 
@@ -255,7 +263,7 @@ will break a test and that is the reminder.
 
 ---
 
-## 3.9 How to get a bigger fixture
+## 11.9 How to get a bigger fixture
 
 `fixtures/lean4export/PROVENANCE.md` has the details. The short version:
 `lean4` 4.30.0 is in devbox, and `lean4export` master pins v4.35.0-rc4, so it
@@ -270,7 +278,7 @@ pass rate will drop a long way, and that is the point.
 
 ---
 
-## 3.10 Exercises
+## 11.10 Exercises
 
 1. The reader rejects an unknown format version. Argue for and against accepting
    it with a warning instead.
@@ -300,3 +308,67 @@ pass rate will drop a long way, and that is the point.
    what makes the whole thing sound.
 5. The anonymous name and the zero level are the unique roots of their trees, and
    every name and every level is built from them. A term has no such root.
+
+---
+
+## 11.11 How other systems do it
+
+Every system that wants a second opinion needs a file that a second program can
+read. The designs differ in one choice: text that anybody can parse, or an image
+of the prover's own memory.
+
+| System | The file | Who can read it |
+|---|---|---|
+| Lean 4 | an `.olean` file, which is an image of a compacted heap | Lean, on the same version and the same machine word size |
+| Lean 4 | an export file from `lean4export`, which is the text format of this chapter | any program, on any machine |
+| Rocq | a `.vo` file, re-checked by the separate tool `coqchk` | Rocq, and `coqchk` |
+| Isabelle | a proof term, when a user asks for one | Isabelle, and a tool that reads its format |
+| Metamath Zero | a binary proof file, with a text form beside it | a verifier of a few thousand lines |
+
+Two notes.
+
+- **The format is boring on purpose.** One object per line, and a reference is
+  an index into what came before. There is no name resolution, no notation and
+  no implicit argument left to work out. That is what makes a second checker
+  possible in a weekend, and it is why chapter 19 can cut a file in half with
+  `tools/slice.py` and still have a valid module. The later chapters call that
+  cut a **slice**, and it is how one failing declaration gets looked at alone.
+- **A version check is not a formality.** Section 3.4 shows the format
+  document describing a newer format than the file. The reader refuses a
+  version it does not know, because a silent guess about a format is how a
+  checker says yes to something it never read.
+
+## 11.12 References
+
+**Our code**
+
+- `crates/rean_export/src/reader.rs`, the reader
+- `crates/rean_export/tests/fixture.rs`, `shapes.rs`, `every_shape.rs`,
+  `completeness.rs`, `scratch_order.rs`
+- `fixtures/lean4export/PROVENANCE.md`, how each fixture was made
+
+**The tools**
+
+- `lean4export`, the exporter. <https://github.com/leanprover/lean4export>
+- `lean4checker`, Lean re-checking its own library from outside the compiler.
+  <https://github.com/leanprover/lean4checker>
+- `src/LeanExport.lean` and `src/LeanChecker.lean` in the Lean source. Recent
+  toolchains ship both as binaries, which is why chapter 25 can time Lean's own
+  kernel on the same machine.
+
+**Read more**
+
+- *The Lean Language Reference*, validating proofs, for the reason an external
+  checker exists, in the project's own words.
+  <https://lean-lang.org/doc/reference/latest/ValidatingProofs/>
+- The Lean Kernel Arena, which runs every independent checker against the same
+  files. <https://arena.lean-lang.org/>
+- Carneiro, *Lean4Lean*, for a second checker with a proof about it.
+  <https://arxiv.org/abs/2403.14064>
+- Barendregt and Barendsen, *Autarkic computations in formal proofs*, 2002, for
+  the criterion this chapter serves.
+  DOI [10.1023/A:1015761529444](https://doi.org/10.1023/A:1015761529444)
+
+---
+
+**Next:** [Making it work](12-making-it-work.md)

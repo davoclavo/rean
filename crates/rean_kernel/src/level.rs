@@ -73,7 +73,7 @@ impl Level {
     /// called `large-elim-param`. `MyBool.{u} : Sort u` has two constructors,
     /// so at `u := 0` it is a `Prop` with two elements and its recursor must
     /// not eliminate into a `Type`. We accepted `MyBool.rec.{1, 0}`, and eight
-    /// lines later the file proves `False`. See chapter 20.
+    /// lines later the file proves `False`. See chapter 28.
     ///
     /// The cases:
     ///
@@ -151,7 +151,7 @@ impl Level {
 
     /// Like [`Self::substitute`], and returns `None` when nothing changed.
     ///
-    /// Chapter 9 taught this to [`Expr::instantiate_at`] and the profile moved:
+    /// Chapter 17 taught this to [`Expr::instantiate_at`] and the profile moved:
     /// an unchanged subterm keeps its existing [`Arc`] and costs one reference
     /// count bump instead of a fresh allocation.
     ///

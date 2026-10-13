@@ -1,4 +1,4 @@
-//! The second ground truth fixture, and the one that settled chapter 7.
+//! The second ground truth fixture, and the one that settled chapter 15.
 //!
 //! `Nat.add_succ.ndjson` is one real module, so it only covers what that one
 //! module needed. `shapes.ndjson` was generated on purpose to cover the rest:
@@ -42,9 +42,9 @@ fn the_fixture_uses_the_newer_format_version() {
     assert_eq!(m.order.len(), 63);
 }
 
-/// **The test that settled chapter 7.**
+/// **The test that settled chapter 15.**
 ///
-/// Chapter 7 derived the shape of a mutual recursor by reading, with no ground
+/// Chapter 15 derived the shape of a mutual recursor by reading, with no ground
 /// truth to check it against. This is that check.
 #[test]
 fn a_real_mutual_recursor_has_the_shape_chapter_7_predicted() {
@@ -77,7 +77,7 @@ fn a_real_mutual_recursor_has_the_shape_chapter_7_predicted() {
     assert_eq!(forest_rec.rules.len(), 2);
 }
 
-/// And the shape that chapter 7 got **wrong**.
+/// And the shape that chapter 15 got **wrong**.
 #[test]
 fn a_nested_recursor_speaks_about_a_type_that_is_not_exported() {
     let m = module();
@@ -99,7 +99,7 @@ fn a_nested_recursor_speaks_about_a_type_that_is_not_exported() {
     assert_eq!(rule_owners, vec!["List.nil", "List.cons"]);
     assert!(!aux.all.iter().any(|n| n.to_string() == "List"));
 
-    // So every group check of chapter 7 would fire on a correct declaration,
+    // So every group check of chapter 15 would fire on a correct declaration,
     // and a nested recursor is trusted instead. That is the one place the
     // checker still takes a recursor on faith.
 }
@@ -181,7 +181,7 @@ fn our_kernel_checks_every_declaration() {
 fn the_literal_theorem_checks() {
     // `theorem twoAddThree : 2 + 3 = 5 := rfl`. This needs δ through the
     // instance chain, ι on `Nat.rec`, a projection, and direct arithmetic on
-    // two literals. Chapter 4 added the last piece.
+    // two literals. Chapter 12 added the last piece.
     let m = module();
     let decl = m
         .env

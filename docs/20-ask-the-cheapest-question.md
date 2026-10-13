@@ -1,6 +1,16 @@
-# Chapter 12 — Ask the cheapest question first
+# Chapter 20 — Ask the cheapest question first
 
-Chapter 11 moved one call and took 455 failures away. It also left an
+> **Where you are.** Chapter 20 of 28, in Part VI of [the guide](README.md). The
+> lab notebook. Read it for the method.
+>
+> **Before this.** [Compare before you unfold](19-compare-before-you-unfold.md),
+> and Part I chapter [4](book/04-prop-type-and-sort.md), section 4.4, for proof
+> irrelevance.
+>
+> **After it you can** rank a list of failures by what each one blocks, and
+> measure a pair of changes as one unit.
+
+Chapter 19 moved one call and took 455 failures away. It also left an
 instruction: do the same thing again. Take **one** of the remaining failures,
 cut its slice, sweep the budget, and let the number say what the fix is.
 
@@ -14,11 +24,11 @@ devbox run -- cargo test -p rean_kernel --test cache
 
 ---
 
-## 12.1 The method said no
+## 20.1 The method said no
 
 `Nat.mul_add_div._f` is the first of the 221 that remained. `tools/slice.py`
 cuts it out, its slice holds 1,172 declarations, and the sweep looked nothing
-like the one in chapter 11:
+like the one in chapter 19:
 
 | budget | result | time for the slice |
 |---|---|---|
@@ -26,7 +36,7 @@ like the one in chapter 11:
 | 2,000,000,000 | failed | 6 s |
 | 20,000,000,000 | failed | 58 s |
 
-More than **twenty billion** units and still no answer. In chapter 11 the sweep
+More than **twenty billion** units and still no answer. In chapter 19 the sweep
 found a declaration that wanted 500 million and spent them in a second. This
 one is a different animal, and a bigger budget is not its fix.
 
@@ -41,7 +51,7 @@ Every frame carries the same sample count, which means they are all on the stack
 at once. Read it from the right: ι is reducing, inside a `whnf`, of an argument
 that `spine_eq` is comparing.
 
-**The heads already match.** The quick comparison of chapter 11 is working, and
+**The heads already match.** The quick comparison of chapter 19 is working, and
 the cost is in one argument that genuinely needs reduction.
 
 That rules out the fix the roadmap had named next. Lean's **lazy δ by height**
@@ -53,7 +63,7 @@ project has retired without writing a line of it.
 
 ---
 
-## 12.2 Reading the declaration, not guessing at it
+## 20.2 Reading the declaration, not guessing at it
 
 So ask Lean what the declaration is.
 
@@ -75,18 +85,18 @@ Eq.mpr (id (congrArg (fun _a => (_a + y) / m = x + 1 + y / m) (Nat.mul_succ m x)
 **proof**, and every one of their arguments is a proof.
 
 And the kernel never has to look at a proof. Two proofs of one proposition are
-equal. That is **proof irrelevance**, and the checker has had it since chapter 2.
+equal. That is **proof irrelevance**, and the checker has had it since chapter 10.
 
 It was the **last** rule it tried.
 
 ---
 
-## 12.3 Where proof irrelevance belongs
+## 20.3 Where proof irrelevance belongs
 
 Here is the order `is_def_eq` used, written as the questions it asks:
 
 1. Are these the same term? `alpha_eq`.
-2. Same head, equal arguments? `spine_eq`. Chapter 11 moved this one up.
+2. Same head, equal arguments? `spine_eq`. Chapter 19 moved this one up.
 3. *Reduce both sides.*
 4. Same literal, same sort, two binders, same spine, η, η for a structure, one
    term type.
@@ -115,7 +125,7 @@ the rule simply did not apply, and the rules below it still deserve their turn.
 
 But one error must **not** be swallowed. If the budget ran out, that is the
 truth about the declaration, and hiding it would make the report blame a type
-mismatch for a cost problem. Chapter 10 §10.8 is the same lesson, and it was
+mismatch for a cost problem. Chapter 18 §18.8 is the same lesson, and it was
 expensive enough to learn once.
 
 Tests: `two_proofs_of_one_proposition_need_no_reduction`, and the control
@@ -124,23 +134,23 @@ Tests: `two_proofs_of_one_proposition_need_no_reduction`, and the control
 pair answers `true` in `Prop` and `false` in `Type`, and that difference is
 exactly what proof irrelevance is.
 
-That control used to assert a **budget exhaustion** instead, and chapter 15
-§15.10 records why that was wrong: the terms it compared were equal all along,
+That control used to assert a **budget exhaustion** instead, and chapter 23
+§23.10 records why that was wrong: the terms it compared were equal all along,
 and only an eager reduction made finding it expensive. A test that measures the
 cost of a detour is a test that passes for the wrong reason.
 
 ---
 
-## 12.4 The move alone made things worse
+## 20.4 The move alone made things worse
 
 | | checked | failed | blocked |
 |---|---|---|---|
-| chapter 11 ended at | 39,066 | 229 | 18,217 |
+| chapter 19 ended at | 39,066 | 229 | 18,217 |
 | proof irrelevance first | 38,972 | **114** | 18,426 |
 
 Failures **halved**, and 94 fewer declarations were checked.
 
-Both are true, and the second is what matters. Chapter 10 §10.5 warned about
+Both are true, and the second is what matters. Chapter 18 §18.5 warned about
 exactly this: a failure count alone can be improved by attempting less.
 
 So: which declarations stopped passing? The answer was 227 of them, and every
@@ -161,13 +171,13 @@ meeting, and it is why the two counts have to be read together.
 
 ---
 
-## 12.5 The fourth cache pays for the third rule
+## 20.5 The fourth cache pays for the third rule
 
 The waste is plain once named: `infer_type` now runs on both sides of every
 comparison, and it ran from nothing every time. One term is typed many times
 inside one declaration, and its type does not change there.
 
-So the same pattern as chapter 10, a fourth time: a cache keyed by the cached
+So the same pattern as chapter 18, a fourth time: a cache keyed by the cached
 hash, confirmed with `alpha_eq`, cleared for each declaration and around each
 mutual group.
 
@@ -182,7 +192,7 @@ if matches!(e, Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_)
 
 A leaf is cheaper to type than to look up. A `Sort` needs one `succ`, and a free
 variable is one read of the context. Caching those would cost a hash and a
-probe to save nothing — the same reasoning as `CACHE_MIN_SIZE` in chapter 10.
+probe to save nothing — the same reasoning as `CACHE_MIN_SIZE` in chapter 18.
 
 For the free variable there is a second reason to like it. Its type comes from
 the context that holds it, so leaving it out of the cache removes the one entry
@@ -193,11 +203,11 @@ Tests: `a_type_is_inferred_once_and_read_after_that`,
 
 ---
 
-## 12.6 Together, not separately
+## 20.6 Together, not separately
 
 | | checked | failed | blocked | time |
 |---|---|---|---|---|
-| chapter 11 ended at | 39,066 | 229 | 18,217 | 205 s |
+| chapter 19 ended at | 39,066 | 229 | 18,217 | 205 s |
 | proof irrelevance first | 38,972 | 114 | 18,426 | 203 s |
 | and the `infer_type` cache | **39,244** | **115** | 18,153 | **192 s** |
 
@@ -211,11 +221,11 @@ the unit of work, and so the pair is the unit of measurement.**
 
 ---
 
-## 12.7 Where the kernel stands
+## 20.7 Where the kernel stands
 
 | | checked of 57,512 | failed | time |
 |---|---|---|---|
-| start of chapter 9 | 33,539 | 742 | 198 s |
+| start of chapter 17 | 33,539 | 742 | 198 s |
 | now | **39,244** | **115** | **192 s** |
 
 And the 115, by kind:
@@ -234,7 +244,7 @@ that remains is cost.
 
 ---
 
-## 12.8 Which failure to work on next
+## 20.8 Which failure to work on next
 
 **107 declarations out of budget**, and 18,153 blocked behind them. So the next
 question is not "what is wrong" but **"which one of the 107 is worth the
@@ -275,7 +285,7 @@ are worth 1,810, 323, 221, and then rows of fifty. **Rank before you choose.**
 
 ---
 
-## 12.9 And the budget is no longer the lever
+## 20.9 And the budget is no longer the lever
 
 Two measurements, on the same binary, say where the limit now is.
 
@@ -285,7 +295,7 @@ Two measurements, on the same binary, say where the limit now is.
 | 100,000,000 | 39,318 | 103 | 354 s |
 
 Five times the budget buys **74 declarations**. Before the two reorderings of
-chapters 11 and 12, five times the budget bought 1,094. The checker is no longer
+chapters 19 and 20, five times the budget bought 1,094. The checker is no longer
 budget-bound on this input; it is work-bound, and the work is real.
 
 The one high-leverage declaration shows it exactly. On its slice,
@@ -326,9 +336,9 @@ cheapest of the three to retire.
 
 ---
 
-## 12.10 What is left, honestly
+## 20.10 What is left, honestly
 
-One thing, and it is the job that chapters 10 and 11 both named and both
+One thing, and it is the job that chapters 18 and 19 both named and both
 deferred.
 
 Our `whnf` is **eager**. Each step builds a whole new term and drops the old
@@ -349,3 +359,56 @@ now worked three times and failed none:
    fault. Wants twenty billion units: the kernel is.
 4. Profile, and read the **stack**, not the list of symbols.
 5. Then change one thing and measure. A story that fits is not evidence.
+
+---
+
+## 20.11 How other systems do it
+
+Section 12.3 puts proof irrelevance before reduction. Lean's kernel puts it in
+exactly that place, and this is the clearest case in the project of a chapter
+arriving at the layout that already exists in `src/kernel/type_checker.cpp`.
+
+```text
+quick_is_def_eq        a cheap structural test, and the positive cache
+whnf_core              reduce, but do not unfold a definition
+is_def_eq_proof_irrel  THIS CHAPTER
+lazy_delta_reduction   now unfold, one side at a time
+is_def_eq_app          congruence on a spine
+```
+
+Two notes.
+
+- **Lean's answer here has three values, not two.** `is_def_eq_proof_irrel`
+  returns yes, no, or "the rule does not apply". Our first version returned a
+  `bool`, which cannot tell "not a proof" from "two proofs of different
+  propositions", and chapter 22, section 22.2 is the bug report that named it.
+- **Our ranking tool has no counterpart.** `tools/roots.py` ranks a failure by
+  how many declarations it blocks, because our checker reads a whole module and
+  reports per declaration. Lean's kernel stops at the first error, so the
+  question never comes up. An independent checker needs the tool, and the
+  arena's suite is read the same way.
+
+## 20.12 References
+
+**Our code**
+
+- `crates/rean_kernel/src/typeck.rs`, the order of the questions
+- `crates/rean_kernel/tests/comparison.rs` and `tests/cache.rs`
+- `tools/roots.py`, the ranking of section 20.8
+
+**Lean's own source**
+
+- `src/kernel/type_checker.cpp`, the functions `is_def_eq_core` and
+  `is_def_eq_proof_irrel`
+
+**Read more**
+
+- Gilbert, Cockx, Sozeau and Tabareau, *Definitional proof-irrelevance without
+  K*, 2019, for what the rule costs a checker and why Rocq keeps it in a
+  separate sort. DOI [10.1145/3290316](https://doi.org/10.1145/3290316)
+- nanoda, issue 44, for the same mistake measured in another kernel.
+  <https://github.com/ammkrn/nanoda_lib/issues/44>
+
+---
+
+**Next:** [A hundred million](21-a-hundred-million.md)

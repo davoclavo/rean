@@ -1,6 +1,6 @@
 //! The type checker.
 //!
-//! Chapter 1 had three free functions. Now they need an [`Environment`], and
+//! Chapter 9 had three free functions. Now they need an [`Environment`], and
 //! they call each other, so they live on one struct. The real Lean kernel does
 //! the same, for the same reason.
 //!
@@ -49,14 +49,14 @@ use std::fmt;
 ///
 /// To compute `Nat.sub a b` the kernel must reduce `a` and `b` first, and if
 /// `a` is itself `Nat.sub c d` then reducing it reduces `c`, and so on. That
-/// descent is a mutual recursion between `read_nat` and `whnf`, and chapter 15,
-/// section 15.11, found it overflowing a **32 GB** stack. So it has to be
+/// descent is a mutual recursion between `read_nat` and `whnf`, and chapter 23,
+/// section 23.11, found it overflowing a **32 GB** stack. So it has to be
 /// bounded.
 ///
 /// # Why this counts nesting and not work
 ///
 /// Counting work is the better looking design and it was built and measured.
-/// Chapter 17 has the table. A read may spend a few hundred units and then give
+/// Chapter 25 has the table. A read may spend a few hundred units and then give
 /// up, which reads trivial arguments at any depth and bounds the pathological
 /// ones by the thing that actually hurts.
 ///
@@ -85,7 +85,7 @@ const NAT_DEPTH_LIMIT: u32 = 16;
 
 /// How many `Nat.succ` layers [`TypeChecker::read_nat`] will peel.
 ///
-/// Reading a number through its constructor form is what chapter 13 is about,
+/// Reading a number through its constructor form is what chapter 21 is about,
 /// and the case that needed it was one layer deep:
 /// `Nat.succ (OfNat.ofNat Nat 1 ..)`.
 ///
@@ -96,7 +96,7 @@ const NAT_DEPTH_LIMIT: u32 = 16;
 ///
 /// So read a few layers and give up. Giving up is only slower, never wrong:
 /// the kernel falls back to unfolding the definition, which is what it did
-/// before chapter 13.
+/// before chapter 21.
 const SUCC_LIMIT: u32 = 16;
 
 /// How large a term must be before the `whnf` cache takes an interest in it.
@@ -132,7 +132,7 @@ const CACHE_CAP: usize = 200_000;
 ///
 /// # The number comes from a sweep
 ///
-/// Chapter 13 chose 20,000,000 by sweeping, and chapter 17 had to sweep again,
+/// Chapter 21 chose 20,000,000 by sweeping, and chapter 25 had to sweep again,
 /// because the **meter** changed. A walk of a term is now charged before it
 /// happens, so the same work costs more units than it did. The whole prelude,
 /// 59,349 declarations:
@@ -157,7 +157,7 @@ const FUEL: u64 = 40_000_000;
 /// premise**, and that premise can itself be a recursor application. The depth
 /// is then the depth of the term, and the term is one that the reduction built.
 ///
-/// A work budget does not bound it. Chapter 15, section 15.11, measured the
+/// A work budget does not bound it. Chapter 23, section 23.11, measured the
 /// same 345 seconds at four billion units and at sixteen billion, which is what
 /// a **crash** looks like beside a timeout: the run died of a 32 GB stack before
 /// it could spend the budget. A hundred times the default budget over the whole
@@ -301,7 +301,7 @@ pub enum TypeError {
     ///
     /// The payload is boxed, for the reason this enum's own comment gives: it
     /// sits in the return value of the hot path. It holds two names and two
-    /// rendered levels, and chapter 18 gave a [`Name`] two numbers of its own,
+    /// rendered levels, and chapter 26 gave a [`Name`] two numbers of its own,
     /// which pushed this variant to 132 bytes and `clippy` noticed.
     FieldTooLarge(Box<FieldTooLarge>),
 }
@@ -578,7 +578,7 @@ pub struct TypeChecker<'e> {
     /// number stays one, so the second try can answer at once.
     ///
     /// This is the one cache in the kernel that needs **no confirmation**, and
-    /// the reason is worth keeping. Chapter 10 insists that a hash only finds
+    /// the reason is worth keeping. Chapter 18 insists that a hash only finds
     /// an answer and `alpha_eq` decides, because two terms can share a hash.
     /// Here a collision makes the kernel call a number "not a number", so it
     /// declines and unfolds the definition instead. That is slower and it is
@@ -594,7 +594,7 @@ pub struct TypeChecker<'e> {
     /// the instrument that found that out is three lines of `eprintln!` on the
     /// path that declined.
     ///
-    /// This cache keeps chapter 10's rule, and [`Self::not_a_number`] does
+    /// This cache keeps chapter 18's rule, and [`Self::not_a_number`] does
     /// not. A hash **finds** the entry here and [`Expr::alpha_eq`]
     /// **decides**, because a wrong number is a wrong answer. The exception
     /// that the negative cache enjoys does not apply: being wrong there costs
@@ -635,7 +635,7 @@ impl<'e> TypeChecker<'e> {
     /// Sets how deep [`Self::read_nat`] may force a nested argument.
     ///
     /// A knob because it is a **trade**, and both sides of it are measured in
-    /// chapter 17. A shallow limit sends the kernel down the unary path and
+    /// chapter 25. A shallow limit sends the kernel down the unary path and
     /// costs work. A deep one reads the arithmetic and costs stack. There is no
     /// value that is right for every declaration, so there is a number that
     /// can be swept.
@@ -1078,7 +1078,7 @@ impl<'e> TypeChecker<'e> {
     /// walks its **first** argument through `Nat.brecOn`, and
     /// `Nat.Linear.fixedVar` is 100,000,000. So the checker counted down from a
     /// hundred million, one `Nat.succ` at a time, to answer a comparison that
-    /// one machine instruction settles. Chapter 13 has the measurement.
+    /// one machine instruction settles. Chapter 21 has the measurement.
     ///
     /// The reduction has to happen **inside** the loop. `whnf` is weak head
     /// only, so `Nat.succ (OfNat.ofNat Nat 1 ..)` keeps an unreduced argument,
@@ -1521,7 +1521,7 @@ impl<'e> TypeChecker<'e> {
         }
         self.check_stack()?;
         // Past that test the work can be unbounded, so the answer is worth
-        // keeping whatever the size of the two terms. See chapter 10.
+        // keeping whatever the size of the two terms. See chapter 18.
         let key = mix_hashes(a.hash_value(), b.hash_value());
         if let Some(bucket) = self.def_eq_cache.get(&key)
             && let Some((.., answer)) = bucket
@@ -1755,7 +1755,7 @@ impl<'e> TypeChecker<'e> {
         };
         // The name, and not only the rule. A row that says "lazy delta 181"
         // cannot answer "which definition started this", and that was the one
-        // question chapter 17 needed it for.
+        // question chapter 25 needed it for.
         tally::bump(|| format!("lazy delta {name}"));
         let Some(decl) = self.lookup(name) else {
             return Ok(None);
@@ -1922,7 +1922,7 @@ impl<'e> TypeChecker<'e> {
         // on a dependent function whose second argument matches only because
         // all proofs of one proposition are equal.
         //
-        // This is the same lesson as chapter 2, section 2.7. A free variable is
+        // This is the same lesson as chapter 10, section 10.7. A free variable is
         // not only an optimisation. It is what keeps a term closed, and a
         // closed term is what lets a later step ask for its type.
         let id = self.lctx.push(binder_name.clone(), binder_type.to_expr());
@@ -2393,7 +2393,7 @@ impl<'e> TypeChecker<'e> {
     /// `Sort u` and `Sort v`, and the prelude projects one of them **millions**
     /// of times inside `Nat.below`.
     ///
-    /// Definite is safe here because of the universe constraint of chapter 7:
+    /// Definite is safe here because of the universe constraint of chapter 15:
     /// an inductive type's universe bounds its fields. A structure whose level
     /// really is zero has fields whose levels are zero, and one whose level is
     /// a parameter becomes a `Prop` only where its fields do too. The attack
@@ -2799,7 +2799,7 @@ impl<'e> TypeChecker<'e> {
         // correct declaration.
         //
         // So a nested recursor is **trusted**, and this is the one place the
-        // checker still takes a recursor on faith. Chapter 7, section 7.5.
+        // checker still takes a recursor on faith. Chapter 15, section 15.5.
         if group.iter().any(|i| i.num_nested > 0) {
             return Ok(());
         }
@@ -2866,7 +2866,7 @@ impl<'e> TypeChecker<'e> {
         // It is asked after the nested bail-out above, and that is deliberate.
         // A nested declaration names its recursors `Rose.rec_1` and up, for the
         // auxiliary types that Lean compiles the nesting into, and those are
-        // exactly the declarations that section 7.5 says this kernel trusts.
+        // exactly the declarations that section 15.5 says this kernel trusts.
         if rec.name != target.name.str("rec") {
             return Err(bad(format!(
                 "it takes `{}` apart, so it must be called `{}.rec`",
@@ -3076,7 +3076,7 @@ impl<'e> TypeChecker<'e> {
 
     /// Checks that the minor premises are the ones induction requires.
     ///
-    /// Chapter 5 checked that every ι rule is **type correct**. That is not
+    /// Chapter 13 checked that every ι rule is **type correct**. That is not
     /// enough. A recursor could offer minor premises of some other shape, keep
     /// its rules type correct, and still not be an induction principle. Then it
     /// is an axiom again, only a quieter one.

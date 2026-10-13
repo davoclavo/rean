@@ -1,7 +1,7 @@
 //! The order in which the kernel asks its questions.
 //!
 //! `is_def_eq` has more than one way to answer, and the order matters more than
-//! any one of them. Chapter 11 explains why.
+//! any one of them. Chapter 19 explains why.
 
 use rean_core::Name;
 use rean_kernel::{
@@ -278,7 +278,7 @@ fn a_number_is_read_through_the_constructor_form() {
     // unfolded the real `Nat.ble` into the structural recursion that defines
     // it, that recursion walks its **first** argument through `Nat.brecOn`,
     // and `Nat.Linear.fixedVar` is 100,000,000. The checker counted down from
-    // a hundred million. See chapter 13.
+    // a hundred million. See chapter 21.
     let env = env_with_nat_ble(100_000_000);
     let mut tc = TypeChecker::new(&env);
     tc.set_fuel(SMALL);

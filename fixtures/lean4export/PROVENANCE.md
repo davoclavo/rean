@@ -6,7 +6,7 @@ pipeline must meet. See `docs/ROADMAP.md`.
 ## How to generate a new fixture, now
 
 `rean export` does every step of this page for you. See
-[chapter 16](../../docs/16-the-front-door.md).
+[chapter 24](../../docs/24-the-front-door.md).
 
 ```sh
 # a module, or one declaration and its closure
@@ -91,7 +91,7 @@ So one of three steps is needed:
 3. Bump the devbox `lean4` version to match master.
 
 **The first one is done.** `elan` carries `v4.35.0-rc3` with an exporter beside
-it, and `rean export` finds the pair by itself. Chapter 16 reports the prelude
+it, and `rean export` finds the pair by itself. Chapter 24 reports the prelude
 measured against that toolchain: 59,349 declarations, 345 MB, exported in 16
 seconds.
 
@@ -100,7 +100,7 @@ seconds.
 One real module exercises only the paths that one module needs. This one has:
 
 - no mutual inductive declaration, so the ordering of the motives and the minor
-  premises of a mutual recursor is **unvalidated**. See chapter 7, section 7.1.
+  premises of a mutual recursor is **unvalidated**. See chapter 15, section 15.1.
 - no nested inductive declaration
 - no `Quot`
 - no `letE`, no `mdata`, no literal
@@ -137,7 +137,7 @@ The second fixture, and this one we generated. It covers every shape that
 
 ### What it settled
 
-Chapter 7 derived the shape of a mutual recursor from reading, with no ground
+Chapter 15 derived the shape of a mutual recursor from reading, with no ground
 truth. This fixture confirms it:
 
 ```
@@ -147,9 +147,9 @@ rec Forest.rec all=[Tree, Forest]  motives=2  minors=3  rules=[Forest.nil, Fores
 
 One motive per type in the group, one minor premise per constructor of **both**
 types, and iota rules only for the type the recursor takes apart. That is
-exactly what chapter 7 predicted, and `Tree.rec` and `Forest.rec` both pass.
+exactly what chapter 15 predicted, and `Tree.rec` and `Forest.rec` both pass.
 
-It also showed one thing chapter 7 got **wrong**. For a nested declaration the
+It also showed one thing chapter 15 got **wrong**. For a nested declaration the
 recursor speaks about an auxiliary type that Lean builds and never exports:
 
 ```

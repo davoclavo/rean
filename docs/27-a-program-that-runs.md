@@ -1,6 +1,15 @@
-# Chapter 19 — A program that runs
+# Chapter 27 — A program that runs
 
-The roadmap has had one line at the bottom of its table since chapter 0:
+> **Where you are.** Chapter 27 of 28, Part VII of [the guide](README.md).
+>
+> **Before this.** [The environment](10-the-environment.md), for the
+> reduction rules, and [the front door](24-the-front-door.md), which hands this
+> chapter its terms.
+>
+> **After it you can** say how a checker and a runtime differ, and why this one
+> is lazy.
+
+The roadmap has had one line at the bottom of its table from the start:
 
 > | later | LCNF and a backend | **a program that runs** |
 
@@ -31,11 +40,11 @@ of the 1,750 declarations the program rests on, and our evaluator runs it.
 
 ---
 
-## 19.1 Why this was reachable without a parser
+## 27.1 Why this was reachable without a parser
 
 The table expects stage 5 after stages 2 and 3, because that is the order a
 compiler runs in. But stage 5 does not need our parser or our elaborator. It
-needs an `Expr`, and chapter 16 built a front door that hands us the `Expr` of
+needs an `Expr`, and chapter 24 built a front door that hands us the `Expr` of
 any Lean program there is.
 
 So the order of the **work** is not the order of the pipeline:
@@ -50,7 +59,7 @@ So the order of the **work** is not the order of the pipeline:
 
 Two of the four stages are ours, and they are the two that this project is
 about: the one that decides whether a proof is correct, and the one that
-decides what a program does. The two in the middle are Lean's, and chapter 16
+decides what a program does. The two in the middle are Lean's, and chapter 24
 says so every time it prints a line.
 
 **The check is not optional.** `rean run` checks first and only the declarations
@@ -60,7 +69,7 @@ did.
 
 ---
 
-## 19.2 A different job from the kernel
+## 27.2 A different job from the kernel
 
 The kernel and the evaluator both reduce terms, and they are not the same
 program.
@@ -75,15 +84,15 @@ program.
 | numbers | a literal, with rules to keep it one | a machine integer, always |
 | budget | fuel, by nodes built | a step count, so a loop ends |
 
-The universe row is the one to sit with. Chapter 18 measured
-`instantiate_levels` at 7% of a profile, and chapter 16 found it rebuilding
+The universe row is the one to sit with. Chapter 26 measured
+`instantiate_levels` at 7% of a profile, and chapter 24 found it rebuilding
 every node of every value the δ rule unfolds. **The evaluator drops every
 universe argument on the floor**, because nothing it will ever do compares a
 `Sort`. A stage that asks a smaller question can afford a smaller machine.
 
 ---
 
-## 19.3 It is lazy, and that is not a taste
+## 27.3 It is lazy, and that is not a taste
 
 An argument becomes a thunk, and a thunk is forced at most once.
 
@@ -107,14 +116,14 @@ def fib : Nat → Nat
 Read naively, `fib 25` is 242,785 calls. It took **2,571 steps**.
 
 Lean compiles that recursion to `Nat.brecOn`, whose course-of-values table
-holds an answer for every smaller number, and chapter 17 showed what the table
+holds an answer for every smaller number, and chapter 25 showed what the table
 costs the **kernel**: `Nat.sub._f` unfolding a million times to build one. A
 lazy table computes only the entries somebody projects, so the exponential
 reading of `fib` becomes linear for free, and nobody wrote a memo table.
 
 ---
 
-## 19.4 Three bugs, and all three are the same bug
+## 27.4 Three bugs, and all three are the same bug
 
 The evaluator took a day and three of its failures were worth more than the
 code.
@@ -163,7 +172,7 @@ representation twice.
 
 ---
 
-## 19.5 What a primitive is, and why the list is short
+## 27.5 What a primitive is, and why the list is short
 
 Lean marks a handful of functions `@[extern]` and its compiler emits a call
 into C. A runtime has to do the same work somewhere, and ours does it here.
@@ -190,7 +199,7 @@ handing it that state, and nothing looks inside the token.
 
 ---
 
-## 19.6 What it runs
+## 27.6 What it runs
 
 Measured, on one program per row, each one compared with Lean's `#eval`.
 
@@ -211,7 +220,7 @@ The limits, named rather than implied:
 - A `String` built as a byte array needs `String.toList`, and the runtime asks
   for that **only if the program did**. Asking the exporter for it took one
   program from 4.6 MB to 16.9 MB and brought in the UTF-8 decoding family that
-  chapters 16 and 17 are about: ten declarations our kernel cannot check at the
+  chapters 24 and 25 are about: ten declarations our kernel cannot check at the
   default budget. The honest trade is to leave it out.
 - A number past a `u128` is reported and not wrapped, exactly as the kernel
   reports it. A Lean `Nat` has no upper bound and this does.
@@ -220,7 +229,7 @@ The limits, named rather than implied:
 
 ---
 
-## 19.7 What this is not
+## 27.7 What this is not
 
 It is a tree walking evaluator. Lean's stage 5 lowers to LCNF and then to C,
 and this is the step the roadmap put before that: "the kernel term becomes
@@ -230,3 +239,84 @@ So "compile" is still ahead, and the thing that is behind us is larger than it
 sounds. Before this chapter, nothing in this repository could **do** anything
 with a Lean program except say yes or no about it. Now it says yes, and then it
 runs it, and the output matches the output of the compiler that elaborated it.
+
+---
+
+## 27.8 How other systems do it
+
+Stage 5 is the stage where Lean stops being a proof assistant and becomes a
+compiler, so this is the chapter with the most company.
+
+| | Lean's stage 5 | ours |
+|---|---|---|
+| the form it works on | LCNF, then an IR, then C or an interpreter | the kernel `Expr` itself |
+| types and proofs | **erased**, because the compiler knows the types | ignored, because we have no types. A thunk is never forced unless somebody asks. |
+| order | strict, with an explicit thunk where Lean asks for one | lazy, by need |
+| memory | reference counting, with an optimisation for a unique owner | Rust's own ownership, and a thunk cell |
+| numbers | a machine number, with a big number library behind it | a machine integer |
+
+Four notes.
+
+- **Lean has an interpreter and a compiler.** `#eval` runs the interpreter,
+  `src/library/ir_interpreter.cpp`, and `lake build` goes through LCNF to C.
+  Our `rean run` is the first of those two, and the output of this chapter is
+  compared against `#eval`.
+- **Reference counting is a design, not an accident.** The paper *Counting
+  Immutable Beans* is about the optimisation that makes it cheap in a pure
+  language: when a value has one owner, update it in place.
+- **Laziness is older than this chapter.** Launchbury wrote the semantics in
+  1993 and the Spineless Tagless G-machine is how a real lazy runtime is built.
+  Haskell is lazy by default for the whole language. OCaml and Rust are strict
+  and offer a thunk when you ask. Lean is strict, and section 27.3 explains why
+  **our** evaluator cannot be.
+- **The free memo table is worth one more look.** Section 19.3 gets `fib 25` in
+  2,571 steps rather than 242,785, because Lean compiled the recursion to
+  `Nat.brecOn` and a lazy evaluator fills only the entries somebody reads. The
+  same table costs the **kernel** a million steps, chapter 25, section 25.4.
+  One table, two stages, opposite results.
+
+## 27.9 References
+
+**Our code**
+
+- `crates/rean_eval/src/lib.rs`, the evaluator
+- `crates/rean_eval/src/prim.rs`, the primitives of section 27.5
+- `crates/rean_eval/tests/run.rs` and `crates/rean/tests/programs.rs`, which
+  check our output against Lean's own answers
+
+**Lean's own source**
+
+- `src/Lean/Compiler/LCNF.lean` and the directory beside it, which is stage 5
+  as Lean does it
+- `src/library/ir_interpreter.cpp`, the interpreter that `#eval` uses
+
+**Read more**
+
+- Ullrich and de Moura, *Counting Immutable Beans*, 2019, for the memory model
+  of Lean's stage 5. <https://arxiv.org/abs/1908.05647>
+- Launchbury, *A natural semantics for lazy evaluation*, 1993, for a thunk
+  forced at most once.
+  DOI [10.1145/158511.158618](https://doi.org/10.1145/158511.158618)
+- Peyton Jones, *Implementing lazy functional languages on stock hardware*,
+  1992, for how a lazy runtime is built in earnest.
+  <https://www.microsoft.com/en-us/research/publication/implementing-lazy-functional-languages-on-stock-hardware-the-spineless-tagless-g-machine/>
+- *The Lean Language Reference*, run-time code, for what Lean guarantees about
+  a program it compiles.
+  <https://lean-lang.org/doc/reference/latest/Run-Time-Code/>
+- *Functional Programming in Lean*, for Lean as a language that runs.
+  <https://lean-lang.org/functional_programming_in_lean/>
+
+---
+
+**That is the whole book.** You read the theory in Part I, built the checker in
+Parts II to IV, saw where a compiler begins in Part V, measured the cost in
+Part VI, and ran a program in Part VII.
+
+What is left is in [the roadmap](ROADMAP.md): our own parser, our own
+elaborator, and the two checkpoints that need them. One thing comes before any
+of that, and the next chapter is it: an outside test suite, and the fourteen
+lies it caught us accepting.
+
+---
+
+**Next:** [The arena](28-the-arena.md)

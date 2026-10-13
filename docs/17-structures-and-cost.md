@@ -1,6 +1,15 @@
-# Chapter 9 — Structures, and what the kernel costs
+# Chapter 17 — Structures, and what the kernel costs
 
-Chapter 7 closed the last soundness gap we could name. This chapter answers a
+> **Where you are.** Chapter 17 of 28, and the first of Part VI in
+> [the guide](README.md). Part VI is the lab notebook. Each chapter takes one
+> measurement and lets it overrule a plan, so **read it for the method**.
+>
+> **Before this.** Parts I to IV.
+>
+> **After it you can** say what a structure needs beyond an inductive type, and
+> what every term node must cache.
+
+Chapter 15 closed the last soundness gap we could name. This chapter answers a
 different question: **the prelude of Lean is 57,512 declarations, so what stops
 a checker from reading all of them?**
 
@@ -18,7 +27,7 @@ devbox run -- cargo test -p rean_kernel --test structures
 
 ---
 
-## 9.1 A structure is an inductive type with one constructor and no index
+## 17.1 A structure is an inductive type with one constructor and no index
 
 Lean writes
 
@@ -49,7 +58,7 @@ Three rules of the kernel are that one equation, read in three directions.
 
 ---
 
-## 9.2 Rule one: η for a structure, in a comparison
+## 17.2 Rule one: η for a structure, in a comparison
 
 The checker had this rule already. If one side is a constructor application and
 the other is anything of the same type, compare field by field:
@@ -63,7 +72,7 @@ already**, and that turns out to be the limit worth naming.
 
 ---
 
-## 9.3 Rule two: η for a structure, on a major premise
+## 17.3 Rule two: η for a structure, on a major premise
 
 The ι rule needs its major premise in constructor form. A variable is not in
 constructor form, so the rule declines, and a reduction that Lean performs we do
@@ -116,7 +125,7 @@ Lean that our checker rejected because it lacked a reduction.
 
 ---
 
-## 9.4 Rule three: a type with one term
+## 17.4 Rule three: a type with one term
 
 `Unit.ext` of the prelude says
 
@@ -146,7 +155,7 @@ Tests: `two_terms_of_a_one_term_type_are_equal`,
 
 ---
 
-## 9.5 A string literal is a structure too
+## 17.5 A string literal is a structure too
 
 `String` in Lean 4.30 is
 
@@ -182,12 +191,12 @@ devbox run -- lean /tmp/q.lean
 ```
 
 A guess from memory gave `String.mk` and a `List Char`, and the checker then
-reported `unknown constant String.mk`. The lesson is the one chapter 3 already
+reported `unknown constant String.mk`. The lesson is the one chapter 11 already
 states: **read the ground truth, do not recall it**.
 
 ---
 
-## 9.6 The engineering half: what the kernel caches
+## 17.6 The engineering half: what the kernel caches
 
 A profile of the prelude named one frame above all others:
 
@@ -259,7 +268,7 @@ accounted for.
 
 ---
 
-## 9.7 The lesson that cost the most
+## 17.7 The lesson that cost the most
 
 The `loose` cache did not change the number of declarations we checked. Not one.
 
@@ -280,7 +289,7 @@ Both answers are useful, and reporting only the first would have been a lie.
 
 ---
 
-## 9.8 Raising the budget found a third bug
+## 17.8 Raising the budget found a third bug
 
 If the caches bought time, spend it: raise the budget. At 100,000,000 the
 checker died after 40 seconds with
@@ -315,7 +324,7 @@ Tests: `the_stack_size_reads_a_number_of_mebibytes`,
 `the_usage_text_names_both_knobs_and_their_coupling`.
 
 One line of this section is now out of date, and
-[chapter 16](16-the-front-door.md) is where it is corrected. "This stack
+[chapter 24](24-the-front-door.md) is where it is corrected. "This stack
 overflowed after 4,034 declarations" is no longer what happens. The kernel
 measures how much of the stack it has used and **reports** instead, so the
 coupling above is still true and the crash at the end of it is gone.
@@ -326,7 +335,7 @@ one whole measurement. **Read the exit code and the stderr, not the clock.**
 
 ---
 
-## 9.9 A new rule has a cost, and the profile named it
+## 17.9 A new rule has a cost, and the profile named it
 
 The three rules bought 159 declarations and **lost 25 seconds**: 160 s became
 185 s. The profile said why in one line.
@@ -359,7 +368,7 @@ which is which.**
 
 ---
 
-## 9.10 The kernel asked a question by building a string
+## 17.10 The kernel asked a question by building a string
 
 With `infer_type` down, a frame appeared that is not a rule at all:
 
@@ -392,7 +401,7 @@ so anything inside it that allocates is worth looking at.**
 
 ---
 
-## 9.11 Where the prelude stands
+## 17.11 Where the prelude stands
 
 | | checked | failed | blocked | time |
 |---|---|---|---|---|
@@ -432,7 +441,7 @@ Tests: `a_missing_constructor_is_named_as_missing`,
 
 ---
 
-## 9.12 A bigger budget, measured
+## 17.12 A bigger budget, measured
 
 The budget is a real knob, and `REAN_FUEL` exposes it.
 
@@ -459,18 +468,18 @@ block def   instAppendString
 
 Follow that chain far enough and it ends at one real failure. For the whole
 `String.append` tower of the prelude, it ended at
-`List.toList_data_toByteArray`, and that one declaration is what §9.3 fixed.
+`List.toList_data_toByteArray`, and that one declaration is what §17.3 fixed.
 
 ---
 
-## 9.13 What is left, and it is one thing
+## 17.13 What is left, and it is one thing
 
 **642 declarations out of budget.** That is the whole remaining gap on this
 input, and the cause is **well-founded recursion**. `WellFounded.fix` unfolds
 through `Acc.rec`, each step grows the term, and the growth is what the budget
 measures.
 
-A bigger budget is not the honest fix, as §9.12 shows: five times the number
+A bigger budget is not the honest fix, as §17.12 shows: five times the number
 bought three declarations. The honest fix is the cache the real kernel has and
 we do not.
 
@@ -491,9 +500,79 @@ subterm again from scratch.
 
 So the next step is a **cache on `whnf`**, and after it one on `is_def_eq`. Lean
 has both. Caching needs a third number in every node, a structural hash, which
-is exactly the pattern of §9.6 for a third time. And it needs one discipline the
+is exactly the pattern of §17.6 for a third time. And it needs one discipline the
 first two caches did not: a cached answer must be **confirmed**, not trusted,
 because two different terms can share a hash. A proof checker may not be
 probably right.
 
 That is the next chapter.
+
+---
+
+## 17.14 How other systems do it
+
+Section 9.6 caches three numbers in every node. Lean caches four things in one
+machine word, and the comment in `src/Lean/Expr.lean` gives the layout.
+
+| Lean caches | Width | Ours |
+|---|---|---|
+| the hash code | 32 bits | `hash`, chapter 18 |
+| the loose bound variable range | 20 bits | `loose` |
+| an approximate depth | 8 bits | — |
+| four flags, for a free variable, a metavariable, a level metavariable and a level parameter | 1 bit each | — |
+
+Read the third row. Lean does **not** cache the node count. It caches an
+approximate depth, and the comment says what for: to keep the number of hash
+collisions down. We cache the size because our work budget asks for it after
+every step. Lean has no work budget, so it has no reason to.
+
+That difference is worth one more sentence, because "Lean has no budget" is too
+strong. Lean's kernel has no fuel, and it does have three limits:
+
+- a recursion depth guard on `infer_type` and on `is_def_eq`;
+- a check for an interrupt, so a user can stop a run;
+- a maximum size for a `Nat` numeral, which is 128 MB by default and which the
+  environment variable `LEAN_NAT_MAX_SIZE` moves.
+
+So the honest summary is that Lean bounds the **term** and we bound the
+**work**. Chapter 24, section 24.5 is what it costs to get a bound like that
+wrong.
+
+Two notes from other compilers.
+
+- **GHC gives every variable a unique number** and compares that first, which
+  is the same move as our `hash` and Lean's cached hash code.
+- **`rustc` interns a string once** and then passes a small symbol. Our `Name`
+  carries its own hash for the same reason, and chapter 26, section 26.3
+  measures what that was worth.
+
+## 17.15 References
+
+**Our code**
+
+- `crates/rean_kernel/src/expr.rs`, the `Sub` node and its three numbers
+- `crates/rean_kernel/src/typeck.rs`, the three rules for a structure
+- `crates/rean_kernel/tests/structures.rs`, every claim of this chapter
+
+**Lean's own source**
+
+- `src/Lean/Expr.lean`, the comment on `Expr.Data` with the bit layout
+- `src/kernel/expr.h`, which holds `get_loose_bvar_range` and the pointer
+  equality test `is_eqp`
+- `src/kernel/type_checker.cpp`, where `try_eta_struct_core` and
+  `is_def_eq_unit_like` are the rules of sections 17.2 to 17.4
+- `src/kernel/inductive.cpp`, which holds `expand_eta_struct` and
+  `is_non_rec_structure`
+
+**Read more**
+
+- Rocq, primitive projections, in the reference manual on records, for the same
+  trade: a term former added because a structure is everywhere.
+  <https://rocq-prover.org/doc/master/refman/language/core/records.html>
+- Filliâtre and Conchon, *Type-safe modular hash-consing*, 2006, for the other
+  way to make a node cheap. Chapter 26, section 26.9 measures it here.
+  <https://www.lri.fr/~filliatr/ftp/publis/hash-consing2.pdf>
+
+---
+
+**Next:** [The cache](18-the-cache.md)

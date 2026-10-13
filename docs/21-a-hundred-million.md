@@ -1,6 +1,15 @@
-# Chapter 13 — A hundred million
+# Chapter 21 — A hundred million
 
-Chapter 12 left 107 failures and a ranking. One declaration,
+> **Where you are.** Chapter 21 of 28, in Part VI of [the guide](README.md). The
+> lab notebook. Read it for the method.
+>
+> **Before this.** [Ask the cheapest question first](20-ask-the-cheapest-question.md),
+> for the ranking that picked this declaration out of 107.
+>
+> **After it you can** build an instrument that names a cause, which a profiler
+> cannot do.
+
+Chapter 20 left 107 failures and a ranking. One declaration,
 `Nat.mul_add_div._f`, held up 4,807 of the 5,827 declarations that the checker
 could not read — 82% of what remained.
 
@@ -13,9 +22,9 @@ devbox run -- cargo test -p rean_kernel --test comparison
 
 ---
 
-## 13.1 The profile had stopped being useful
+## 21.1 The profile had stopped being useful
 
-Chapter 12 already profiled this declaration, and the stack said:
+Chapter 20 already profiled this declaration, and the stack said:
 
 ```text
 infer_type -> is_def_eq -> spine_eq -> whnf -> iota_step -> whnf -> iota_step
@@ -86,9 +95,9 @@ last δ unfolds: ["Nat.Linear.fixedVar", "OfNat.ofNat", "instOfNatNat",
 
 ---
 
-## 13.2 Why that one line is the whole bug
+## 21.2 Why that one line is the whole bug
 
-`Nat.ble` is one of the functions the kernel computes **directly**. Chapter 4
+`Nat.ble` is one of the functions the kernel computes **directly**. Chapter 12
 added that, and for the same reason this chapter exists: without it, `2 + 3`
 would unfold through `Nat.rec` three times.
 
@@ -115,7 +124,7 @@ The second argument of that comparison was not a literal. It was
 `Nat.succ (OfNat.ofNat Nat 1 (instOfNatNat 1))`, which is the number **2** in
 constructor form. `value` read it as "not a number".
 
-Chapter 4 named this exact obligation and met half of it:
+Chapter 12 named this exact obligation and met half of it:
 
 > A literal must behave like a constructor application wherever the rules expect
 > one, and a literal must be **definitionally equal** to the matching
@@ -128,7 +137,7 @@ them cost a factor of ten thousand.
 
 ---
 
-## 13.3 The reduction has to happen inside the loop
+## 21.3 The reduction has to happen inside the loop
 
 The first attempt was a pure function that peels `Nat.succ` and adds one. It
 did not work, and the reason is worth a paragraph.
@@ -167,9 +176,9 @@ it fails, because a head that is not `Nat.succ` stops it after one `whnf`.
 
 ---
 
-## 13.4 A test that measures work, not time
+## 21.4 A test that measures work, not time
 
-Same discipline as chapters 11 and 12: the budget is a **count**, so a test
+Same discipline as chapters 19 and 20: the budget is a **count**, so a test
 built on it gives the same answer on every machine.
 
 The environment declares `Nat`, its two constructors, `Bool`, and
@@ -200,7 +209,7 @@ checking it was worth the minute.
 
 ---
 
-## 13.5 What it bought
+## 21.5 What it bought
 
 On the slice that holds `Nat.mul_add_div._f` and its 1,171 dependencies:
 
@@ -220,12 +229,12 @@ On the whole prelude:
 
 | | checked | failed | blocked | time |
 |---|---|---|---|---|
-| chapter 12 ended at | 39,244 | 115 | 18,153 | 192 s |
+| chapter 20 ended at | 39,244 | 115 | 18,153 | 192 s |
 | after this fix | **48,804** | 536 | 8,172 | 141 s |
 
 9,560 more declarations, and 10,000 fewer waiting on a failure.
 
-Read the failure column with the checked column, as chapter 10 §10.5 insists.
+Read the failure column with the checked column, as chapter 18 §18.5 insists.
 536 is more than 115, and it is not worse. Those declarations were **blocked**
 before: the checker had never asked them a question, so they could not fail. Now
 it asks. The failures also spread out — the worst root used to hold up 15,272
@@ -233,7 +242,7 @@ declarations, and the worst now holds up 2,593.
 
 ---
 
-## 13.6 And then the report cost more than the check
+## 21.6 And then the report cost more than the check
 
 The first full run after the fix did not finish. Forty minutes in, every one of
 the 57,512 declarations had a verdict and nothing was printed.
@@ -249,7 +258,7 @@ rean::main -> Thread::join -> ... -> Expr::collect_constants
 `collect_constants` reads the names a term mentions. It is called by
 `axioms_of`, which answers "what does this declaration rest on" by walking the
 declaration's whole transitive closure. That is the right **definition**, and
-chapter 6 earns it. It is the wrong **algorithm** to call once per declaration,
+chapter 14 earns it. It is the wrong **algorithm** to call once per declaration,
 because it re-walks the term of every declaration it meets, once per caller.
 
 With 39,244 accepted declarations it finished. With 48,804 it did not, and that
@@ -280,7 +289,7 @@ each test walked every failure so far. It is a `HashSet` now.
 | before | would not finish |
 | after | **141 s** |
 
-141 seconds is also **faster than the 192 seconds** of chapter 12, while
+141 seconds is also **faster than the 192 seconds** of chapter 20, while
 checking 9,560 more declarations. The report had been costing a quarter of the
 run all along, and nobody had looked, because it had never been the thing that
 failed.
@@ -290,9 +299,9 @@ after you win.**
 
 ---
 
-## 13.7 The lesson, which is about instruments
+## 21.7 The lesson, which is about instruments
 
-Chapters 11 and 12 said: take one declaration, sweep the budget, read the
+Chapters 19 and 20 said: take one declaration, sweep the budget, read the
 profile. That was enough twice. Here it was not, and the reason is worth
 keeping.
 
@@ -308,3 +317,55 @@ profiler could not say in four.
 
 None of those eleven lines are in the repository. They should not be. But the
 numbers they produced are in this chapter, which is the part worth keeping.
+
+---
+
+## 21.8 How other systems do it
+
+The bug of this chapter is a kernel counting down from 100,000,000 one
+`Nat.succ` at a time. Every real kernel has the same hazard, and every one
+answers it the same way: compute with a machine number, and never with a
+constructor chain.
+
+- **Lean's kernel computes with a big number library.** `reduce_nat` handles
+  the arithmetic and the comparisons directly, so `100000000 - 1` is one
+  operation. It also refuses a numeral above `LEAN_NAT_MAX_SIZE`, which is
+  128 MB by default, because a kernel that can build a number that large can
+  also hang on one.
+- **Rocq added primitive integers for the same reason.** `Int63` is a kernel
+  primitive beside the inductive `nat`.
+- **The same bug was measured in another Lean kernel.** nanoda issue 44 reports
+  10⁵ to 10⁶ unary steps from a different cause, and chapter 22, section 22.2
+  is us finding our half of it.
+
+One note on instruments. Section 13.1 retires the profiler, and the thing that
+replaced it is not clever: a counter, named after a rule and a definition.
+A flame graph answers "where did the time go". A tally answers "what was it
+reducing", and after this chapter that is the only question left. `REAN_TALLY=1`
+is the instrument that stayed.
+
+## 21.9 References
+
+**Our code**
+
+- `crates/rean_kernel/src/nat_lit.rs`, the arithmetic reader
+- `crates/rean_kernel/src/tally.rs`, the instrument that stayed
+- `crates/rean_kernel/tests/comparison.rs`
+- `crates/rean/tests/tally.rs`
+
+**Lean's own source**
+
+- `src/kernel/type_checker.cpp`, the functions `reduce_nat`,
+  `reduce_bin_nat_op`, `reduce_bin_nat_pred` and `reduce_pow`, and the size
+  guard `check_nat_size` beside them
+
+**Read more**
+
+- nanoda, issue 44, for the same order of magnitude of wasted unary steps.
+  <https://github.com/ammkrn/nanoda_lib/issues/44>
+- Rocq, primitive integers, for the other kernel that added machine numbers.
+  <https://rocq-prover.org/doc/master/refman/language/core/primitive.html>
+
+---
+
+**Next:** [What the others do](22-what-the-others-do.md)

@@ -1285,7 +1285,7 @@ fn the_kernel_computes_on_a_string_literal() {
     assert!(tc.whnf(&open).unwrap().alpha_eq(&open));
 }
 
-// --- chapter 20: the arena ----------------------------------------------
+// --- chapter 28: the arena ----------------------------------------------
 //
 // Every test below is a declaration that this checker **accepted** until the
 // Lean Kernel Arena said otherwise. Six of the fourteen it caught are here;

@@ -2,6 +2,12 @@
 
 A Lean compiler in Rust. This repository holds the foundations of the frontend.
 
+**New here? Start at [Part I of the book](docs/book/README.md).** Eight short
+chapters build the theory that Lean 4 rests on, in order, and they assume
+nothing. [The guide](docs/README.md) holds the whole reading order,
+[the glossary](docs/GLOSSARY.md) holds every word, and
+[the references](docs/REFERENCES.md) hold every source.
+
 ## Start
 
 ```sh
@@ -139,7 +145,7 @@ matters, and it explains why the crates split the way they do.
 5. **Compile.** The kernel term becomes LCNF, then C code or an interpreter
    call. **Stage 5 is here**, as the interpreter: `rean run Prog.lean main`
    checks a program with our kernel and then runs it with our evaluator, and
-   the output matches Lean's own. See [chapter 19](docs/19-a-program-that-runs.md).
+   the output matches Lean's own. See [chapter 27](docs/27-a-program-that-runs.md).
 
 Stage 3 is where Lean differs most from other languages. In Rust the compiler
 owns the grammar and the type rules. In Lean a file can extend both. The
@@ -167,65 +173,96 @@ See [the roadmap](docs/ROADMAP.md). In short: build the whole pipeline here, and
 use `lean4export` output from the real Lean as a ground truth that our answers
 must meet.
 
-## Learning path
+## The book
 
-New to this? Read in this order. Each chapter is self-contained and ends with
-exercises and answers.
+The documentation is a book, and it is meant to be read in order. Part I is the
+theory. Parts II to VIII build the checker, measure it, and then score it
+against a suite that other people wrote.
 
-| If you want | Start at |
+| Part | Chapters | It answers |
+|---|---|---|
+| **I — The ideas** | [1 to 8](docs/book/README.md) | what a proof is, and what the Calculus of Inductive Constructions is |
+| **II — The kernel, built** | [the type checker](docs/09-the-type-checker.md), [the environment](docs/10-the-environment.md) | the five functions a checker is made of |
+| **III — Meeting real Lean** | [the ground truth](docs/11-the-ground-truth.md), [making it work](docs/12-making-it-work.md) | reading a file the real Lean wrote |
+| **IV — Trustworthy** | chapters [13](docs/13-what-a-checker-must-check.md) to [15](docs/15-mutual-and-nested.md) | what a checker must refuse |
+| **V — The frontend** | [the frontend](docs/16-the-frontend.md) | stage 1, and the table that grows |
+| **VI — What it costs** | chapters [17](docs/17-structures-and-cost.md) to [26](docs/26-thirty-four-per-cent.md) | the lab notebook. Read it for the method. |
+| **VII — A program runs** | [a program that runs](docs/27-a-program-that-runs.md) | stage 5, with our own evaluator |
+| **VIII — The outside suite** | [the arena](docs/28-the-arena.md) | what a suite written by other people found that our own tests did not |
+
+| If you want | Go to |
 |---|---|
-| to understand what a proof checker **is** | [chapter 0](docs/00-introduction-to-the-kernel.md) |
-| to see a checker **built**, step by step | chapters [1](docs/01-the-type-checker.md) and [2](docs/02-the-environment.md) |
-| to see it meet **real Lean** | [chapter 3](docs/03-the-ground-truth.md) |
-| to see what **breaks** and how it is found | chapters [4](docs/04-making-it-work.md) to [7](docs/07-mutual-and-nested.md) |
-| to see what a checker **costs**, measured | chapters [9](docs/09-structures-and-cost.md) to [17](docs/17-twelve-seconds.md) |
-| to **run** a Lean program with our own evaluator | [chapter 19](docs/19-a-program-that-runs.md) |
-| to see **what Lean hands the kernel** | `rean show prelude Nat.sub`, and [chapter 17](docs/17-twelve-seconds.md) |
-| to see how to **find** a performance fault | chapters [11](docs/11-compare-before-you-unfold.md) to [13](docs/13-a-hundred-million.md) |
-| to **check your own Lean file** | [chapter 16](docs/16-the-front-door.md) |
-| to see where a compiler **begins** | [chapter 8](docs/08-the-frontend.md), independent of the rest |
+| to start from nothing | [Part I chapter 1](docs/book/01-a-proof-is-a-program.md) |
+| the whole order, with the gates | [the guide](docs/README.md) |
+| every rule in one dense file | [the appendix](docs/00-introduction-to-the-kernel.md) |
+| to **check your own Lean file** | [the front door](docs/24-the-front-door.md) |
+| to see **what Lean hands the kernel** | `rean show prelude Nat.sub`, and [twelve seconds](docs/25-twelve-seconds.md) |
 | a word you do not know | [the glossary](docs/GLOSSARY.md) |
+| the source for a claim | [the references](docs/REFERENCES.md) |
 
-## Chapters
+## Every chapter
+
+**Part I, the ideas.** Read these first, in this order.
 
 | Chapter | Topic |
 |---|---|
-| [0 — Introduction to the kernel](docs/00-introduction-to-the-kernel.md) | What a proof checker is. `Sort`, `Prop`, `Type`, de Bruijn indices, definitional equality, and the ultimate primitives. |
-| [1 — The type checker](docs/01-the-type-checker.md) | `alpha_eq`, `LocalContext`, `whnf`, `is_def_eq`, and `infer_type`. The first real proof. |
-| [2 — The environment](docs/02-the-environment.md) | declarations, δ, ι, η, proof irrelevance, projections, level normalization. |
-| [3 — The ground truth](docs/03-the-ground-truth.md) | reading a real `lean4export` file and checking it. |
-| [4 — Making it work](docs/04-making-it-work.md) | `Nat` literals, K-like ι, the quotient rules, strict positivity, and coverage. |
-| [5 — What a checker must check](docs/05-what-a-checker-must-check.md) | red team. It accepted a proof of `False`. Recursor checking, large elimination, universe hygiene. |
-| [6 — What a theorem rests on](docs/06-what-a-theorem-rests-on.md) | derived minor premises, the axiom trust report, unsafe isolation. |
-| [7 — Mutual and nested](docs/07-mutual-and-nested.md) | mutual groups, nested positivity, the inductive universe constraint. |
-| [8 — The frontend](docs/08-the-frontend.md) | `Name`, spans, diagnostics, the **extensible token table**, and the lossless tree. Independent of the kernel. |
-| [9 — Structures, and what the kernel costs](docs/09-structures-and-cost.md) | the three rules a structure needs, the two numbers every node caches, and why a faster kernel checked no more declarations. |
-| [10 — The cache](docs/10-the-cache.md) | the third number, a cache on `whnf` and on `is_def_eq`, and the rule that keeps a cache honest: a hash **finds** an answer, equality **decides** whether to trust it. |
-| [11 — Compare before you unfold](docs/11-compare-before-you-unfold.md) | one moved line, 3,951 declarations. How to take one failing case out of 676 and let the measurement overrule your plan. |
-| [12 — Ask the cheapest question first](docs/12-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, why a pair of changes is one unit of measurement, and how to rank 107 failures so you work on the one worth 15,272. |
-| [13 — A hundred million](docs/13-a-hundred-million.md) | the checker counted down from 100,000,000 one `Nat.succ` at a time. When a profiler stops helping, count things in the language of the **problem**: which recursor, which number, which definition. Then the **report** became the slow part. |
-| [14 — What the others do](docs/14-what-the-others-do.md) | independent Lean kernels exist and some are 20× faster than Lean's own. Reading their write-ups found a rule we had wrong and the O(n²) in our β step. |
-| [15 — The last two hundred and forty-eight](docs/15-the-last-two-hundred.md) | eleven hypotheses, eleven measurements. Eight changed nothing, one ruled out a rewrite, one test failed because the kernel got **more correct**, and a profile found a **crash** that hours of measurement had read as a slow run. |
-| [16 — The front door](docs/16-the-front-door.md) | `rean check Demo.lean`. Three lines of Lean cost **39 declarations**, the one substitution that chapter 9's rule had missed, a limit that counted the wrong thing, and the instrument that is kept because a profiler cannot name a definition. |
-| [17 — Twelve seconds](docs/17-twelve-seconds.md) | `rean show`, and the two bugs it found in an hour. Three knobs that reach nothing. And the number that reframes the project: **Lean's own kernel re-checks the whole prelude in 12 seconds**, so measure against something that is not yourself. |
-| [19 — A program that runs](docs/19-a-program-that-runs.md) | **stage 5**. `rean run` checks a Lean program and then runs it, and the output matches Lean's. Why it needed no parser, why it is lazy, why `fib 25` took 2,571 steps rather than 242,785, and three silent bugs that were all the same bug: a runtime may know what a value **means** and not what it is **made of**. |
-| [18 — Thirty-four per cent](docs/18-thirty-four-per-cent.md) | six changes, **three kept and four reverted**. A hash that may refuse, a name that carries its own, and an allocator. Why one of them was worth nothing alone, why `Arc<[Level]>` made the common case worse, why the same fix was worth 120× in one function and nothing in its twin, and why **82% of the nodes this kernel builds are duplicates** and sharing them is still slower. |
+| [1 — A proof is a program](docs/book/01-a-proof-is-a-program.md) | propositions as types, and why a type checker is a proof checker |
+| [2 — Terms, binders, and names you do not need](docs/book/02-terms-and-binders.md) | the language, substitution, capture, de Bruijn indices |
+| [3 — Types that depend on values](docs/book/03-types-that-depend-on-values.md) | the Pi type, and what no mainstream language has |
+| [4 — Prop, Type, and Sort](docs/book/04-prop-type-and-sort.md) | the universe tower, `imax`, proof irrelevance, erasure |
+| [5 — The Calculus of Constructions](docs/book/05-the-calculus-of-constructions.md) | the five rules, a derivation, and the limit that forces CoIC |
+| [6 — Inductive types, and the I in CoIC](docs/book/06-inductive-types.md) | constructors, recursors, ι, positivity, structures, quotients |
+| [7 — Definitional equality](docs/book/07-definitional-equality.md) | the seven rules, `whnf`, and why `rfl` sometimes refuses |
+| [8 — What you must trust](docs/book/08-what-you-must-trust.md) | the five stages, the seven axioms, and the second opinion |
+
+**Parts II to VIII, the implementation.**
+
+| Chapter | Topic |
+|---|---|
+| [0 — The foundations, in one file](docs/00-introduction-to-the-kernel.md) | the appendix. All of Part I, dense, in one file. |
+| [9 — The type checker](docs/09-the-type-checker.md) | `alpha_eq`, `LocalContext`, `whnf`, `is_def_eq`, and `infer_type`. The first real proof. |
+| [10 — The environment](docs/10-the-environment.md) | declarations, δ, ι, η, proof irrelevance, projections, level normalization. |
+| [11 — The ground truth](docs/11-the-ground-truth.md) | reading a real `lean4export` file and checking it. |
+| [12 — Making it work](docs/12-making-it-work.md) | `Nat` literals, K-like ι, the quotient rules, strict positivity, and coverage. |
+| [13 — What a checker must check](docs/13-what-a-checker-must-check.md) | red team. It accepted a proof of `False`. Recursor checking, large elimination, universe hygiene. |
+| [14 — What a theorem rests on](docs/14-what-a-theorem-rests-on.md) | derived minor premises, the axiom trust report, unsafe isolation. |
+| [15 — Mutual and nested](docs/15-mutual-and-nested.md) | mutual groups, nested positivity, the inductive universe constraint. |
+| [16 — The frontend](docs/16-the-frontend.md) | `Name`, spans, diagnostics, the **extensible token table**, and the lossless tree. Independent of the kernel. |
+| [17 — Structures, and what the kernel costs](docs/17-structures-and-cost.md) | the three rules a structure needs, the two numbers every node caches, and why a faster kernel checked no more declarations. |
+| [18 — The cache](docs/18-the-cache.md) | the third number, a cache on `whnf` and on `is_def_eq`, and the rule that keeps a cache honest: a hash **finds** an answer, equality **decides** whether to trust it. |
+| [19 — Compare before you unfold](docs/19-compare-before-you-unfold.md) | one moved line, 3,951 declarations. How to take one failing case out of 676 and let the measurement overrule your plan. |
+| [20 — Ask the cheapest question first](docs/20-ask-the-cheapest-question.md) | proof irrelevance belongs before reduction, not after. Why the rule alone made things worse, why a pair of changes is one unit of measurement, and how to rank 107 failures so you work on the one worth 15,272. |
+| [21 — A hundred million](docs/21-a-hundred-million.md) | the checker counted down from 100,000,000 one `Nat.succ` at a time. When a profiler stops helping, count things in the language of the **problem**: which recursor, which number, which definition. Then the **report** became the slow part. |
+| [22 — What the others do](docs/22-what-the-others-do.md) | independent Lean kernels exist and some are 20× faster than Lean's own. Reading their write-ups found a rule we had wrong and the O(n²) in our β step. |
+| [23 — The last two hundred and forty-eight](docs/23-the-last-two-hundred.md) | eleven hypotheses, eleven measurements. Eight changed nothing, one ruled out a rewrite, one test failed because the kernel got **more correct**, and a profile found a **crash** that hours of measurement had read as a slow run. |
+| [24 — The front door](docs/24-the-front-door.md) | `rean check Demo.lean`. Three lines of Lean cost **39 declarations**, the one substitution that chapter 17's rule had missed, a limit that counted the wrong thing, and the instrument that is kept because a profiler cannot name a definition. |
+| [25 — Twelve seconds](docs/25-twelve-seconds.md) | `rean show`, and the two bugs it found in an hour. Three knobs that reach nothing. And the number that reframes the project: **Lean's own kernel re-checks the whole prelude in 12 seconds**, so measure against something that is not yourself. |
+| [26 — Thirty-four per cent](docs/26-thirty-four-per-cent.md) | six changes, **three kept and four reverted**. A hash that may refuse, a name that carries its own, and an allocator. Why one of them was worth nothing alone, why `Arc<[Level]>` made the common case worse, why the same fix was worth 120× in one function and nothing in its twin, and why **82% of the nodes this kernel builds are duplicates** and sharing them is still slower. |
+| [27 — A program that runs](docs/27-a-program-that-runs.md) | **stage 5**. `rean run` checks a Lean program and then runs it, and the output matches Lean's. Why it needed no parser, why it is lazy, why `fib 25` took 2,571 steps rather than 242,785, and three silent bugs that were all the same bug: a runtime may know what a value **means** and not what it is **made of**. |
+| [28 — The arena](docs/28-the-arena.md) | an outside conformance suite, and the six rules it found. What a kernel must **refuse**, scored by somebody else. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use, including what a check **costs** |
+| [The guide](docs/README.md) | the reading order, part by part, and what you miss if you skip |
+| [The references](docs/REFERENCES.md) | every paper, manual and source file the chapters cite, with one line on what each one answers |
+
+Every chapter now ends with two sections: **How other systems do it**, which
+says what Rocq, Agda, Isabelle, Haskell or Rust does in the same place, and
+**References**, which names our code, the matching file in Lean's own source,
+and the papers behind the rule.
 
 Every claim in a chapter has a test:
 
 ```sh
 devbox run -- cargo test -p rean_kernel --test universes   # chapter 0
-devbox run -- cargo test -p rean_kernel --test typeck      # chapters 1 and 2
-devbox run -- cargo test -p rean_export                    # chapters 3 and 4
-devbox run -- cargo test -p rean_kernel --test structures  # chapter 9
-devbox run -- cargo test -p rean_kernel --test cache       # chapter 10
-devbox run -- cargo test -p rean_kernel --test comparison  # chapters 11 and 12
-devbox run -- cargo test -p rean_kernel --test substitution # chapter 14
-devbox run -- cargo test -p rean_kernel --test limits       # chapter 16
-devbox run -- cargo test -p rean --test frontdoor           # chapter 16
-devbox run -- cargo test -p rean --test show                # chapter 17
-devbox run -- cargo test -p rean_eval                       # chapter 19
+devbox run -- cargo test -p rean_kernel --test typeck      # chapters 9 and 10
+devbox run -- cargo test -p rean_export                    # chapters 11 and 12
+devbox run -- cargo test -p rean_kernel --test structures  # chapter 17
+devbox run -- cargo test -p rean_kernel --test cache       # chapter 18
+devbox run -- cargo test -p rean_kernel --test comparison  # chapters 19 and 20
+devbox run -- cargo test -p rean_kernel --test substitution # chapter 22
+devbox run -- cargo test -p rean_kernel --test limits       # chapter 24
+devbox run -- cargo test -p rean --test frontdoor           # chapter 24
+devbox run -- cargo test -p rean --test show                # chapter 25
+devbox run -- cargo test -p rean_eval                       # chapter 27
 ```
 
 ## Three tools, and the method they serve
@@ -264,17 +301,17 @@ REAN_TALLY=1 ./target/release/rean check one.ndjson
                   5980  delta Nat.sub._f
 ```
 
-Chapters [11](docs/11-compare-before-you-unfold.md) and
-[12](docs/12-ask-the-cheapest-question.md) are that method, worked twice.
-Chapter [16](docs/16-the-front-door.md) is the third, and the tally above is
+Chapters [19](docs/19-compare-before-you-unfold.md) and
+[20](docs/20-ask-the-cheapest-question.md) are that method, worked twice.
+Chapter [24](docs/24-the-front-door.md) is the third, and the tally above is
 what made it quick: `delta Nat.sub._f` names a cause, and "`whnf` is 41%" does
-not. A profiler cannot say **which** definition, and after chapter 13 that is
+not. A profiler cannot say **which** definition, and after chapter 21 that is
 the only question left.
 
 A third tool keeps the chapters honest. Every chapter cites its tests by name,
 and `tools/cite.py` fails the gate when a chapter names a test that the code
-does not define. It found six stale citations in chapter 1 the day it was
-written, and chapter 1 says so.
+does not define. It found six stale citations in chapter 9 the day it was
+written, and chapter 9 says so.
 
 ```sh
 devbox run cite
@@ -291,7 +328,7 @@ libraries that the toolchain ships now run to completion, with no crash:
 | `Std` | 99,619 | **95,237** | 120 | 268 s |
 | `Lean`, the compiler | 171,817 | **150,420** | 127 | 299 s |
 
-[Chapter 18](docs/18-thirty-four-per-cent.md) took **34%** off those times and
+[Chapter 26](docs/26-thirty-four-per-cent.md) took **34%** off those times and
 moved no verdict. Lean's own kernel still does the first row in 12 seconds.
 
 ```sh
@@ -305,17 +342,17 @@ cargo run --release -p rean -- check Lean
 | level 1 | **95 of 95** | the two committed fixtures |
 | level 1, the prelude | **55,835 of 59,349** | the default budget, in 155 seconds |
 | level 1, patient | **59,199 of 59,349** | **99.75%**, with `REAN_FUEL=2000000000 REAN_STACK=8192`, in 36 minutes |
-| level 1, what is left | one family of limits, and **5 real rejections** | the limits are `Int32`, `Int64` and `ISize`. The five are `_sizeOf_N_eq` lemmas of **nested** inductive types in `Lean`, where our kernel says no and Lean says yes. [Chapter 17](docs/17-twelve-seconds.md) names them. |
+| level 1, what is left | one family of limits, and **5 real rejections** | the limits are `Int32`, `Int64` and `ISize`. The five are `_sizeOf_N_eq` lemmas of **nested** inductive types in `Lean`, where our kernel says no and Lean says yes. [Chapter 25](docs/25-twelve-seconds.md) names them. |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| **stage 5** | **a program runs** | `rean run Prog.lean main`, and the output matches Lean's. [Chapter 19](docs/19-a-program-that-runs.md) |
+| **stage 5** | **a program runs** | `rean run Prog.lean main`, and the output matches Lean's. [Chapter 27](docs/27-a-program-that-runs.md) |
 | tests | **496** | `devbox run test` |
 | citations | every chapter's test names resolve | `devbox run cite` |
 | coverage | **93.1% of regions, 95.1% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
-| crashes | **none**, at any setting | the kernel reports `OutOfStack` instead. [Chapter 16](docs/16-the-front-door.md) |
-| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 155 s. [Chapter 17](docs/17-twelve-seconds.md) |
+| crashes | **none**, at any setting | the kernel reports `OutOfStack` instead. [Chapter 24](docs/24-the-front-door.md) |
+| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 155 s. [Chapter 25](docs/25-twelve-seconds.md) |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson
@@ -439,7 +476,7 @@ O(1) per node, and the real Lean kernel caches the same three.
 | `size` | the node count. The work budget asks for it after **every** reduction step, so a walk would cost as much as the work it charges for. |
 | `hash` | the key of every cache. It must ignore what `alpha_eq` ignores, and a cache hit is **confirmed** with `alpha_eq` before it is trusted. |
 
-Chapters [9](docs/09-structures-and-cost.md) and [10](docs/10-the-cache.md) are
+Chapters [17](docs/17-structures-and-cost.md) and [18](docs/18-the-cache.md) are
 those three numbers and what each one bought. One of them bought nothing, and
 the chapter says which.
 
@@ -475,8 +512,24 @@ The order below is the order to build.
 
 ## References
 
-- *The Lean 4 Theorem Prover and Programming Language*, de Moura and Ullrich.
-- *Beyond Notations: Hygienic Macro Expansion for Theorem Proving Languages*,
-  Ullrich and de Moura.
-- The Lean 4 source. `src/Lean/Parser`, `src/Lean/Elab`, and
-  `src/kernel` match stages 2, 3, and 4.
+[`docs/REFERENCES.md`](docs/REFERENCES.md) holds the full list, with one line on
+what each source answers. The five that matter most:
+
+- de Moura and Ullrich, *The Lean 4 Theorem Prover and Programming Language*,
+  2021, for the design of the whole system.
+  <https://lean-lang.org/papers/lean4.pdf>
+- Ullrich and de Moura, *Beyond Notations: Hygienic Macro Expansion for Theorem
+  Proving Languages*, 2020, for why the frontend is extensible.
+  <https://arxiv.org/abs/2001.10490>
+- Carneiro, *The Type Theory of Lean*, for the rules the kernel implements.
+  <https://github.com/digama0/lean-type-theory>
+- *The Lean Language Reference*, for what a user may rely on.
+  <https://lean-lang.org/doc/reference/latest/>
+- The Lean 4 source. `src/Lean/Parser`, `src/Lean/Elab` and `src/kernel` match
+  stages 2, 3 and 4. <https://github.com/leanprover/lean4>
+
+And the standard this project is held to:
+
+- The Lean Kernel Arena, which times every independent checker on the same
+  files and holds proofs that each one must refuse.
+  <https://arena.lean-lang.org/>

@@ -2,7 +2,7 @@
 //!
 //! # Why this is in the kernel and not in a profiler
 //!
-//! Chapter 13 reached a point where a profiler stopped helping. It said
+//! Chapter 21 reached a point where a profiler stopped helping. It said
 //! `read_nat` and `whnf` were hot, which was true and useless: both are hot in
 //! every run. The question that moved the work was **which recursor, which
 //! number, which definition**, and no profiler knows those words.
@@ -12,8 +12,8 @@
 //!
 //! # Why it is permanent
 //!
-//! Chapters 13 and 15 each wrote an instrument, measured, and deleted it. The
-//! third time it was written, the lesson of chapter 15 section 15.3 was already
+//! Chapters 21 and 15 each wrote an instrument, measured, and deleted it. The
+//! third time it was written, the lesson of chapter 23 section 23.3 was already
 //! paid for: **an instrument that watches one exit of three reports a fact about
 //! the instrument.** That bug cost hours, and it is the kind that a throwaway
 //! counter invites, because nobody reviews a counter they are about to delete.

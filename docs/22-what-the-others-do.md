@@ -1,4 +1,12 @@
-# Chapter 14 — What the others do
+# Chapter 22 — What the others do
+
+> **Where you are.** Chapter 22 of 28, in Part VI of [the guide](README.md). The
+> lab notebook. Read it for the method.
+>
+> **Before this.** [A hundred million](21-a-hundred-million.md).
+>
+> **After it you can** name the two techniques that make a kernel fast, and say
+> why reading another implementation beat another profile.
 
 Thirteen chapters of this project were measurements of our own code. This one
 starts somewhere else: **other people have written independent Lean kernels, and
@@ -13,7 +21,7 @@ devbox run -- cargo test -p rean_kernel --test substitution
 
 ---
 
-## 14.1 There is a scoreboard
+## 22.1 There is a scoreboard
 
 The [Lean Kernel Arena](https://arena.lean-lang.org/) runs independent checkers
 against mathlib, which is far larger than the prelude we use.
@@ -33,7 +41,7 @@ Two of those write-ups applied to us directly.
 
 ---
 
-## 14.2 A rule we had wrong, found by reading a bug report
+## 22.2 A rule we had wrong, found by reading a bug report
 
 [nanoda issue 44](https://github.com/ammkrn/nanoda_lib/issues/44) names two
 faults in definitional equality. We had the first one.
@@ -48,7 +56,7 @@ It read both as "the rule did not apply", and carried on — to **unfolding the
 two proofs**. No reduction can make two different propositions equal, so every
 step of that is waste, and a prelude proof unfolds through structural recursion.
 The issue measures the same mistake at 10⁵ to 10⁶ wasted unary steps, which is
-the order of chapter 13's hundred million.
+the order of chapter 21's hundred million.
 
 Lean's kernel returns a three-valued answer here for exactly this reason. Once
 it knows one side is a proof, **the comparison of the two propositions is the
@@ -68,7 +76,7 @@ match self.proof_irrelevant(a, b) {
 contain the shape.
 
 It is committed anyway, and that is a different judgement from the `rec.clone()`
-change of chapter 12, which measured to nothing and was **reverted**. The
+change of chapter 20, which measured to nothing and was **reverted**. The
 difference is what the change is made of. That one was plumbing: a type and a
 copy, with no claim attached. This one is a **rule**, and the kernel now states
 it correctly. A rule that is right only on the inputs we happen to own is not
@@ -76,7 +84,7 @@ right.
 
 ---
 
-## 14.3 The one that paid: delayed instantiation
+## 22.3 The one that paid: delayed instantiation
 
 [nanoclo](https://github.com/sgraf812/nanoclo) states its idea in one sentence,
 and the sentence is a bound:
@@ -97,7 +105,7 @@ remaining term that mentions that binder. Leave the rest applied, and come back
 for the next one. For a spine of **n** arguments that is n passes over the body.
 
 A proof of the Lean prelude is made of long spines — `Eq.mpr` of `congrArg` of
-`Eq.trans`, and recursor rules applied to every field at once. Chapter 13
+`Eq.trans`, and recursor rules applied to every field at once. Chapter 21
 measured one declaration building **84 million** nodes, and this is where they
 went.
 
@@ -146,7 +154,7 @@ That test names the answer it wants.
 
 ---
 
-## 14.4 And then my own last fix was the top frame
+## 22.4 And then my own last fix was the top frame
 
 With the spine batched, a profile of the prelude said:
 
@@ -157,13 +165,13 @@ alpha_eq     4,686
 infer_type   2,257
 ```
 
-`read_nat` is from chapter 13, and it was level with `whnf` itself.
+`read_nat` is from chapter 21, and it was level with `whnf` itself.
 
 It walks a `Nat.succ` tower, reducing as it goes, and `nat_step` tries it on
 **every** step whose head is a `Nat` operation. So the same tower was walked
 again, and again, and again.
 
-The case chapter 13 needed was **one layer deep**:
+The case chapter 21 needed was **one layer deep**:
 `Nat.succ (OfNat.ofNat Nat 1 ..)`. So read a few layers and give up:
 
 ```rust
@@ -171,22 +179,22 @@ const SUCC_LIMIT: u32 = 16;
 ```
 
 Giving up is only slower, never wrong. The kernel falls back to unfolding the
-definition, which is what it did before chapter 13 existed.
+definition, which is what it did before chapter 21 existed.
 
 Same counts, and **252 seconds instead of 317**.
 
-**A fix can become the next bottleneck.** Chapter 13 said that about the trust
+**A fix can become the next bottleneck.** Chapter 21 said that about the trust
 report, which was somebody else's code. This time it was the fix from the
 chapter before.
 
 ---
 
-## 14.5 What is left
+## 22.5 What is left
 
 | | checked of 57,512 | failed | time |
 |---|---|---|---|
-| chapter 13 ended at | 48,804 | 536 | 141 s |
-| the honest budget, chapter 13 §13.6 | 54,187 | 136 | 291 s |
+| chapter 21 ended at | 48,804 | 536 | 141 s |
+| the honest budget, chapter 21 §21.6 | 54,187 | 136 | 291 s |
 | a batched β spine | 54,308 | 115 | **252 s** |
 
 And **one declaration blocks 2,690** of the 3,089 that remain, which is 87% of
@@ -197,7 +205,7 @@ So the remaining question is not "can the checker do it" but "at what budget".
 
 ---
 
-## 14.6 The budget the last declarations need
+## 22.6 The budget the last declarations need
 
 One declaration at a time, on its own slice, with `tools/slice.py`:
 
@@ -207,7 +215,7 @@ One declaration at a time, on its own slice, with `tools/slice.py`:
 
 That is forty times the default, for one proof about decoding UTF-8. It is also
 only thirty seconds, which says the work is **large and cheap per unit** — the
-same reading that chapter 13 turned into a thousandfold fix.
+same reading that chapter 21 turned into a thousandfold fix.
 
 The default budget stays at 20,000,000, because a four-minute pass over the
 whole prelude is what makes this project workable. `REAN_FUEL` is the knob, and
@@ -217,9 +225,9 @@ gigabytes** of stack, which is how that coupling announces itself.
 
 ---
 
-## 14.7 What we did not take, and the standard we hold it to
+## 22.7 What we did not take, and the standard we hold it to
 
-The two techniques from §14.1 that we have **not** taken are the answer beyond
+The two techniques from §22.1 that we have **not** taken are the answer beyond
 the budget:
 
 - **A shift in the representation.** `nanobruijn` keeps a term as a pointer and
@@ -232,3 +240,69 @@ the budget:
 Both change the representation of a term, which is the one change that would
 cost this project its ergonomics. Neither is needed to read the prelude, and
 that is the standard this chapter holds them to.
+
+---
+
+## 22.8 How other systems do it
+
+The two techniques of section 22.7 are not new, and neither is from Lean.
+
+- **Normalisation by evaluation.** Instead of rewriting a term into a new term,
+  build a value in the host language, with a closure for a function, and read a
+  term back out at the end. Every β step then becomes a call in Rust or in
+  OCaml rather than a substitution over a tree. Grégoire and Leroy built a
+  compiled version of this for Rocq in 2002, and it is what `vm_compute` and
+  `native_compute` use there. The fastest checker in the arena uses the same
+  idea.
+- **Delayed instantiation.** Keep a term as a pointer plus a shift, so a lift
+  costs nothing and one cache entry serves every shifted copy. This is an old
+  idea from explicit substitution calculi, and `nanobruijn` is the Lean checker
+  that applies it.
+
+Three notes for a reader comparing checkers.
+
+- **An independent checker can be faster than the kernel it checks.** That is
+  not a scandal. Lean's kernel runs inside a compiler, against a user who
+  edits a file, and it must be correct on every path. A checker reads a
+  finished file in one pass and can choose a representation that suits only
+  that job.
+- **The arena is a conformance suite as well as a scoreboard.** It holds files
+  that every checker must accept and files that every checker must refuse. A
+  fast checker that accepts an invalid proof scores nothing.
+- **Reading a bug report is a measurement.** Section 14.2 found a rule we had
+  wrong by reading somebody else's issue. That cost an hour and no CPU time at
+  all.
+
+## 22.9 References
+
+**Our code**
+
+- `crates/rean_kernel/src/expr.rs`, the batched β step of section 22.3
+- `crates/rean_kernel/src/typeck.rs`, the three-valued proof irrelevance
+- `crates/rean_kernel/tests/substitution.rs`
+
+**The other checkers**
+
+- The Lean Kernel Arena, the scoreboard and the conformance suite.
+  <https://arena.lean-lang.org/>
+- The arena repository, for how a checker enters and what it must answer.
+  <https://github.com/leanprover/lean-kernel-arena>
+- nanoda, in Rust, and its issue 44, which named a rule we had wrong.
+  <https://github.com/ammkrn/nanoda_lib> and
+  <https://github.com/ammkrn/nanoda_lib/issues/44>
+- trepplein, in Scala, the first independent checker.
+  <https://github.com/gebner/trepplein>
+- lean4lean, in Lean, with a proof about itself.
+  <https://github.com/digama0/lean4lean> and <https://arxiv.org/abs/2403.14064>
+
+**Read more**
+
+- Grégoire and Leroy, *A compiled implementation of strong reduction*, 2002,
+  for normalisation by evaluation as an implementation.
+  <https://xavierleroy.org/publi/strong-reduction.pdf>
+- Carneiro, *Lean4Less*, for what each definitional rule costs, measured by
+  removing rules. <https://rish987.github.io/files/lean4less.pdf>
+
+---
+
+**Next:** [The last two hundred and forty-eight](23-the-last-two-hundred.md)

@@ -149,7 +149,7 @@ fn double_negation_keeps_nesting_the_arrow() {
 #[test]
 fn head_beta_leaves_an_inner_redex_alone() {
     // `beta` reduces the head only. It does not go under a binder. A full
-    // normal form needs more, and chapter 1 will add it.
+    // normal form needs more, and chapter 9 will add it.
     let inner = not().app(false_());
     let outer = not().app(inner);
     assert!(outer.beta().pretty().contains("fun (p : Prop)"));

@@ -1,6 +1,6 @@
 //! Reads a `lean4export` NDJSON file into a [`rean_kernel::Environment`].
 //!
-//! This is chapter 3 of `docs/ROADMAP.md`: the first contact with the ground
+//! This is chapter 11 of `docs/ROADMAP.md`: the first contact with the ground
 //! truth. The real Lean elaborates a module and writes its declarations here.
 //! We read them back and check them with our own kernel. If our kernel
 //! disagrees with Lean's, one of the two is wrong, and the file says which

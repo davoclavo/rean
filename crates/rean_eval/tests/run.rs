@@ -46,7 +46,7 @@ fn it_adds_two_numbers_through_leans_own_definition() {
 #[test]
 fn it_runs_a_number_that_no_kernel_would_reduce() {
     // A hundred million. The kernel counts these down one `Nat.succ` at a
-    // time unless a rule stops it, and chapter 13 is about what that cost.
+    // time unless a rule stops it, and chapter 21 is about what that cost.
     // Here it is one instruction, because `Nat.add` is a primitive.
     assert_eq!(run(FIXTURE, &add("100000000", "1")).unwrap(), "100000001");
 }

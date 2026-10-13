@@ -24,7 +24,7 @@ everything would score perfectly on the bad half and be useless, and the way
 that failure begins is one test at a time. So a rejection by a limit is counted
 and named apart from a rejection by a rule.
 
-See chapter 20.
+See chapter 28.
 """
 
 import os

@@ -1,19 +1,28 @@
-# Chapter 17 — Twelve seconds
+# Chapter 25 — Twelve seconds
 
-Chapter 16 left the checker at 99.75% of the Lean prelude and a list of 45
+> **Where you are.** Chapter 25 of 28, in Part VI of [the guide](README.md). The
+> lab notebook. Read it for the method.
+>
+> **Before this.** [The front door](24-the-front-door.md).
+>
+> **After it you can** measure against something that is not yourself, which is
+> the point of the chapter and of its title.
+
+Chapter 24 left the checker at 99.75% of the Lean prelude and a list of 45
 failures in one family. This chapter is about the attempt to close them, which
 failed, and about the two things it found instead: a command this project should
-have had from chapter 0, and a number that changes what "finished" means.
+have had from the first chapter, and a number that changes what "finished"
+means.
 
 The number is in the title. **Lean's own kernel re-checks the whole prelude in
 twelve seconds.** Ours takes 199.
 
 ---
 
-## 17.1 Three knobs, and none of them reach, and then a fourth
+## 25.1 Three knobs, and none of them reach, and then a fourth
 
 The 45 that remain split into 40 that run out of stack and 5 that run out of
-budget. Chapter 16 showed the budget is reachable: one of the five passes at
+budget. Chapter 24 showed the budget is reachable: one of the five passes at
 four times it. So the question is the 40, and the first move is to try every
 knob, because a knob is cheaper than a plan. A fourth one, built in section
 17.5 because the first three pointed at it, does not reach either.
@@ -36,11 +45,11 @@ So 16 stays the default. It is the value that checks the most declarations, and
 the knob is there so that the next reader does not have to rebuild the kernel to
 disagree.
 
-[`read_nat`]: https://docs.rs/rean_kernel
+[`read_nat`]: ../crates/rean_kernel/src/typeck.rs
 
 ---
 
-## 17.2 The command this project should have had first
+## 25.2 The command this project should have had first
 
 Every chapter so far asks the reader to imagine the terms. `rean demo` prints a
 term that **was built by hand**, and a hand built term is always tidier than a
@@ -74,7 +83,7 @@ type
 ```
 
 It takes the number, a **table** of every earlier answer, and the other
-argument. Nobody wrote it. The equation compiler did, and chapter 3 said that is
+argument. Nobody wrote it. The equation compiler did, and chapter 11 said that is
 why checkpoint level 3 compares types and not terms.
 
 For a `.lean` target the name is passed to the exporter as well, so
@@ -89,7 +98,7 @@ Tests: `a_definition_shows_its_type_and_its_value`,
 
 ---
 
-## 17.3 Two bugs in the first hour
+## 25.3 Two bugs in the first hour
 
 A tool that shows you the data finds bugs in the thing that reads the data.
 Both of these had been in the kernel for chapters.
@@ -159,7 +168,7 @@ terms it had never read.
 
 ---
 
-## 17.4 What the hard proof actually asks for
+## 25.4 What the hard proof actually asks for
 
 With `rean show` the hardest declaration of the family stops being a mystery:
 
@@ -187,17 +196,17 @@ somewhere along the way, and counts down through `Nat.sub._f` one `Nat.pred` at
 a time. The tally stops at 1,089,527 of those because the stack ran out, not
 because the countdown ended.
 
-This is chapter 13 again, through a different door. Chapter 13 found the checker
+This is chapter 21 again, through a different door. Chapter 21 found the checker
 counting down from a hundred million to answer `Nat.ble`, and fixed it by
 reading a number through its constructor form. The same disease, in a place that
 cure does not reach.
 
 ---
 
-## 17.5 A better limit, built and measured and reverted
+## 25.5 A better limit, built and measured and reverted
 
 Section 17.1 left the arithmetic reader's depth as a trade with no winning
-value, and section 17.3's instrument says why that is the wrong knob. **The
+value, and section 25.3's instrument says why that is the wrong knob. **The
 kernel declined to read the number zero.** A limit on nesting is global to the
 checker, so once it is deep inside one descent, every other read is refused,
 however easy.
@@ -205,7 +214,7 @@ however easy.
 So count **work** instead of nesting. A read may spend a few hundred units of
 the declaration's budget and then give up. A trivial argument costs a handful of
 steps and is read at any depth; a pathological one declines, as before; and the
-stack guard of chapter 16 catches anything deeper than the machine can hold,
+stack guard of chapter 24 catches anything deeper than the machine can hold,
 which is the job the nesting count was really doing.
 
 That is a better design. It is also much worse.
@@ -235,13 +244,13 @@ nothing measurable on this declaration, and it is still right.
 
 ### My instrument lied about which exit, again
 
-The table in section 17.3 names three terms that the kernel refused. One of them
+The table in section 25.3 names three terms that the kernel refused. One of them
 is the literal `0`, and the fast path above was written for it. The declines did
 not move by one.
 
 The instrument printed **both** arguments of the operation, without saying which
 one had failed. The literal was the innocent one standing next to the guilty
-one. Chapter 15, section 15.3, has the same lesson from the other direction: an
+one. Chapter 23, section 23.3, has the same lesson from the other direction: an
 instrument that watches one exit of three reports a fact about the instrument.
 This one watched both arguments and named neither.
 
@@ -249,9 +258,9 @@ This one watched both arguments and named neither.
 
 ---
 
-## 17.6 Twelve seconds
+## 25.6 Twelve seconds
 
-Three of the independent checkers that chapter 14 read about are installed on
+Three of the independent checkers that chapter 22 read about are installed on
 this machine beside the Lean that made the export. One of them is Lean's own
 kernel.
 
@@ -278,8 +287,8 @@ cannot check at all.
 
 Read the first row twice. It is not a scolding, it is a **gift**. Fifteen
 chapters of this project measured against itself, and a conclusion drawn that
-way can only ever say "faster than last week". Chapter 16 had to take back
-chapter 15's conclusion for exactly that reason. Now there is an oracle for
+way can only ever say "faster than last week". Chapter 24 had to take back
+chapter 23's conclusion for exactly that reason. Now there is an oracle for
 speed, on this machine, over the same input, and it is 16 times faster than our
 default run while failing nothing.
 
@@ -293,7 +302,7 @@ it does, it is a mechanism, and a mechanism can be found.
 
 ---
 
-## 17.7 What else can it check?
+## 25.7 What else can it check?
 
 Sixteen chapters measured one library: `Init`, the prelude. The toolchain ships
 two more, and the front door makes trying them a command each.
@@ -368,7 +377,7 @@ it was generated from. Every one of those three types is a **nested** inductive:
 `Do.Code` holds an array of itself, `Trie` holds an array of pairs of itself,
 and so does `EqCnstr`.
 
-That is where chapter 7, section 7.1, said the weakness was:
+That is where chapter 15, section 15.1, said the weakness was:
 
 > Every group check would fire on a correct declaration. So a nested recursor is
 > now **trusted**, and that is the one place the checker still takes a recursor
@@ -383,13 +392,13 @@ names, and a counterexample beats a fixture.
 
 ---
 
-## 17.8 So how do we get to 100%
+## 25.8 So how do we get to 100%
 
 Ranked by what the measurements support, and each one is a measurement before
 it is a plan.
 
 1. **A differential harness.** Run `leanchecker` and `rean` over the same
-   slice, and compare **per declaration**. The method of chapters 11 and 12,
+   slice, and compare **per declaration**. The method of chapters 19 and 20,
    with an oracle that is not us: take the declaration whose ratio is worst,
    and ask what Lean does that we do not. This is the cheapest item on the list
    and the only one that can answer a question the project cannot currently
@@ -401,10 +410,10 @@ it is a plan.
 3. **An evaluator with an explicit stack.** The 40 that run out of stack need
    it: they need **Rust** stack today because the descent into a major premise
    is a Rust recursion. On the heap, a 96 GB machine has room that no thread
-   stack can match. This is the rewrite chapter 14 named, and section 16.9 gives
+   stack can match. This is the rewrite chapter 22 named, and section 24.9 gives
    it a mechanism rather than a percentage.
 4. **Pointer identity before hashing.** Lean's kernel asks "same pointer?"
-   first and ours asks for a hash and then `alpha_eq`. Chapter 10's rule stands
+   first and ours asks for a hash and then `alpha_eq`. Chapter 18's rule stands
    either way, because a pointer that is equal is a term that is equal.
    Unmeasured, and cheap to measure.
 5. **A number library.** Not yet. The instrument counts how often the
@@ -429,3 +438,61 @@ of checked declarations is unchanged at 55,754 and the time fell from 209
 seconds to 199. Three phantoms off the list that `tools/roots.py` ranks is worth
 more than it sounds: a reader who chases a phantom finds nothing, and concludes
 the tool is lying.
+
+---
+
+## 25.9 How other systems do it
+
+The oracle of this chapter is Lean's own kernel, and the fair question is what
+it does that we do not. Five things, and each one is visible in
+`src/kernel/type_checker.cpp` or next to it.
+
+| What Lean's kernel does | Where | Ours |
+|---|---|---|
+| compares two terms by pointer first | `is_eqp` in `src/kernel/expr.h` | no sharing, so the test would almost always fail. Chapter 26, section 26.9. |
+| caches a **failed** comparison as well as a successful one | `cache_failure` | positive only. Chapter 18, section 18.6. |
+| reduces without rebuilding the term | `whnf_core` | eager. Every step builds a new term. |
+| computes with a big number library | `reduce_nat` | a `u128`, and it refuses past the limit |
+| is written in C++, next to an elaborator that already shared its subterms | — | Rust, reading a file |
+
+Two notes.
+
+- **The comparison is fair in one direction only.** Lean's kernel reads terms
+  that its own elaborator built a moment earlier, with sharing already in
+  place. We read a text file, build every node ourselves, and share nothing.
+  Chapter 26, section 26.9 prices the fix and does not take it.
+- **Twelve seconds is reachable by a checker that is not Lean.** The arena
+  shows an independent checker reading all of mathlib faster than Lean's own
+  kernel does. So the right reading of this chapter is not "a kernel is slow"
+  and not "we cannot win". It is that two techniques we have not taken,
+  chapter 22, section 22.7, are what the gap is made of.
+
+## 25.10 References
+
+**Our code**
+
+- `crates/rean/src/lib.rs`, the `show` command of section 25.2
+- `crates/rean/tests/show.rs`
+- `crates/rean_kernel/src/nat_lit.rs`, the depth knob of section 25.1
+
+**The oracle**
+
+- `src/LeanChecker.lean` in the Lean source, which recent toolchains ship as
+  the binary `leanchecker`
+- `lean4checker`, the same tool as a separate project.
+  <https://github.com/leanprover/lean4checker>
+- The Lean Kernel Arena, for every other checker on the same files.
+  <https://arena.lean-lang.org/>
+
+**Read more**
+
+- Grégoire and Leroy, *A compiled implementation of strong reduction*, 2002,
+  for the technique behind the fastest times in the arena.
+  <https://xavierleroy.org/publi/strong-reduction.pdf>
+- de Moura and Ullrich, *The Lean 4 Theorem Prover and Programming Language*,
+  2021, for what the kernel is and is not responsible for.
+  <https://lean-lang.org/papers/lean4.pdf>
+
+---
+
+**Next:** [Thirty-four per cent](26-thirty-four-per-cent.md)

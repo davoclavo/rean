@@ -164,7 +164,7 @@ pub struct CheckReport {
     /// The per-declaration tally in [`DeclOutcome`] is printed for a
     /// declaration that failed, which answers "why is this one expensive" and
     /// not "where does the run spend itself". Reading one as the other is a
-    /// mistake chapter 18 made and recorded.
+    /// mistake chapter 26 made and recorded.
     pub totals: Vec<(String, u64)>,
 }
 
@@ -584,7 +584,7 @@ pub fn check_export_streaming(
 /// built by hand. This shows a real one, out of a real export, with the names
 /// and universes that Lean gave it.
 ///
-/// It paid for itself the hour it was written. Chapter 16 was stuck on why one
+/// It paid for itself the hour it was written. Chapter 24 was stuck on why one
 /// signed integer proof costs a billion units of work, and `rean show` on three
 /// of its dependencies answered it in a minute.
 #[derive(Debug)]
@@ -1211,7 +1211,7 @@ fn verdict_for_failure(
 /// Reads how deep the arithmetic reader may force, from `REAN_NAT_DEPTH`.
 ///
 /// The third thing to sweep. See `TypeChecker::set_nat_depth_limit`: a shallow
-/// limit costs work and a deep one costs stack, and chapter 17 measures both
+/// limit costs work and a deep one costs stack, and chapter 25 measures both
 /// sides of that trade.
 fn nat_depth_from_env() -> Option<u32> {
     std::env::var("REAN_NAT_DEPTH").ok()?.parse().ok()
