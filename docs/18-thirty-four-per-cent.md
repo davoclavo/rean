@@ -276,10 +276,77 @@ sets up whatever comes next: `mimalloc` made each allocation cheaper and the
 nodes and dropping them.
 
 Everything in this chapter made the same work cheaper. The next tier has to make
-the work smaller, and chapter 17 section 17.8 names the two candidates: a cache
-that persists across declarations, because all 59,349 of them currently re-reduce
-the same prelude subterms from scratch, and hash-consing the nodes the kernel
-builds, which would turn `alpha_eq` into the pointer test that section 18.2 only
-reaches sometimes, and would cut nodes built rather than their cost.
+the work smaller, and chapter 17 section 17.8 named two candidates. One of them
+is now **ruled out by measurement**, and that is the last section.
+
+---
+
+## 18.9 Eighty-two per cent are duplicates, and sharing them is slower
+
+The second candidate was to share the nodes the kernel builds, so that a term
+built twice is one object. It would turn `alpha_eq` into the pointer test that
+section 18.2 only reaches sometimes, and it would cut the **number** of
+allocations rather than their cost, which is exactly what section 18.8 says is
+left.
+
+The hypothesis is correct and the number is larger than anyone guessed. On the
+declaration that blocks 2,283 others, of the nodes that reach `Sub::new`:
+
+```text
+71,312,529  node shared with one built before
+15,582,296  node built for the first time
+```
+
+**Eighty-two per cent of the nodes this kernel builds, it has built already.**
+
+It is still slower. Twice:
+
+| `Sub::new` | CPU time |
+|---|---|
+| **as it was** | **17.5 s** |
+| with a `HashMap` of every node, by hash | 30.7 s |
+| with a 65,536 slot direct-mapped cache, 2 MB, no allocation per bucket | 27.9 s |
+
+The second row was the obvious suspect: 87 million probes of a growing hash map,
+with a `Vec` allocated for every one of the 15 million new buckets. So the table
+became an array, indexed by one mask, small enough to sit in the processor's own
+cache. It is **barely better**.
+
+So the lookup was not the price. The price is everything else that a share
+needs. The `Expr` has already been built on the stack by the time `Sub::new`
+sees it, with a reference count bump for each of its children; then comes the
+probe, the structural confirmation, the clone of the node that was found, and
+the drop of the one just built, with a decrement for each child again.
+
+> **Section 18.1 made an allocation cheap. It is now cheaper than remembering
+> that you did not need one.**
+
+That is a pleasing way for a chapter to eat its own tail, and it is a real rule
+for anybody optimising in this order: a change that makes an operation cheap
+**devalues every cache that exists to avoid it**. The hash-consing idea was
+drawn up against the profile before `mimalloc`, and it would have been measured
+against the wrong world.
+
+The 82% is not refuted. It says, with a bigger number than before, that this
+kernel's remaining cost is the **count** of nodes it builds. What is refuted is
+collecting that saving **here**, after the node exists. It has to be collected
+where the duplicate is built, in the way chapter 9 taught
+`Expr::instantiate_at` to return "nothing changed" and keep the `Arc` it had.
+
+The largest of those sites is the one chapter 14 named: every reduction step
+rebuilds the whole application spine, and the arguments of that spine did not
+change. Not materialising a spine at all is the explicit-stack evaluator, which
+the roadmap has called a different project since chapter 14, and which now has a
+measured reason rather than an argument from first principles.
+
+So the candidate list ends this chapter one shorter than it started:
+
+- **ruled out**, here: sharing a node after it is built;
+- **ruled out**, chapter 15 section 15.7: a term as a pointer plus a shift;
+- **untested**: a cache that persists across declarations. It needs the driver
+  to stop building a fresh `TypeChecker` for every declaration, which is a
+  borrow and not a measurement, so nobody has priced it yet;
+- **untested and now the strongest**: an evaluator that does not build the
+  spine.
 
 The oracle is still twelve seconds.

@@ -136,6 +136,37 @@ pub fn nodes_built() -> u64 {
 
 impl Sub {
     /// Wraps a term, computing its loose range from its children.
+    ///
+    /// # Why this does not share a node with one built before
+    ///
+    /// Two fifths of a profile of this checker is the allocator and the drop of
+    /// a term, and **82% of the nodes that reach this function are duplicates
+    /// of one that was built already**: 71,312,529 against 15,582,296 on one
+    /// declaration of the prelude. So the kernel was given a table of the nodes
+    /// it had built, to share them instead of building them again. Twice:
+    ///
+    /// | `Sub::new` | CPU time, that declaration |
+    /// |---|---|
+    /// | **as it is** | **17.5 s** |
+    /// | with a `HashMap` of every node, by hash | 30.7 s |
+    /// | with a 65,536 slot direct-mapped cache | 27.9 s |
+    ///
+    /// Both are far worse, and the second one is the informative half: a table
+    /// that costs one array index into 2 MB is barely better than a `HashMap`,
+    /// so **the lookup was not the price**. The price is everything else a
+    /// share needs. The `Expr` has already been built on the stack, with a
+    /// reference count bump for each of its children; then comes the probe, the
+    /// structural confirmation, the clone of the node that was found, and the
+    /// drop of the one just built, with a decrement for each child again.
+    ///
+    /// Chapter 18 made an allocation cheap. It is now cheaper than remembering
+    /// that you did not need one.
+    ///
+    /// The 82% is still real, and it still says where the work is. It cannot be
+    /// collected **here**, after the node exists. It has to be collected at the
+    /// call sites that build the duplicate, in the way chapter 9 taught
+    /// [`Expr::instantiate_at`] to return "nothing changed" and keep the `Arc`
+    /// it already had.
     pub fn new(expr: Expr) -> Sub {
         NODES_BUILT.set(NODES_BUILT.get().wrapping_add(1));
         let loose = loose_range(&expr);

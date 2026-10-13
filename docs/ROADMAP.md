@@ -353,8 +353,26 @@ Every library the toolchain ships, with the same binary as the last row:
 
 Chapter 18 took **34%** off and moved no verdict. Its profile says where the
 rest is: **two fifths of this kernel is still building term nodes and dropping
-them**, and `mimalloc` made each one cheaper without making them fewer. Making
-them fewer is the next tier, and section 17.8 names the two candidates.
+them**, and `mimalloc` made each one cheaper without making them fewer.
+
+Making them fewer is the next tier, and chapter 18 section 18.9 measured how
+many there are to make: **82% of the nodes this kernel builds, it has built
+already.** 71,312,529 against 15,582,296, on one declaration.
+
+It also ruled one cure out. Sharing a node **after** it is built is slower, both
+with a hash map and with a direct-mapped cache in 2 MB, because section 18.1 made
+an allocation cheaper than remembering that you did not need one. The saving has
+to be collected where the duplicate is **built**, and the largest of those sites
+is the application spine that every reduction step rebuilds.
+
+So the list of cures is one shorter:
+
+| cure | state |
+|---|---|
+| a term as a pointer plus a shift | **ruled out**, chapter 15 section 15.7 |
+| sharing a node after it is built | **ruled out**, chapter 18 section 18.9 |
+| a cache that persists across declarations | untested. It needs the driver to stop building a fresh `TypeChecker` per declaration, which is a borrow and not a measurement. |
+| an evaluator that never builds the spine | untested, and now the strongest. It is also the only cure for the 40 declarations that run out of stack. |
 
 And one row of the old table was never a timeout. At a hundred times the default
 budget the run **crashed**, after 16,583 declarations, on a 4 GB stack. Chapter
