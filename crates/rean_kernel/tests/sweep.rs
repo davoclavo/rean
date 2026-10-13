@@ -712,3 +712,98 @@ fn a_literal_variant_compares_by_value() {
     assert_eq!(Literal::Nat("1".into()), Literal::Nat("1".into()));
     assert_ne!(Literal::Nat("1".into()), Literal::Str("1".into()));
 }
+
+/// **The hash must agree with `alpha_eq`, or the kernel may refuse a proof.**
+///
+/// `Expr::alpha_eq` rejects in O(1) when the two cached hashes differ, and that
+/// refusal is only sound because `hash_range` ignores a thing exactly where
+/// `alpha_eq` ignores it. Nothing enforced the pairing, so here it is.
+///
+/// The pairs are written by hand, one for each thing the hash leaves out, and
+/// **each pair is alpha-equal and not structurally equal**. A loop over
+/// `one_of_each` would prove nothing: every pair in that list is unequal, so
+/// "alpha_eq implies the same hash" would hold for the self-pairs and for
+/// nothing else. A test that passes for the wrong reason is worse than no test.
+mod the_hash_agrees_with_alpha_eq {
+    use rean_core::Name;
+    use rean_kernel::{Expr, Level};
+
+    /// Asserts that two terms are alpha-equal, differently written, and share
+    /// a hash.
+    fn pair(left: &Expr, right: &Expr, what: &str) {
+        assert!(
+            left.alpha_eq(right),
+            "{what}: these must be alpha-equal\n  {}\n  {}",
+            left.pretty(),
+            right.pretty()
+        );
+        assert_eq!(
+            left.hash_value(),
+            right.hash_value(),
+            "{what}: alpha-equal terms must share a hash, or the O(1) \
+             rejection in `alpha_eq` refuses a correct proof\n  {}\n  {}",
+            left.pretty(),
+            right.pretty()
+        );
+    }
+
+    fn nat() -> Expr {
+        Expr::const_("Nat", vec![])
+    }
+
+    #[test]
+    fn a_binder_name_is_ignored_by_both() {
+        pair(
+            &Expr::lam("x", nat(), Expr::bvar(0)),
+            &Expr::lam("y", nat(), Expr::bvar(0)),
+            "the name of a lambda binder",
+        );
+        pair(
+            &Expr::forall("x", nat(), Expr::bvar(0)),
+            &Expr::forall("y", nat(), Expr::bvar(0)),
+            "the name of a forall binder",
+        );
+        pair(
+            &Expr::let_("x", nat(), Expr::nat("1"), Expr::bvar(0)),
+            &Expr::let_("y", nat(), Expr::nat("1"), Expr::bvar(0)),
+            "the name of a let binder",
+        );
+    }
+
+    #[test]
+    fn a_universe_written_two_ways_is_ignored_by_both() {
+        // `max 0 u` and `u` are the same level, and `alpha_eq` says so through
+        // `Level::is_equiv`. The hash leaves a level out altogether, which is
+        // what makes that safe.
+        let u = Level::param("u");
+        let same = Level::Zero.max(&u);
+        pair(
+            &Expr::sort(u.clone()),
+            &Expr::sort(same.clone()),
+            "a sort whose level is written two ways",
+        );
+        pair(
+            &Expr::Const {
+                name: Name::from_dotted("List"),
+                levels: vec![u],
+            },
+            &Expr::Const {
+                name: Name::from_dotted("List"),
+                levels: vec![same],
+            },
+            "a constant whose level argument is written two ways",
+        );
+    }
+
+    #[test]
+    fn the_pairs_really_are_written_differently() {
+        // The guard on the guard. If a pair were structurally identical, the
+        // test above would pass without testing anything.
+        let lam = |name: &str| Expr::lam(name, nat(), Expr::bvar(0));
+        assert_ne!(lam("x"), lam("y"));
+        assert_ne!(
+            Expr::sort(Level::param("u")),
+            Expr::sort(Level::Zero.max(&Level::param("u")))
+        );
+    }
+}

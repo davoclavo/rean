@@ -279,13 +279,22 @@ pub enum TypeError {
     /// A safe declaration uses one that is not safe.
     UnsafeDependency { declaration: Name, dependency: Name },
     /// A constructor field lives in a larger universe than its inductive type.
-    FieldTooLarge {
-        ctor: Name,
-        inductive: Name,
-        field: u32,
-        field_level: String,
-        limit: String,
-    },
+    ///
+    /// The payload is boxed, for the reason this enum's own comment gives: it
+    /// sits in the return value of the hot path. It holds two names and two
+    /// rendered levels, and chapter 18 gave a [`Name`] two numbers of its own,
+    /// which pushed this variant to 132 bytes and `clippy` noticed.
+    FieldTooLarge(Box<FieldTooLarge>),
+}
+
+/// Why a constructor field does not fit in its inductive type.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FieldTooLarge {
+    pub ctor: Name,
+    pub inductive: Name,
+    pub field: u32,
+    pub field_level: String,
+    pub limit: String,
 }
 
 impl TypeError {
@@ -423,15 +432,9 @@ impl TypeError {
             TypeError::DuplicateDeclaration(name) => {
                 format!("the environment already holds `{name}`")
             }
-            TypeError::FieldTooLarge {
-                ctor,
-                inductive,
-                field,
-                field_level,
-                limit,
-            } => format!(
-                "field {field} of `{ctor}` lives in `Sort {field_level}` and `{inductive}` \
-                 only reaches `Sort {limit}`"
+            TypeError::FieldTooLarge(it) => format!(
+                "field {} of `{}` lives in `Sort {}` and `{}` only reaches `Sort {}`",
+                it.field, it.ctor, it.field_level, it.inductive, it.limit
             ),
             TypeError::UnsafeDependency {
                 declaration,
@@ -2318,13 +2321,13 @@ impl<'e> TypeChecker<'e> {
             };
             let field_level = self.infer_sort(&binder_type)?;
             if field_level.is_leq(limit) == Some(false) {
-                return Err(TypeError::FieldTooLarge {
+                return Err(TypeError::FieldTooLarge(Box::new(FieldTooLarge {
                     ctor: ctor.name.clone(),
                     inductive: inductive.name.clone(),
                     field,
                     field_level: field_level.to_string(),
                     limit: limit.to_string(),
-                });
+                })));
             }
             let id = self.lctx.push(binder_name, binder_type.to_expr());
             ty = body.instantiate(&Expr::FVar(id));

@@ -204,6 +204,26 @@ impl Sub {
         self.expr.instantiate_many_at(depth, values).map(Sub::new)
     }
 
+    /// [`Expr::alpha_eq`] for a subterm, with two O(1) answers in front of it.
+    ///
+    /// The same object is the same term, and that test costs one pointer
+    /// comparison. A term is a graph, so the kernel meets the same subterm
+    /// again and again, and the reader of this kernel should know that the
+    /// cheapest comparison in it is the one that notices.
+    ///
+    /// Then the **stored** hash. Two different hashes cannot be alpha-equal,
+    /// so the walk never starts. See [`Expr::alpha_eq`] for why that is sound
+    /// and which test holds it so.
+    fn alpha_eq(&self, other: &Sub) -> bool {
+        if Arc::ptr_eq(&self.expr, &other.expr) {
+            return true;
+        }
+        if self.hash != other.hash {
+            return false;
+        }
+        self.expr.alpha_eq_structural(&other.expr)
+    }
+
     /// [`Expr::instantiate_levels_opt`] for a subterm.
     ///
     /// A `None` from the inside means the caller keeps this very `Sub`, so an
@@ -276,15 +296,14 @@ pub fn mix_hashes(first: u64, second: u64) -> u64 {
     mix(mix(0xcbf2_9ce4_8422_2325, first), second)
 }
 
-/// Hashes a name by its last part and its length, and allocates nothing.
+/// Hashes a name, in constant time.
+///
+/// The name carries its own hash now, computed where the part was added, so
+/// this is a field read. It used to walk the last part on **every constant
+/// node the kernel built**, and the old version hashed only that last part and
+/// the length, so `Nat.succ` and `Int.succ` collided by design.
 fn hash_name(name: &Name) -> u64 {
-    let mut state = mix(0xcbf2_9ce4_8422_2325, name.len() as u64);
-    if let Some(last) = name.last_str() {
-        for byte in last.as_bytes() {
-            state = mix(state, *byte as u64);
-        }
-    }
-    state
+    name.hash_value()
 }
 
 /// Hashes a term, in constant time, from the hashes of its children.
@@ -917,6 +936,29 @@ impl Expr {
     /// ignore that field as well is a separate question, and chapter 2 revisits
     /// it.
     pub fn alpha_eq(&self, other: &Expr) -> bool {
+        // **A hash may not confirm an answer, and it may refuse one.**
+        //
+        // Chapter 10 states the first half, because two terms can share a hash.
+        // The second half is free and this function never used it: two terms
+        // with **different** hashes cannot be alpha-equal, so one comparison of
+        // two numbers settles most calls without walking anything.
+        //
+        // That is sound only because `hash_range` leaves a thing out exactly
+        // where this function leaves it out: a binder name, and a universe
+        // level. `the_hash_agrees_with_alpha_eq` in `tests/sweep.rs` holds the
+        // two together, with pairs that are alpha-equal and written
+        // differently, because a loop over unequal terms would prove nothing.
+        //
+        // The recursion below goes through `Sub::alpha_eq`, which tests the
+        // pointer and the **stored** hash, so no subterm pair is hashed twice.
+        if hash_range(self) != hash_range(other) {
+            return false;
+        }
+        self.alpha_eq_structural(other)
+    }
+
+    /// The shape comparison behind [`Self::alpha_eq`], with no fast path.
+    fn alpha_eq_structural(&self, other: &Expr) -> bool {
         match (self, other) {
             (Expr::BVar(a), Expr::BVar(b)) => a == b,
             (Expr::FVar(a), Expr::FVar(b)) => a == b,
