@@ -32,6 +32,7 @@ Lean's kernel.
 | **B** the kernel | `Expr` | yes or no | works. Every reduction rule, plus strict positivity. |
 | **B** the importer | `.ndjson` | `Environment` | works |
 | **B** the front door | `.lean` text | `.ndjson` | works, **by calling the real Lean**. See chapter 16. |
+| **B** the evaluator | `Expr` | a value, and output | works. Stage 5, chapter 19. |
 
 The two islands still do not touch. Nothing in a `.lean` file reaches the kernel
 **through our own stages**. But island B now reads real Lean terms, so it is
@@ -132,11 +133,17 @@ ours. Only the library comes from outside.
 | 6 | the elaborator: name resolution, implicit arguments, unification | **Level 2 opens** |
 | 7 | metavariables, instance search, tactics | real proofs from real text |
 | 8 | the exporter | closes the loop. Short, by then. |
-| later | LCNF and a backend | a program that runs |
+| 19 | the evaluator. **Done.** | **a program that runs** |
+| later | LCNF and a backend | a program that runs **fast** |
 
 Chapter 16 sits outside that table on purpose. It adds no rule and no stage. It
 makes the kernel **reachable**, and it turns the one answer a report cannot
 carry — a stack overflow — into a verdict.
+
+Chapter 19 broke the order of the table. Stage 5 was the last row of it and it
+arrived before stages 2 and 3, because **it does not need them**: it needs an
+`Expr`, and chapter 16's front door hands over the `Expr` of any Lean program
+there is. The order of the pipeline is not the order of the work.
 
 Note where the exporter sits. It is last and it is small, because by chapter 8
 the reader in chapter 3 will have pinned down every detail of the format.
@@ -437,7 +444,7 @@ level 1   our kernel checks        95 of 95 on the two committed fixtures
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     482
+tests     494
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name

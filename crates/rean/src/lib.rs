@@ -858,7 +858,11 @@ pub fn run_declaration(
         name: wanted.to_string(),
         checked,
         refused,
-        value: format!("{}", rean_eval::Shown(&value, 6)),
+        // The printer forces what it meets, because a result that reads
+        // `List.cons _ _ _` is true and useless.
+        value: eval
+            .show_deep(&value, 6)
+            .unwrap_or_else(|_| format!("{}", rean_eval::Shown(&value, 6))),
         steps: before - eval.steps_left(),
         deepest: eval.deepest(),
         as_program: is_program,

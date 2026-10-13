@@ -286,3 +286,68 @@ fn a_program_with_a_main_writes_what_lean_writes() {
     assert!(text.contains("main ran"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A wider program: a structure, an inductive with a `match`, a list, an
+/// array and an `Option`, all printed through Lean's own `ToString`.
+///
+/// Every line of the output was compared with Lean's `#eval main` and they
+/// agree. This is the test that says which **shapes** of Lean the evaluator
+/// handles, so a shape that stops working fails here.
+const WIDE: &str = "\
+structure Point where\n\
+  x : Nat\n\
+  y : Nat\n\
+\n\
+def Point.norm1 (p : Point) : Nat := p.x + p.y\n\
+\n\
+inductive Shape where\n\
+  | circle (r : Nat)\n\
+  | rect (w h : Nat)\n\
+\n\
+def Shape.area : Shape → Nat\n\
+  | .circle r => 3 * r * r\n\
+  | .rect w h => w * h\n\
+\n\
+def total : Nat := [Shape.circle 2, Shape.rect 3 4].foldl (fun a s => a + s.area) 0\n\
+\n\
+def names : List String := [\"a\", \"bb\"].map (fun s => s ++ \"!\")\n\
+\n\
+def arr : Nat := (Array.range 10).foldl (· + ·) 0\n\
+\n\
+def main : IO Unit := do\n\
+  IO.println s!\"norm1 = {Point.norm1 ⟨3, 4⟩}\"\n\
+  IO.println s!\"total = {total}\"\n\
+  IO.println s!\"names = {names}\"\n\
+  IO.println s!\"arr = {arr}\"\n\
+";
+
+#[test]
+fn the_shapes_of_lean_that_a_program_is_made_of() {
+    if Toolchain::find().is_err() {
+        eprintln!("skipped: no lean and lean4export. See the module comment.");
+        return;
+    }
+    let dir = work_dir("wide");
+    std::fs::write(dir.join("Wide.lean"), WIDE).expect("the source must be written");
+
+    let out = run(&["run", "Wide.lean", "main", "--out", "."], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let errors = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(out.status.success(), "stdout:\n{text}\nstderr:\n{errors}");
+    let lines: Vec<&str> = text
+        .lines()
+        .skip_while(|line| !line.starts_with("norm1"))
+        .take(4)
+        .collect();
+    assert_eq!(
+        lines,
+        vec!["norm1 = 7", "total = 24", "names = [a!, bb!]", "arr = 45",],
+        "{text}"
+    );
+
+    // A value, rather than a program, and a list prints as a list.
+    let out = run(&["run", "Wide.lean", "names", "--out", "."], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains(r#"names = ["a!", "bb!"]"#), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

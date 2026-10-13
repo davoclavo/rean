@@ -635,57 +635,83 @@ impl Evaluator<'_> {
 impl Evaluator<'_> {
     /// Returns the text of a value, if it is a string.
     ///
-    /// Two shapes are a string. A literal is [`Value::Str`], and a `String`
-    /// that a program **built** is `String.mk` holding a `List Char`, because
-    /// that is what `String` is in Lean. A runtime has to read both.
+    /// # Ask Lean, do not model the representation
+    ///
+    /// The first version of this knew what a `String` **is**: a structure over
+    /// a `List Char`. That was true of Lean once and it is not true of 4.35,
+    /// where a string is a byte array and `String.mk` goes through
+    /// `String.ofByteArray`. So `toString` of a list came to
+    /// `String.push ..2`, a primitive that had declined, and the program
+    /// stopped with a message about a projection.
+    ///
+    /// So this asks **Lean's own function**, `String.toList`, and walks the
+    /// list it gives back. The decoding that function does is real work, and
+    /// it is the `utf8DecodeChar` family that chapters 16 and 17 found so
+    /// expensive **to check**. Running it is cheap.
+    ///
+    /// A literal is still a literal, and that is the fast path.
     pub fn text_of(&mut self, value: &Value) -> EvalResult<Option<String>> {
-        match value {
-            Value::Str(text) => Ok(Some(text.to_string())),
-            Value::Ctor { .. } => {
-                // `String.mk data`. The one field is the list of characters.
-                let data = self.project(value, 0)?;
-                let mut out = String::new();
-                let mut current = data;
-                // A list is `nil` or `cons head tail`, and the loop forces one
-                // cell at a time, so a long string is not a deep recursion.
-                loop {
-                    let Value::Ctor { name, args } = &current else {
+        if let Value::Str(text) = value {
+            return Ok(Some(text.to_string()));
+        }
+        if !matches!(value, Value::Ctor { .. }) {
+            return Ok(None);
+        }
+        let Some(list) = self.ask(&["String.toList", "String.data"], value)? else {
+            return Ok(None);
+        };
+        let mut out = String::new();
+        let mut current = list;
+        // One cell at a time, so a long string is a loop and not a recursion.
+        loop {
+            let Value::Ctor { name, args } = &current else {
+                return Ok(None);
+            };
+            match name.last_str() {
+                Some("nil") => return Ok(Some(out)),
+                Some("cons") if args.len() >= 2 => {
+                    let head = self.force(&args[args.len() - 2].clone())?;
+                    let Some(code) = self.code_point(&head)? else {
                         return Ok(None);
                     };
-                    match name.last_str() {
-                        Some("nil") => return Ok(Some(out)),
-                        Some("cons") if args.len() >= 3 => {
-                            let head = self.force(&args[args.len() - 2].clone())?;
-                            let Some(code) = self.code_point(&head)? else {
-                                return Ok(None);
-                            };
-                            match char::from_u32(code) {
-                                Some(ch) => out.push(ch),
-                                None => return Ok(None),
-                            }
-                            current = self.force(&args[args.len() - 1].clone())?;
-                        }
-                        _ => return Ok(None),
+                    match char::from_u32(code) {
+                        Some(ch) => out.push(ch),
+                        None => return Ok(None),
                     }
+                    current = self.force(&args[args.len() - 1].clone())?;
                 }
+                _ => return Ok(None),
             }
-            _ => Ok(None),
         }
     }
 
     /// Returns the code point of a `Char`.
     ///
-    /// A `Char` in Lean is a structure around a `UInt32`, which is a structure
-    /// around a `Fin`, which is a structure around a `Nat` and a proof. So this
-    /// takes field zero until a number appears, and gives up after four levels.
-    /// Field zero of a single field structure is the value in it.
+    /// Through `Char.toNat`, for the reason [`Self::text_of`] gives: a `Char`
+    /// is a structure around a `UInt32` around a `Fin` around a `Nat` in one
+    /// version of Lean and something else in the next, and the function that
+    /// reads it is stable.
     pub fn code_point(&mut self, value: &Value) -> EvalResult<Option<u32>> {
-        let mut current = value.clone();
-        for _ in 0..4 {
-            match &current {
-                Value::Nat(n) => return Ok(u32::try_from(*n).ok()),
-                Value::Ctor { .. } => current = self.project(&current, 0)?,
-                _ => return Ok(None),
+        if let Value::Nat(n) = value {
+            return Ok(u32::try_from(*n).ok());
+        }
+        match self.ask(&["Char.toNat", "Char.val"], value)? {
+            Some(Value::Nat(n)) => Ok(u32::try_from(n).ok()),
+            _ => Ok(None),
+        }
+    }
+
+    /// Applies the first of `names` that the environment holds to `value`.
+    ///
+    /// This is how the runtime reads a value whose **shape** belongs to the
+    /// library rather than to the kernel. A name that Lean renamed is a silent
+    /// failure otherwise, and this evaluator has had two of those already.
+    fn ask(&mut self, names: &[&str], value: &Value) -> EvalResult<Option<Value>> {
+        for candidate in names {
+            let name = Name::from_dotted(candidate);
+            if self.env.contains(&name) {
+                let arg = Thunk::done(value.clone());
+                return Ok(Some(self.constant(&name, vec![arg])?));
             }
         }
         Ok(None)
@@ -743,6 +769,81 @@ impl Evaluator<'_> {
                 }),
                 world,
             ],
+        })
+    }
+
+    /// Prints a value, forcing what it meets, to a bounded depth.
+    ///
+    /// [`Shown`] cannot force anything, because it only has the value, so it
+    /// prints an argument that nobody has evaluated as `_`. For a **result**
+    /// that is the wrong answer: `names = List.cons _ _ _` is true and tells
+    /// the reader nothing. This forces as it goes.
+    ///
+    /// A value whose head is a `String` is asked for its text first, so a
+    /// string that the program **built** prints as a string and not as the
+    /// byte array it is made of.
+    pub fn show_deep(&mut self, value: &Value, depth: u32) -> EvalResult<String> {
+        let looks_like_a_string = match value {
+            Value::Ctor { name, .. } | Value::Opaque { head: name, .. } => {
+                name.to_string().starts_with("String")
+            }
+            _ => false,
+        };
+        if looks_like_a_string && let Some(text) = self.text_of(value)? {
+            return Ok(format!("{text:?}"));
+        }
+        Ok(match value {
+            Value::Nat(n) => n.to_string(),
+            Value::Str(text) => format!("{text:?}"),
+            Value::Closure { .. } => "<function>".to_string(),
+            Value::Opaque { head, args } if args.is_empty() => head.to_string(),
+            Value::Opaque { head, args } => format!("{head} ..{}", args.len()),
+            Value::Ctor { name, args } if args.is_empty() => name.to_string(),
+            // A list reads as a list. `List.cons α x (List.cons α y ..)` is
+            // what it **is**, and `[x, y]` is what it says.
+            Value::Ctor { name, .. } if name.to_string().starts_with("List.") => {
+                let mut items: Vec<String> = Vec::new();
+                let mut current = value.clone();
+                let mut left = 100;
+                loop {
+                    let Value::Ctor { name, args } = &current else {
+                        break;
+                    };
+                    match name.last_str() {
+                        Some("nil") => break,
+                        Some("cons") if args.len() >= 2 => {
+                            if left == 0 {
+                                items.push("..".to_string());
+                                break;
+                            }
+                            left -= 1;
+                            let head = self.force(&args[args.len() - 2].clone())?;
+                            items.push(self.show_deep(&head, depth.saturating_sub(1))?);
+                            current = self.force(&args[args.len() - 1].clone())?;
+                        }
+                        _ => break,
+                    }
+                }
+                format!("[{}]", items.join(", "))
+            }
+            Value::Ctor { name, args } => {
+                if depth == 0 {
+                    return Ok(format!("{name} .."));
+                }
+                let mut out = name.to_string();
+                for arg in args.clone() {
+                    // An argument that cannot be forced is left as it is. The
+                    // printer must not fail where the program did not.
+                    match self.force(&arg) {
+                        Ok(inner) => {
+                            let shown = self.show_deep(&inner, depth - 1)?;
+                            out.push_str(&format!(" ({shown})"));
+                        }
+                        Err(_) => out.push_str(" _"),
+                    }
+                }
+                out
+            }
         })
     }
 

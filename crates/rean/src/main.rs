@@ -279,9 +279,23 @@ fn run_run(args: &[String]) -> ExitCode {
     };
     // The closure of one declaration, and not of the whole module. A program
     // that imports the prelude pulls 345 MB in otherwise.
+    //
+    // One more name comes with it, and it is the **runtime's** rather than the
+    // program's. `rean_eval` reads a `Char` by asking `Char.toNat`, because the
+    // representation of a `Char` changes between Lean versions and the function
+    // that reads it does not. A program that prints a number never mentions
+    // `Char.toNat`, and printing one needs it.
+    //
+    // `String.toList` is **not** asked for, and that is measured. It reads a
+    // string the program built as a byte array, which is the other half of the
+    // same idea, and asking for it took this program's export from 4.6 MB to
+    // **16.9 MB** and brought in the UTF-8 decoding family that chapters 16 and
+    // 17 are about: ten declarations our kernel cannot check at the default
+    // budget. So the runtime asks for it only if the program did, which
+    // `Evaluator::ask` handles by looking before it leaps.
     let decls = match &target_kind {
         Target::Export(_) => Vec::new(),
-        _ => vec![(*name).clone()],
+        _ => vec![(*name).clone(), "Char.toNat".to_string()],
     };
     let ready = match prepare(&target_kind, &decls, out.map(String::as_str)) {
         Ok(ready) => ready,

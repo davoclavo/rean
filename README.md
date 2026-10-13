@@ -30,10 +30,30 @@ of them**.
 ```sh
 cargo run --release -p rean -- check Demo.lean --decl twice_two
 cargo run --release -p rean -- show  Demo.lean twice      # what the kernel sees
+cargo run --release -p rean -- run   Demo.lean main      # check it, then run it
 cargo run --release -p rean -- check prelude        # Lean's `Init`, all of it
 cargo run --release -p rean -- check Some.Module    # a module on REAN_LEAN_PATH
 cargo run --release -p rean -- export Demo.lean     # write the file, check nothing
 ```
+
+And `run` is the one that does something:
+
+```text
+$ rean run Prog.lean main
+level 1: checked 1750 of 1750 declarations
+hello from rean
+fib 25 = 75025
+  square of 0 is 0
+  square of 1 is 1
+
+main ran
+6149 steps, 133 levels deep
+```
+
+**Our kernel checked every declaration it rests on, and then our evaluator ran
+it**, and Lean's own `#eval main` prints the same lines. The check is not
+optional: only declarations that pass go into the environment the evaluator
+uses. `--no-check` skips it and says so.
 
 `show` is the one to try first, and it answers in half a second:
 
@@ -117,7 +137,9 @@ matters, and it explains why the crates split the way they do.
 4. **Check.** The kernel checks the `Expr`. The kernel is small, and it is the
    only part that you must trust.
 5. **Compile.** The kernel term becomes LCNF, then C code or an interpreter
-   call. This repository does not reach stage 5 yet.
+   call. **Stage 5 is here**, as the interpreter: `rean run Prog.lean main`
+   checks a program with our kernel and then runs it with our evaluator, and
+   the output matches Lean's own. See [chapter 19](docs/19-a-program-that-runs.md).
 
 Stage 3 is where Lean differs most from other languages. In Rust the compiler
 owns the grammar and the type rules. In Lean a file can extend both. The
@@ -132,6 +154,7 @@ environment that grows as it works.
 | `rean_lexer` | `TokenTable`, `Lexer`, `Token`. Stage 1. |
 | `rean_syntax` | `Syntax`, the lossless tree. The result of stage 2. |
 | `rean_kernel` | `Expr`, `Level`, the variable operations, the `Environment`, and the checker. Stage 4. |
+| `rean_eval` | the evaluator: what a term **computes to**. Stage 5. |
 | `rean_export` | reads a `lean4export` NDJSON file into an `Environment`. |
 | `rean` | The driver. Each command returns a value, and the binary prints it. |
 
@@ -156,6 +179,7 @@ exercises and answers.
 | to see it meet **real Lean** | [chapter 3](docs/03-the-ground-truth.md) |
 | to see what **breaks** and how it is found | chapters [4](docs/04-making-it-work.md) to [7](docs/07-mutual-and-nested.md) |
 | to see what a checker **costs**, measured | chapters [9](docs/09-structures-and-cost.md) to [17](docs/17-twelve-seconds.md) |
+| to **run** a Lean program with our own evaluator | [chapter 19](docs/19-a-program-that-runs.md) |
 | to see **what Lean hands the kernel** | `rean show prelude Nat.sub`, and [chapter 17](docs/17-twelve-seconds.md) |
 | to see how to **find** a performance fault | chapters [11](docs/11-compare-before-you-unfold.md) to [13](docs/13-a-hundred-million.md) |
 | to **check your own Lean file** | [chapter 16](docs/16-the-front-door.md) |
@@ -184,6 +208,7 @@ exercises and answers.
 | [15 — The last two hundred and forty-eight](docs/15-the-last-two-hundred.md) | eleven hypotheses, eleven measurements. Eight changed nothing, one ruled out a rewrite, one test failed because the kernel got **more correct**, and a profile found a **crash** that hours of measurement had read as a slow run. |
 | [16 — The front door](docs/16-the-front-door.md) | `rean check Demo.lean`. Three lines of Lean cost **39 declarations**, the one substitution that chapter 9's rule had missed, a limit that counted the wrong thing, and the instrument that is kept because a profiler cannot name a definition. |
 | [17 — Twelve seconds](docs/17-twelve-seconds.md) | `rean show`, and the two bugs it found in an hour. Three knobs that reach nothing. And the number that reframes the project: **Lean's own kernel re-checks the whole prelude in 12 seconds**, so measure against something that is not yourself. |
+| [19 — A program that runs](docs/19-a-program-that-runs.md) | **stage 5**. `rean run` checks a Lean program and then runs it, and the output matches Lean's. Why it needed no parser, why it is lazy, why `fib 25` took 2,571 steps rather than 242,785, and three silent bugs that were all the same bug: a runtime may know what a value **means** and not what it is **made of**. |
 | [18 — Thirty-four per cent](docs/18-thirty-four-per-cent.md) | six changes, **three kept and four reverted**. A hash that may refuse, a name that carries its own, and an allocator. Why one of them was worth nothing alone, why `Arc<[Level]>` made the common case worse, why the same fix was worth 120× in one function and nothing in its twin, and why **82% of the nodes this kernel builds are duplicates** and sharing them is still slower. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use, including what a check **costs** |
 
@@ -200,6 +225,7 @@ devbox run -- cargo test -p rean_kernel --test substitution # chapter 14
 devbox run -- cargo test -p rean_kernel --test limits       # chapter 16
 devbox run -- cargo test -p rean --test frontdoor           # chapter 16
 devbox run -- cargo test -p rean --test show                # chapter 17
+devbox run -- cargo test -p rean_eval                       # chapter 19
 ```
 
 ## Three tools, and the method they serve
@@ -282,7 +308,8 @@ cargo run --release -p rean -- check Lean
 | level 1, what is left | one family of limits, and **5 real rejections** | the limits are `Int32`, `Int64` and `ISize`. The five are `_sizeOf_N_eq` lemmas of **nested** inductive types in `Lean`, where our kernel says no and Lean says yes. [Chapter 17](docs/17-twelve-seconds.md) names them. |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **482** | `devbox run test` |
+| **stage 5** | **a program runs** | `rean run Prog.lean main`, and the output matches Lean's. [Chapter 19](docs/19-a-program-that-runs.md) |
+| tests | **494** | `devbox run test` |
 | citations | every chapter's test names resolve | `devbox run cite` |
 | coverage | **93.1% of regions, 95.1% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
