@@ -65,10 +65,10 @@ computes it.
 
 | Piece | File | Job |
 |---|---|---|
-| `alpha_eq` | `crates/rean_kernel/src/expr.rs` | compare two terms, and skip the binder name |
-| `LocalContext` | `crates/rean_kernel/src/local.rs` | hold `Γ`, and open a binder |
-| `whnf` and `is_def_eq` | `crates/rean_kernel/src/typeck.rs` | the relation `≡` |
-| `infer_type` | `crates/rean_kernel/src/typeck.rs` | the judgment `Γ ⊢ e : A` |
+| [`alpha_eq`](GLOSSARY.md#alpha-equivalence) | `crates/rean_kernel/src/expr.rs` | compare two terms, and skip the binder name |
+| [`LocalContext`](GLOSSARY.md#local-context) | `crates/rean_kernel/src/local.rs` | hold `Γ`, and open a binder |
+| [`whnf`](GLOSSARY.md#whnf) and [`is_def_eq`](GLOSSARY.md#is-def-eq) | `crates/rean_kernel/src/typeck.rs` | the relation [`≡`](GLOSSARY.md#definitional-equality) |
+| [`infer_type`](GLOSSARY.md#infer-type) | `crates/rean_kernel/src/typeck.rs` | the [judgment](GLOSSARY.md#judgment) `Γ ⊢ e : A` |
 
 At the end of this chapter they **were** 381 lines of code, inside 619 lines of
 file. That was the whole trusted core here. My earlier estimate was 250 lines,

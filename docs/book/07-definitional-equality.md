@@ -18,8 +18,9 @@
 A rule asks for a `Vector α 3`. You have a `Vector α (2 + 1)`. Are they the
 same type?
 
-They must be, else nothing works. So the checker needs a notion of "the same by
-computation", and the symbol for it is `≡`.
+They must be, else nothing works. So the checker needs a notion of "the same
+by computation". The name is [definitional equality](../GLOSSARY.md#definitional-equality),
+and the symbol is `≡`.
 
 ```
    Γ ⊢ e : A      A ≡ B      Γ ⊢ B : Sort u
@@ -27,8 +28,9 @@ computation", and the symbol for it is `≡`.
                 Γ ⊢ e : B
 ```
 
-That is the conversion rule from section 5.3. Read it once more now that you
-know what `≡` is for: **a term keeps its type under computation**.
+That is the [conversion rule](../GLOSSARY.md#conversion-rule) from section 5.3. Read it
+once more now that you know what `≡` is for: **a term keeps its type under
+computation**.
 
 This rule is why a proof checker holds an evaluator. No other kind of checker
 needs one.
@@ -42,17 +44,17 @@ because the literature named them before the computers arrived.
 
 | Name | Equation | In words |
 |---|---|---|
-| **β** beta | `(fun x => b) a ≡ b[x := a]` | call a function |
-| **δ** delta | `c ≡ v`, when the environment holds `def c := v` | unfold a definition |
-| **ζ** zeta | `let x := v; b ≡ b[x := v]` | unfold a local definition |
-| **ι** iota | `Nat.rec z s (Nat.succ n) ≡ s n (Nat.rec z s n)` | run a recursor |
-| **η** eta | `fun x => f x ≡ f` | a wrapper is the thing itself |
+| **[β beta](../GLOSSARY.md#beta)** | `(fun x => b) a ≡ b[x := a]` | call a function |
+| **[δ delta](../GLOSSARY.md#delta)** | `c ≡ v`, when the environment holds `def c := v` | unfold a definition |
+| **[ζ zeta](../GLOSSARY.md#zeta)** | `let x := v; b ≡ b[x := v]` | unfold a local definition |
+| **[ι iota](../GLOSSARY.md#iota)** | `Nat.rec z s (Nat.succ n) ≡ s n (Nat.rec z s n)` | run a recursor |
+| **[η eta](../GLOSSARY.md#eta)** | `fun x => f x ≡ f` | a wrapper is the thing itself |
 
 And Lean adds two more that are not reductions at all.
 
 | Name | Rule |
 |---|---|
-| **proof irrelevance** | if `P : Prop` and `h₁ : P` and `h₂ : P`, then `h₁ ≡ h₂` |
+| **[proof irrelevance](../GLOSSARY.md#proof-irrelevance)** | if `P : Prop` and `h₁ : P` and `h₂ : P`, then `h₁ ≡ h₂` |
 | **a projection** | `S.mk a b` has first field `a`, so reading it is one step |
 
 Watch two of them run. Both lines below are accepted by Lean, and neither needs
@@ -71,7 +73,7 @@ This table is the one to keep.
 
 | | `a ≡ b` | `a = b` |
 |---|---|---|
-| what it is | a judgment of the checker | a proposition, the inductive type `Eq` |
+| what it is | a [judgment](../GLOSSARY.md#judgment) of the checker | a [proposition](../GLOSSARY.md#proposition), the inductive type `Eq` |
 | who decides | the kernel, by computation | you, with a proof |
 | can you state it in Lean | no. It is not a term. | yes. It is a type. |
 | what it costs | time | a proof term |
@@ -108,7 +110,7 @@ Why the difference? `Nat.add` recurses on its **second** argument. So:
 - `n + 0` has a constructor in the second slot, `Nat.zero`, so ι fires, and the
   term reduces to `n`. The two sides become the same term.
 - `0 + n` has a **variable** in the second slot. No ι rule fires. The term is
-  **stuck**, and `0 + n` and `n` are different terms.
+  **[stuck](../GLOSSARY.md#stuck)**, and `0 + n` and `n` are different terms.
 
 Both statements are true. Only one is true **by computation**. The other needs
 a proof, and the proof is induction, which chapter 6 told you is a recursion:
@@ -125,10 +127,49 @@ surprises in Lean are this pair wearing a different hat.
 
 ---
 
+### If you write TypeScript or Scala 3
+
+**Your compiler already reduces types, and it already runs out of fuel.**
+
+```ts
+type Add<A extends number, B extends number> = ...   // TypeScript
+// Type instantiation is excessively deep and possibly infinite. ts(2589)
+```
+
+That error is a work budget, hit. Scala 3 match types have the same guard, and
+section 7.6 is the same question in a kernel. The difference is what happens
+when the budget is reached: TypeScript gives up on a type, and our checker gives
+up on a **declaration** and says so, which later chapters measure in seconds.
+
+**You have met "stuck" too.** A TypeScript conditional type over a bare type
+parameter does not reduce. It waits until the scrutinee is a real type:
+
+```ts
+type IsString<T> = T extends string ? true : false   // deferred while T is open
+```
+
+A Scala 3 match type behaves the same way. Compare that with section 7.4:
+`0 + n` waits because `n` is a variable. **A stuck term is not an error. It is
+an answer that is waiting for an argument.**
+
+**`rfl` is a type-level test you have written before.** A test with
+`expectTypeOf` or `tsd` asserts that two types are the same, and the compiler
+decides. `rfl : a = b` is that assertion, and the decision may involve running
+your program.
+
+| | reduces types | gives up at a limit | compares by |
+|---|---|---|---|
+| TypeScript | conditional and mapped types | `ts(2589)` | structure, after reduction |
+| Scala 3 | match types | a reduction limit | subtyping, after reduction |
+| Lean | β δ ι ζ η, and the two extra rules | `REAN_FUEL` here, and a recursion guard in Lean | [alpha equivalence](../GLOSSARY.md#alpha-equivalence), after reduction |
+
+---
+
 ## 7.5 Weak head normal form
 
 A checker almost never needs a full normal form. It needs to know **what shape
-the term has at the top**, so it can pick a rule. The tool for that is `whnf`.
+the term has at the top**, so it can pick a rule. The tool for that is
+[`whnf`](../GLOSSARY.md#whnf), which is short for weak head normal form.
 
 ```
 whnf(e)  =  reduce e until the outermost shape cannot change
@@ -228,6 +269,10 @@ devbox run -- cargo test -p rean_kernel --test typeck
 - Gilbert, Cockx, Sozeau and Tabareau, *Definitional proof-irrelevance without
   K*, 2019, for the price of the sixth rule.
   DOI [10.1145/3290316](https://doi.org/10.1145/3290316)
+- TypeScript, conditional types, for a type that reduces and a limit that
+  stops it. <https://www.typescriptlang.org/docs/handbook/2/conditional-types.html>
+- Scala 3, match types, for the same thing with the same guard.
+  <https://docs.scala-lang.org/scala3/reference/new-types/match-types.html>
 - Rocq, the conversion rules, for the same Greek letters in another kernel.
   <https://rocq-prover.org/doc/master/refman/language/core/conversion.html>
 - Lean's own source. `src/kernel/type_checker.cpp` holds `whnf` and

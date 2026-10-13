@@ -59,6 +59,15 @@ the design, not an accident.
 Each chapter ends with a **Check yourself** section, with answers. Those three
 questions are the gate. If you can answer them, go on.
 
+Each chapter also has an **If you write TypeScript or Scala 3** section. It puts
+the idea next to something you already use: `never` and `Nothing`, a dependent
+method, a match type, a GADT, a macro that the compiler re-checks, or the `R`
+channel of `Effect<A, E, R>`. Read it when a chapter feels abstract.
+
+Every mathematical term links to its definition in
+[the glossary](../GLOSSARY.md), so the right word is used and the word is never
+only a word.
+
 ---
 
 ## How long it takes

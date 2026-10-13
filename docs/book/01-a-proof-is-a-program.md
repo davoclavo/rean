@@ -16,9 +16,9 @@
 A proof checker reads a file and answers one question for each theorem: yes or
 no.
 
-It does not search for a proof. It does not help you write one. A person or a
-tactic writes the proof, and the checker only says whether the proof is
-correct.
+It does not search for a [proof](../GLOSSARY.md#proof). It does not help you
+write one. A person or a [tactic](../GLOSSARY.md#tactic) writes the proof, and
+the checker only says whether the proof is correct.
 
 That sounds like a hard job for a special program. It is not. **You already use
 a proof checker every day.** It is called a type checker.
@@ -57,24 +57,25 @@ theorem id_thm (A : Prop) (h : A) : A := h
 Same shape. The type is the claim. The term is the proof.
 
 One honest note, because it matters later. A Rust function may loop for ever or
-panic, so a Rust type is a weaker promise than it looks. Lean refuses both, and
-[chapter 6](06-inductive-types.md) is where that refusal gets its teeth.
+panic, so a Rust type is a weaker promise than it looks. Every Lean function is
+[total](../GLOSSARY.md#total), and [chapter 6](06-inductive-types.md) is where
+that rule gets its teeth.
 
 ---
 
 ## 1.3 The dictionary
 
-The idea has a name, the Curry-Howard correspondence, and it is a dictionary
-between two worlds.
+The idea has a name, the [Curry-Howard](../GLOSSARY.md#curry-howard)
+correspondence, and it is a dictionary between two worlds.
 
 | Logic | Type theory | In a language you know |
 |---|---|---|
-| `A` holds | some term has type `A` | the type is **inhabited** |
+| `A` holds | some term has type `A` | the type is **[inhabited](../GLOSSARY.md#inhabited)** |
 | `A → B` | a function from `A` to `B` | `fn f(a: A) -> B` |
 | `A ∧ B` | a pair that holds both | `(A, B)`, a struct |
 | `A ∨ B` | a value that is one side or the other | an enum with two cases |
-| `True` | a type with one element | the unit type |
-| `False` | a type with **no** element | `Void`, or `never` |
+| `True` | a [unit type](../GLOSSARY.md#unit-type), with one element | `Unit` in Scala, `void` in TypeScript |
+| `False` | an [empty type](../GLOSSARY.md#empty-type), with **no** element | `never` in TypeScript, `Nothing` in Scala |
 | `¬ A` | `A → False` | a function nobody can call with a result |
 | `∀ x : A, P x` | a function that takes `x` and returns a proof of `P x` | a generic, and more. [Chapter 3](03-types-that-depend-on-values.md). |
 
@@ -100,6 +101,31 @@ the room. It looks for a person in it.
 `cargo check` already proves small theorems about your program, such as "this
 value is never null here". Lean lets the theorems get as large as you like, and
 the checking stays the same job.
+
+---
+
+### If you write TypeScript or Scala 3
+
+You have met every piece of this already.
+
+| In your language | Here |
+|---|---|
+| `<A>(a: A) => A` in TypeScript, `def id[A](a: A): A` in Scala | the proof of `A → A` from section 1.2 |
+| `never` in TypeScript, `Nothing` in Scala | the [empty type](../GLOSSARY.md#empty-type). To prove `¬ A`, write a function into it. |
+| `Effect<A, never, never>`, which cannot fail and needs nothing | the same `never`, used as a promise. The error channel is empty, so no error value exists. |
+| the `E` channel of `Effect<A, E, R>` | a type that records a fact about a value. You write propositions already. |
+
+One real difference, and it is the whole reason this works. In TypeScript and in
+Scala, `Nothing` and `never` are **not** empty:
+
+```scala
+def loop: Nothing = loop     // Scala accepts this
+```
+
+That term never returns, and it inhabits the empty type. So a type in those
+languages is a promise **if** the program stops. In Lean every function is
+[total](../GLOSSARY.md#total), so the promise holds with no condition, and a
+type may be read as a statement of logic.
 
 ---
 
@@ -175,6 +201,8 @@ up.
   <https://lean-lang.org/theorem_proving_in_lean4/>
 - *Functional Programming in Lean*, for Lean as a language you program in.
   <https://lean-lang.org/functional_programming_in_lean/>
+- Effect, the `Effect` type, for the three channels of section 1.4.
+  <https://effect.website/docs/v4/getting-started/the-effect-type>
 - Our code. `crates/rean_kernel/src/typeck.rs` holds the checker, and
   `crates/rean_kernel/tests/typeck.rs` holds the proof of section 1.2.
 - Every source for Part I is in [the references](../REFERENCES.md).

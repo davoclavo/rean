@@ -28,6 +28,13 @@ Part I holds 1 to 8 and lives in `docs/book/`. The chapters that build the
 checker hold 9 to 28. A reference into Part I is written in full, as
 "Part I chapter 4", because Part I sits in a folder of its own.
 
+**If you write TypeScript or Scala 3.** You already use most of the ideas here
+under other names. The glossary opens with a table that maps them:
+[if you come from TypeScript or Scala 3](GLOSSARY.md#if-you-come-from-typescript-or-scala-3).
+Every chapter of Part I also has a section with that name, which puts the
+chapter next to `never`, `Nothing`, `given`, a match type, a GADT, or the `R`
+channel of `Effect<A, E, R>`.
+
 Two files stay open beside you the whole way.
 
 | File | For |

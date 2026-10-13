@@ -48,7 +48,9 @@ Two signatures changed shape as well. `whnf` and `is_def_eq` now return a
 
 ## 10.2 The environment
 
-A map from [`Name`] to one of eight declarations.
+A map from [`Name`] to one of eight declarations. The map is the
+[environment](GLOSSARY.md#environment), and it is what gives a constant a type and a
+value.
 
 | Kind | Carries | Gives the kernel |
 |---|---|---|
@@ -69,7 +71,7 @@ real Lean file straight into these structs with no translation layer.
 
 ---
 
-## 10.3 δ: a definition unfolds
+## 10.3 [δ](GLOSSARY.md#delta): a definition unfolds
 
 ```rust
 if let Some(decl) = self.env.get(name)
@@ -95,7 +97,7 @@ definition. The test is `delta_substitutes_the_universe_arguments`.
 
 ---
 
-## 10.4 ι: a recursor meets a constructor
+## 10.4 [ι](GLOSSARY.md#iota): a recursor meets a constructor
 
 This is the largest new rule. It needs the argument layout to be exact:
 
@@ -172,7 +174,7 @@ earlier field and substitutes it in.
 
 ---
 
-## 10.6 η
+## 10.6 [η](GLOSSARY.md#eta)
 
 ```rust
 fn eta_eq(&mut self, lam: &Expr, other: &Expr) -> TypeResult<bool> {
@@ -215,7 +217,7 @@ its type.** Section 2.7 found it first.
 
 ---
 
-## 10.7 Proof irrelevance, and a bug it exposed
+## 10.7 [Proof irrelevance](GLOSSARY.md#proof-irrelevance), and a bug it exposed
 
 ```rust
 if a.has_loose_bvars() || b.has_loose_bvars() { return Ok(false) }

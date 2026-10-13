@@ -42,8 +42,8 @@ into the body.
 (fun x => x) y   ⟶   y
 ```
 
-The name for that step is **β reduction**, and section 2.4 says what it costs
-to do it correctly.
+The name for that step is **[β reduction](../GLOSSARY.md#beta)**, and section 2.4 says
+what it costs to do it correctly.
 
 ---
 
@@ -62,15 +62,15 @@ fun x => x
 fun y => y
 ```
 
-They are **alpha equivalent**, which means equal up to the names of bound
-variables. A checker must treat them as one term. Hold on to that word. It is
+They are **[alpha equivalent](../GLOSSARY.md#alpha-equivalence)**, which means equal up to
+the names of bound variables. A checker must treat them as one term. Hold on to that word. It is
 about to do real work.
 
 ---
 
 ## 2.3 The one operation, and the trap in it
 
-Write substitution like this.
+Write [substitution](../GLOSSARY.md#substitution) like this.
 
 ```
 b[x := a]
@@ -88,7 +88,7 @@ A careless answer is `fun y => y`. That is **wrong**. The `y` that arrived from
 outside has nothing to do with the `y` that the binder owns. The careless answer
 turned a function that ignores its argument into the identity function.
 
-The name for the bug is **capture**. Two cures exist.
+The name for the bug is **[capture](../GLOSSARY.md#capture)**. Two cures exist.
 
 1. Rename the binder before you substitute. This works, and it is slow, and it
    is easy to get subtly wrong.
@@ -98,8 +98,9 @@ The name for the bug is **capture**. Two cures exist.
 
 ## 2.4 de Bruijn indices
 
-Replace the name of a bound variable with a number: the count of binders between
-the use and the binder that owns it.
+Replace the name of a bound variable with a number, and the name for that
+number is a [de Bruijn index](../GLOSSARY.md#de-bruijn-index). It is the count of binders
+between the use and the binder that owns it.
 
 ```
 fun x => fun y => x        becomes   λ λ #1
@@ -135,6 +136,29 @@ program and nothing breaks. The names were never the meaning.
 
 ---
 
+### If you write TypeScript or Scala 3
+
+Three things you have already relied on.
+
+- **A minifier renames every local variable in your bundle, and nothing
+  breaks.** That is section 2.2 in production. The name was never the meaning.
+- **A macro has to solve capture.** A Scala 3 quote, `'{ ... }`, is hygienic: a
+  name it introduces cannot be captured by the call site. Lean does the same
+  with a macro scope, and the paper behind it is in
+  [the references](../REFERENCES.md). The bug they both avoid is the one in
+  section 2.3.
+- **A generator in `Effect.gen` is a chain of binders.** Each `yield*` becomes a
+  function that takes the value and returns the rest of the program. `Effect`
+  hides the lambda, and the lambda is still what runs. The term language of this
+  chapter is what your `do` block compiles into.
+
+One difference worth naming. A compiler for your language may rename a
+variable, because it only has to keep the program's meaning. A proof checker
+compares two terms thousands of times per declaration, so it does not rename.
+It removes the names, which makes the comparison a comparison of numbers.
+
+---
+
 ## 2.6 The three arithmetic operations
 
 A kernel needs exactly three operations on indices. Our code holds them in
@@ -146,9 +170,10 @@ A kernel needs exactly three operations on indices. Our code holds them in
 | `instantiate` | replace index 0 with a term | one β step is one call |
 | `abstract_fvar` | the reverse. Turn a variable back into an index. | a binder closes again |
 
-One more word, because the chapters use it. An index is **loose** when it points
-outside the term it sits in. In `λ #3`, the index 3 is loose. A finished term
-has no loose index, and a term with none is called **closed**.
+One more word, because the chapters use it. An index is
+**[loose](../GLOSSARY.md#loose-bound-variable)** when it points outside the term it sits
+in. In `λ #3`, the index 3 is loose. A finished term has no loose index, and a
+term with none is **[closed](../GLOSSARY.md#closed)**.
 
 That word earns its place twice over later. A closed term has a type. A term
 with a loose index does not, because the thing it points at is not there.

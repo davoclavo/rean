@@ -35,7 +35,8 @@ Read the end of it. The result type is `Vector α (n + 1)`, and `n` is an
 **argument of the function**. The type of the result is computed from a value
 that arrives at run time.
 
-That is a dependent type. It is the whole chapter.
+That is a **dependent type**, and the kernel's name for the form is a
+[Pi type](../GLOSSARY.md#pi-type). It is the whole chapter.
 
 ---
 
@@ -50,8 +51,8 @@ Write it like this.
 Read it: "give me an `x` of type `A`, and I give you a `B`, and `B` may mention
 `x`".
 
-The name for this form is a **Pi type**. Two spellings of it hide in plain
-sight.
+The name for this form is a **[Pi type](../GLOSSARY.md#pi-type)**. Two spellings of it
+hide in plain sight.
 
 - When `B` ignores `x`, people write `A → B`. The arrow is the short form.
 - When `A` is a proposition, people write `∀ x : A, B`.
@@ -71,6 +72,8 @@ returns a vector whose length is one more than the one it got. The type carries
 the arithmetic, so the compiler checks the arithmetic.
 
 **As a family.** Think of `Vector Nat` as a shelf of boxes, one per length.
+The number that picks the box is an [index](../GLOSSARY.md#index), and the type that is
+fixed across the whole shelf is a [parameter](../GLOSSARY.md#parameter).
 `Vector Nat 3` is one box. A dependent function picks a box by the value you
 give it. The type is a function from values to types, and Lean says so:
 
@@ -97,6 +100,44 @@ whose length is the number this function returns".
 
 ---
 
+### If you write TypeScript or Scala 3
+
+This is the chapter where your language gets closest and still stops.
+
+**Scala 3 has dependent function types.** This is from the language reference,
+and it is real Scala:
+
+```scala
+trait Entry { type Key; val key: Key }
+
+def extractKey(e: Entry): e.Key = e.key          // a dependent method
+val extractor: (e: Entry) => e.Key = extractKey  // a dependent function value
+```
+
+Read the result type, `e.Key`. It depends on the **argument**, which is exactly
+section 3.2. The limit is what it may depend on: `e.Key` is a type **member** of
+the argument. Lean's `Vector α n` depends on `n`, which is a number, and
+nothing stops it depending on a list, a function, or a proof.
+
+**TypeScript has the type-level half and not the value-level half.** A
+conditional type and a literal type let you compute with types that a value
+cannot reach. A tuple carries its length, and an `Array<T>` does not. So you can
+say "an array of exactly three" and not "an array as long as this function
+returns".
+
+**Effect shows why you want it.** `Effect<A, E, R>` tracks three facts about a
+program in its type, and every one of them is checked where you use it. A
+dependent type is the same move with no ceiling: the type may state **any**
+fact, and the proof is the term that satisfies it.
+
+| | can a type hold a run-time value? | type-level computation |
+|---|---|---|
+| TypeScript | no | conditional and mapped types, with a depth limit |
+| Scala 3 | a type **member** of an argument | match types, with a depth limit |
+| Lean | **yes**, any value | the same reduction the program uses |
+
+---
+
 ## 3.4 What it costs
 
 Here is the application rule, in words. You will see it again in chapter 5 as a
@@ -108,8 +149,8 @@ then f a : B[x := a]
 ```
 
 Look at the last line. The type of `f a` is **`B` with the argument
-substituted into it**. The substitution of chapter 2, section 2.3, now runs
-inside types.
+substituted into it**. The [substitution](../GLOSSARY.md#substitution) of chapter 2,
+section 2.3, now runs inside types.
 
 So a checker for dependent types has to do something that no C compiler ever
 does: it has to compute with values while it checks types. Ask whether
@@ -166,6 +207,12 @@ write for it.
   <https://lean-lang.org/theorem_proving_in_lean4/>
 - *The Lean Language Reference*, the type system, for the official rules.
   <https://lean-lang.org/doc/reference/latest/The-Type-System/>
+- Scala 3, dependent function types, for the example in section 3.3.
+  <https://docs.scala-lang.org/scala3/reference/new-types/dependent-function-types.html>
+- Scala 3, match types, for type-level computation with a limit.
+  <https://docs.scala-lang.org/scala3/reference/new-types/match-types.html>
+- TypeScript, conditional types, for the same half of the idea.
+  <https://www.typescriptlang.org/docs/handbook/2/conditional-types.html>
 - Dybjer, *Inductive families*, 1994, for the idea of a type indexed by a
   value. DOI [10.1007/BF01211308](https://doi.org/10.1007/BF01211308)
 - Brady, *Idris 2: Quantitative Type Theory in Practice*, 2021, for another

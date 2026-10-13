@@ -34,7 +34,8 @@ result has a name, Girard's paradox, and the reference is at the end.
 
 ## 4.2 One former, two names
 
-The kernel has **one** universe former, and it takes a number.
+The kernel has **one** universe former, [`Sort u`](../GLOSSARY.md#sort), and it takes a
+number. The number is a [universe level](../GLOSSARY.md#universe-level).
 
 ```
 Sort u
@@ -115,7 +116,8 @@ The numbers are not the real difference. These three are.
 
 ### 1. `Prop` is impredicative
 
-The rule for a Pi type does not use `max`. It uses `imax`.
+The rule for a [Pi type](../GLOSSARY.md#pi-type) does not use `max`. It uses
+[`imax`](../GLOSSARY.md#imax).
 
 ```
    A : Sort u      B : Sort v
@@ -140,7 +142,7 @@ proposition, whatever the size of the domain is. Lean agrees:
 
 Read the first line once more. The term speaks about **every** proposition, and
 the term is itself a proposition. So it speaks about a collection that holds
-it. The word for that self-reference is **impredicative**.
+it. The word for that self-reference is **[impredicative](../GLOSSARY.md#impredicative)**.
 
 One trap, and Lean prints the trap for you:
 
@@ -153,16 +155,19 @@ That one is **not** a `Prop`. The body `α → α` sits at level 10, not at 0, s
 is what matters.
 
 `Type` works the other way. A Pi type over `Type u` lands in `Type (max u v)`,
-so the level grows. `Type` is **predicative**.
+so the level grows. `Type` is **[predicative](../GLOSSARY.md#predicative)**.
 
-One warning for a reader who knows Rocq. Lean has **no cumulativity**. `Type 0`
-is not a subtype of `Type 1`. Lean uses universe polymorphism instead, which
-chapter 6 meets as the level arguments on a constant.
+One warning for a reader who knows Rocq or Scala. Lean has **no
+[cumulativity](../GLOSSARY.md#cumulativity)** and no subtyping at all. `Type 0` is not a
+subtype of `Type 1`. Lean uses
+[universe polymorphism](../GLOSSARY.md#universe-polymorphism) instead, which chapter 6
+meets as the level arguments on a constant.
 
 ### 2. All proofs of one proposition are equal
 
 If `P : Prop` and `h₁ : P` and `h₂ : P`, then the kernel treats `h₁` and `h₂`
-as the same term. The name is **proof irrelevance**, and you can watch it work:
+as the same term. The name is **[proof irrelevance](../GLOSSARY.md#proof-irrelevance)**,
+and you can watch it work:
 
 ```lean
 example (p : Prop) (h1 h2 : p) : h1 = h2 := rfl
@@ -176,10 +181,11 @@ Why the rule exists: you care **that** a proposition holds, never **how**.
 ### 3. A proof cannot give data back
 
 An inductive type in `Prop` may only eliminate into `Prop`. A narrow exception
-exists for a type with at most one element.
+exists for a [subsingleton](../GLOSSARY.md#subsingleton), which is a type with at most one
+element.
 
-Why the rule exists: it lets the compiler **erase** every proof. A proof costs
-nothing when the program runs.
+Why the rule exists: it lets the compiler **[erase](../GLOSSARY.md#erasure)** every proof.
+A proof costs nothing when the program runs.
 
 ```lean
 def firstOr0 (xs : List Nat) (h : xs ≠ []) : Nat := ...
@@ -198,6 +204,36 @@ gone, and nothing is lost, because of rule 2.
 | all elements equal | yes | no |
 | may give data back | no | yes |
 | survives at run time | no | yes |
+
+---
+
+### If you write TypeScript or Scala 3
+
+Three mappings, and one of them is exact.
+
+**A universe is not a kind, and it is not `Any`.** Scala has `Any` at the top
+and `Nothing` at the bottom, with subtyping between them. Lean has neither. It
+has a tower, and **no subtyping**: a term of `Type 0` is not a term of
+`Type 1`, and no coercion happens behind your back. Where Scala would use
+variance and a bound, Lean takes the level as a parameter, which is section 4.4
+in practice.
+
+**`Prop` against `Type` is the distinction you make by hand today.** A value in
+the `E` channel of `Effect<A, E, R>` is data you may read. A proof is a fact you
+may only **use**. Lean puts that difference in the type system: a `Prop` carries
+no information beyond its own truth, so the kernel treats two proofs of one
+proposition as equal, and the compiler drops them.
+
+**Erasure is the exact match.** Scala 3 has `erased` definitions, which exist
+while the program is checked and not while it runs. TypeScript erases every
+type. A Lean proof is erased for the same reason, and the rule that makes it
+sound is the one above.
+
+| | top type | bottom type | subtyping | erases |
+|---|---|---|---|---|
+| Scala 3 | `Any` | `Nothing` | yes | types, and an `erased` term |
+| TypeScript | `unknown` | `never` | structural | every type |
+| Lean | none. A tower of `Sort u`. | none | **no** | every proof |
 
 ---
 
@@ -285,6 +321,8 @@ The checker computed `imax 1 0`, got `0`, and printed the name for `Sort 0`.
 - Gilbert, Cockx, Sozeau and Tabareau, *Definitional proof-irrelevance without
   K*, 2019, for what rule 2 costs a checker.
   DOI [10.1145/3290316](https://doi.org/10.1145/3290316)
+- Scala 3, `erased` definitions, for erasure as a language feature.
+  <https://docs.scala-lang.org/scala3/reference/experimental/erased-defs.html>
 - Rocq, `SProp`, for a system that keeps proof irrelevance in a separate sort.
   <https://rocq-prover.org/doc/master/refman/addendum/sprop.html>
 - Our code. `crates/rean_kernel/src/level.rs` holds the five level formers, and

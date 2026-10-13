@@ -33,7 +33,8 @@ one extension, and chapter 6 is the extension.
 
 ## 5.2 How a rule is written
 
-Everything a checker says has one shape.
+Everything a checker says has one shape, and the shape is called a
+[judgment](../GLOSSARY.md#judgment).
 
 ```
 Γ ⊢ e : A
@@ -46,8 +47,8 @@ list of what you already know.
 Γ  =  x₁ : A₁,  x₂ : A₂,  ...,  xₙ : Aₙ
 ```
 
-In logic, `Γ` is the list of hypotheses. In code, `Γ` is the local context. They
-are the same list.
+In logic, `Γ` is the list of hypotheses. In code, `Γ` is the
+[local context](../GLOSSARY.md#local-context). They are the same list.
 
 A rule is a fraction. Read it as: "if everything above the line holds, the thing
 below the line holds".
@@ -108,9 +109,10 @@ are one line of code each in a real checker.
                 Γ ⊢ e : B
 ```
 
-Read it: "a term keeps its type under computation". The symbol `≡` means "the
-same by computation", and chapter 7 is entirely about it. Note the rule now, and
-do not worry about `≡` yet.
+Read it: "a term keeps its type under computation". This is the
+[conversion rule](../GLOSSARY.md#conversion-rule). The symbol `≡` means
+[definitional equality](../GLOSSARY.md#definitional-equality), and chapter 7 is entirely
+about it. Note the rule now, and do not worry about `≡` yet.
 
 This sixth rule is the hinge of the whole design. It is the reason a proof
 checker must hold an **evaluator** inside it.
@@ -152,13 +154,40 @@ the way a variable holds a number.
 **As a card.** Five rules fit on an index card. Carry the card, and you can
 check any term of the core language by hand.
 
-**As a tree.** Every accepted term has a derivation tree, like the table in
-section 5.4. The checker builds that tree and throws it away. A proof of a
-proof, which nobody needs to store.
+**As a tree.** Every accepted term has a [derivation](../GLOSSARY.md#derivation) tree,
+like the table in section 5.4. The checker builds that tree and throws it away.
+A proof of a proof, which nobody needs to store.
 
 **As a game.** One player writes a term. The other must justify every node with
 a rule. There is no appeal to intuition and there is no "obviously". If no rule
 applies, the term is refused.
+
+---
+
+### If you write TypeScript or Scala 3
+
+**The five rules are a language specification that fits on a card.** The Scala 3
+specification is a book, and most of it is about subtyping, variance, implicit
+search and overload resolution. None of that is in the five rules. Lean puts all
+of it in stage 3, the elaborator, which is **untrusted**, and the kernel then
+reads the result with these five rules alone.
+
+That split is the design, and it has a consequence you can feel:
+
+| The job | In Scala or TypeScript | In Lean |
+|---|---|---|
+| find the instance, fill the implicit argument | the compiler, and you trust it | the elaborator. The kernel re-checks the term it chose. |
+| decide that two types are equal | the compiler, and you trust it | the kernel, with the rules of chapter 7 |
+| expand a macro | the compiler re-typechecks the expansion | the same, and the kernel re-checks it again |
+
+Read the last row twice. Scala 3 already does the thing this book is about: a
+macro may build any tree it likes, and the compiler typechecks the expansion
+rather than trusting the macro. Lean takes that idea to the end of the road,
+and the part that checks is small enough to read.
+
+**A derivation is a trace you have seen.** When a compiler reports "no implicit
+found" with a chain of candidates, it is printing part of the tree of section
+5.4. Here the tree has five kinds of node, and nothing else.
 
 ---
 
@@ -242,6 +271,10 @@ match, so the answer is no.
 - Coquand, *An algorithm for type-checking dependent types*, 1996, for the
   shape every real checker uses.
   DOI [10.1016/0167-6423(95)00021-6](https://doi.org/10.1016/0167-6423%2895%2900021-6)
+- Scala 3, `given` instances, for the search that section 5.5 calls untrusted.
+  <https://docs.scala-lang.org/scala3/reference/contextual/givens.html>
+- Scala 3, `inline` and macros, for a compiler that re-checks an expansion.
+  <https://docs.scala-lang.org/scala3/reference/metaprogramming/inline.html>
 - Carneiro, *The Type Theory of Lean*, for these rules as Lean states them.
   <https://github.com/digama0/lean-type-theory>
 - Our code. `crates/rean_kernel/src/typeck.rs` holds one arm per rule, and

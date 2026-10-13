@@ -26,7 +26,7 @@ that code is trusted.** Each part only produces a **candidate** term, and one
 small program re-checks the candidate from nothing, with the rules of chapters 5
 to 7.
 
-The name for the rule is the **De Bruijn criterion**.
+The name for the rule is the **[De Bruijn criterion](../GLOSSARY.md#de-bruijn-criterion)**.
 
 ---
 
@@ -46,8 +46,9 @@ The name for the rule is the **De Bruijn criterion**.
 | 4 | **check** | `src/kernel/` | **yes** |
 | 5 | run | `src/Lean/Compiler/LCNF/` | not for a proof |
 
-Stage 3 is the biggest part of Lean by far. It resolves names, fills in implicit
-arguments, runs your tactics, and expands your macros. A bug in it cannot make a
+Stage 3, the [elaborator](../GLOSSARY.md#elaborator), is the biggest part of Lean by far.
+It resolves names, fills in implicit arguments, runs your
+[tactics](../GLOSSARY.md#tactic), and expands your macros. A bug in it cannot make a
 false theorem. It can only make a term that stage 4 refuses.
 
 Stage 4 is about 6,000 lines of C++. That is the part you must trust, and it is
@@ -72,8 +73,8 @@ Nothing else. Not `simp`, not `omega`, not `decide`, not the pretty printer.
 
 ## 8.4 Axioms, and the one honest hole
 
-An axiom is a name with a type and no proof. The kernel accepts it without a
-question, because that is what an axiom is.
+An [axiom](../GLOSSARY.md#axiom) is a name with a type and no proof. The kernel accepts it
+without a question, because that is what an axiom is.
 
 Lean's library rests on three, and you can ask any theorem which ones it uses:
 
@@ -96,8 +97,8 @@ trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
                    Lean.trustCompiler, Quot.sound, propext, sorryAx
 ```
 
-- `sorryAx` is what `sorry` becomes. A proof that reaches it is **not a proof**,
-  and this is why a report that names the axioms matters.
+- `sorryAx` is what [`sorry`](../GLOSSARY.md#sorry) becomes. A proof that reaches it is
+  **not a proof**, and this is why a [trust report](../GLOSSARY.md#trust-report) matters.
 - `Lean.ofReduceBool`, `Lean.ofReduceNat` and `Lean.trustCompiler` trust the
   **compiler** rather than the kernel. The tactic `native_decide` uses them. A
   proof that rests on one asks you to trust the compiler too, and the report
@@ -124,6 +125,36 @@ The tool is `lean4export`, and the file is plain text.
 If two kernels written by different people in different languages agree, the
 chance that both hold the same bug is small. That is the whole argument, and it
 is why a second checker is worth building even though Lean already has one.
+
+---
+
+### If you write TypeScript or Scala 3
+
+**You already trust a compiler. The question is how much of it.**
+
+| | the trusted part | how large | can a second tool check the result? |
+|---|---|---|---|
+| TypeScript | `tsc`, all of it | hundreds of thousands of lines | no |
+| Scala 3 | the compiler, all of it | hundreds of thousands of lines | no |
+| Lean | `src/kernel` only | about 6,000 lines | **yes**, from an export file |
+
+**Scala 3 already uses the idea, in one place.** A macro may build any tree it
+likes, and the compiler **typechecks the expansion** rather than trusting the
+macro. That is the De Bruijn criterion, applied to macros. Lean applies it to
+the whole frontend: tactics, instance search, implicit arguments, notation and
+macros are all allowed to be wrong, because the kernel reads only the term they
+produce.
+
+**The axiom report is the part with no counterpart in your toolchain.** You can
+write `???` in Scala, or `as unknown as T` in TypeScript, and nothing downstream
+records that you did. Lean's `#print axioms` names every hole a theorem depends
+on, and `sorry` shows up there by name. A proof with a hole is not a proof, and
+the tool says so without being asked.
+
+**And the export file is differential testing.** Two implementations, written by
+different people in different languages, read the same input and must agree. You
+do this for a parser or a protocol already. Here the input is a proof, and the
+agreement is the argument for believing it.
 
 ---
 
@@ -190,6 +221,9 @@ what breaks. A rule you have watched fail is a rule you keep.
 - de Moura and Ullrich, *The Lean 4 Theorem Prover and Programming Language*,
   2021, for the five stages.
   <https://lean-lang.org/papers/lean4.pdf>
+- Scala 3, `inline` and macros, for a compiler that typechecks an expansion
+  rather than trusting the macro.
+  <https://docs.scala-lang.org/scala3/reference/metaprogramming/inline.html>
 - Carneiro, *Metamath Zero*, 2019, for how small a trusted checker can get.
   <https://arxiv.org/abs/1910.10703>
 - `lean4export` and `lean4checker`.

@@ -4,7 +4,9 @@ A Lean compiler in Rust. This repository holds the foundations of the frontend.
 
 **New here? Start at [Part I of the book](docs/book/README.md).** Eight short
 chapters build the theory that Lean 4 rests on, in order, and they assume
-nothing. [The guide](docs/README.md) holds the whole reading order,
+nothing. A reader who writes TypeScript or Scala 3 will find a section in every
+one of them that maps the idea onto `never`, `Nothing`, a match type, a GADT, or
+the `R` channel of `Effect<A, E, R>`. [The guide](docs/README.md) holds the whole reading order,
 [the glossary](docs/GLOSSARY.md) holds every word, and
 [the references](docs/REFERENCES.md) hold every source.
 

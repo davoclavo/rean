@@ -147,6 +147,8 @@ A chapter names the rule. These are where the rule comes from.
 ## 7. How other systems do it
 
 Each chapter has a section with this name. These are the sources behind them.
+Part I adds a section called **If you write TypeScript or Scala 3**, and the
+last six rows of this table are what it rests on.
 
 | System | Source | What differs |
 |---|---|---|
@@ -159,6 +161,13 @@ Each chapter has a section with this name. These are the sources behind them.
 | GHC, for Haskell | the debugging flags, `-dcore-lint`. <https://downloads.haskell.org/ghc/latest/docs/users_guide/debugging.html> | a re-checker for its own intermediate language. The nearest thing in a mainstream compiler to a kernel. |
 | GHC | *System F with type equality coercions*. <https://www.microsoft.com/en-us/research/publication/system-f-with-type-equality-coercions/> | types carry proofs of equality, and the compiler checks them |
 | rustc, for Rust | the developer guide, macro expansion. <https://rustc-dev-guide.rust-lang.org/macro-expansion.html> | a macro works on a token stream. It cannot add a token or a precedence. |
+| Scala 3 | dependent function types. <https://docs.scala-lang.org/scala3/reference/new-types/dependent-function-types.html> | a result type may depend on a **type member** of the argument. A Pi type may depend on any value. |
+| Scala 3 | match types. <https://docs.scala-lang.org/scala3/reference/new-types/match-types.html> | a type that reduces, with a limit in the compiler. The nearest thing to definitional equality. |
+| Scala 3 | `given` instances. <https://docs.scala-lang.org/scala3/reference/contextual/givens.html> | instance search, which Lean puts in the untrusted elaborator |
+| Scala 3 | `inline` and macros. <https://docs.scala-lang.org/scala3/reference/metaprogramming/inline.html> | the compiler typechecks an expansion rather than trusting the macro. The De Bruijn criterion, for macros. |
+| Scala 3 | `erased` definitions. <https://docs.scala-lang.org/scala3/reference/experimental/erased-defs.html> | erasure as a language feature. Lean erases every proof, for a reason it can prove. |
+| TypeScript | conditional types. <https://www.typescriptlang.org/docs/handbook/2/conditional-types.html> | a type that reduces, and `ts(2589)` when it reduces too far |
+| Effect, for TypeScript | the `Effect` type. <https://effect.website/docs/v4/getting-started/the-effect-type> | three facts about a program, in its type. The `R` channel is the bookkeeping of a local context. |
 | Metamath Zero | <https://arxiv.org/abs/1910.10703> | a verifier small enough to audit in an afternoon |
 
 ---

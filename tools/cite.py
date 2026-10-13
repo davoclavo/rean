@@ -46,7 +46,11 @@ second one stays behind and still reads as a chapter. Twenty of them did.
 This check finds a number that names **nothing**. It cannot find a number that
 names the wrong chapter, so a renumber still needs a reader.
 
-The fifth check is the reading order. The book is meant to be read in
+The fifth check is a glossary link. A chapter links a mathematical term to its
+definition, as `[definitional equality](../GLOSSARY.md#definitional-equality)`,
+and the anchor has to be there. Each term of the glossary carries one.
+
+The sixth check is the reading order. The book is meant to be read in
 sequence, so every chapter must say where the reader is, and every chapter but
 the last must name the next one. A chapter that names nothing is a dead end,
 and a reader who reaches one has to guess.
@@ -155,6 +159,31 @@ def bad_chapter_numbers(chapters, book):
     return missing
 
 
+GLOSSARY_LINK = re.compile(r"GLOSSARY\.md#([a-z0-9_-]+)")
+GLOSSARY_ANCHOR = re.compile(r'<a id="([a-z0-9-]+)"></a>')
+GLOSSARY_HEADING = re.compile(r"^#{2,3} (.+)$", re.M)
+
+
+def heading_anchor(title):
+    """The anchor a site builds from a heading: lower case, spaces to hyphens."""
+    plain = re.sub(r"[^a-zA-Z0-9 -]", "", title.replace("`", ""))
+    return re.sub(r" +", "-", plain.strip().lower())
+
+
+def bad_glossary_links():
+    """Finds a link into the glossary that no anchor answers."""
+    text = open("docs/GLOSSARY.md").read()
+    anchors = set(GLOSSARY_ANCHOR.findall(text))
+    anchors |= {heading_anchor(t) for t in GLOSSARY_HEADING.findall(text)}
+    missing = []
+    for doc in documents():
+        for number, line in enumerate(open(doc).read().splitlines(), start=1):
+            for anchor in GLOSSARY_LINK.findall(line):
+                if anchor not in anchors:
+                    missing.append((doc, number, f"the glossary has no #{anchor}"))
+    return missing
+
+
 # A link whose text starts with a number, pointing at a chapter file.
 NUMBERED_LINK = re.compile(
     r"\[(\d+)[^\]]*\]\((?:\.\./)?(?:docs/)?(?:book/)?(\d\d)-[a-z0-9-]+\.md\)"
@@ -259,6 +288,7 @@ def main():
     book_sections = chapter_sections("docs/book/[0-9]*.md", BOOK_CHAPTER)
     missing += bad_references(sections, book_sections)
     missing += bad_chapter_numbers(set(sections), set(book_sections))
+    missing += bad_glossary_links()
     missing += bad_numbered_links()
     missing += broken_chain()
     if not missing:

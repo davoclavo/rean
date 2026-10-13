@@ -50,7 +50,7 @@ For one declaration the kernel adds three kinds of thing to the environment.
 |---|---|---|
 | the type | `Nat` | to speak about |
 | the constructors | `Nat.zero`, `Nat.succ` | to **build** a value |
-| the **recursor** | `Nat.rec` | to **use** a value |
+| the **[recursor](../GLOSSARY.md#recursor)** | `Nat.rec` | to **use** a value |
 
 The recursor is the part with no counterpart in Rust. Ask Lean to print it:
 
@@ -67,15 +67,17 @@ Nat.rec.{u} {motive : Nat → Sort u}
 
 Read it slowly, because three words from the chapters live in that signature.
 
-- **motive**. What you want to get, as a function of the value. One per type.
-- **minor premise**. What to do for one constructor. One per constructor, so
-  `zero` and `succ` above.
-- **major premise**. The value you take apart. It is `t`, and it comes last.
+- **[motive](../GLOSSARY.md#motive)**. What you want to get, as a function of the value.
+  One per type.
+- **[minor premise](../GLOSSARY.md#minor-premise)**. What to do for one constructor. One
+  per constructor, so `zero` and `succ` above.
+- **[major premise](../GLOSSARY.md#major-premise)**. The value you take apart. It is `t`,
+  and it comes last.
 
 Read the `succ` line once more. It takes the number `n` **and** a `motive n`,
 which is the answer for the smaller number. That extra argument is the
-induction hypothesis. Nobody added it. It falls out of the shape of the
-constructor.
+[induction hypothesis](../GLOSSARY.md#induction-hypothesis). Nobody added it. It falls out
+of the shape of the constructor.
 
 ---
 
@@ -98,7 +100,7 @@ in earnest.
 ## 6.4 The rule that computes
 
 A recursor is useless until it runs. One rule makes it run, and it is called
-**ι**, iota.
+**[ι, iota](../GLOSSARY.md#iota)**.
 
 ```
 Nat.rec z s (Nat.succ n)   ≡   s n (Nat.rec z s n)
@@ -110,7 +112,7 @@ the recursor call with the minor premise for that constructor.
 Two notes, and both matter later.
 
 - The rule fires only on a constructor. If the major premise is a variable, the
-  term is **stuck**, and stuck is the correct answer.
+  term is **[stuck](../GLOSSARY.md#stuck)**, and stuck is the correct answer.
 - The right hand side calls `Nat.rec` again, on the smaller number. So one ι
   step can make the term **bigger**. Hold on to that. It is why chapter 7 is
   hard, and it is why [Part V of the guide](../README.md) exists.
@@ -157,9 +159,10 @@ One distinction, because the chapters on the kernel need it to be exact. Look at
 Eq : {α : Sort u} → α → α → Prop
 ```
 
-- `α` is a **parameter**. It is fixed across every constructor.
-- the second `α` argument is an **index**. It varies. `rfl` forces the two sides
-  to be the same, so the index is where the information lives.
+- `α` is a **[parameter](../GLOSSARY.md#parameter)**. It is fixed across every
+  constructor.
+- the second `α` argument is an **[index](../GLOSSARY.md#index)**. It varies. `rfl` forces
+  the two sides to be the same, so the index is where the information lives.
 
 A parameter comes first and a constructor shares it. An index is what makes a
 family of types rather than one type. Chapter 2 of the implementation chapters
@@ -169,8 +172,8 @@ counts both, and one wrong count breaks every recursor.
 
 ## 6.7 The one rule that keeps it safe
 
-Here is the scariest-looking rule in the book, and it is three words long:
-**strict positivity**.
+Here is the scariest-looking rule in the book, and it is two words long:
+**[strict positivity](../GLOSSARY.md#strict-positivity)**.
 
 Try to declare this:
 
@@ -207,16 +210,17 @@ with that flag a user can prove anything.
 
 ## 6.8 Three more shapes you will meet
 
-**A structure** is an inductive type with **one** constructor and no index. The
+**A [structure](../GLOSSARY.md#structure)** is an inductive type with **one** constructor
+and no index. The
 word names a shape, not a feature. Because there is one constructor, the kernel
 adds a shortcut for reading a field, which chapter 2 of the implementation
 chapters calls a projection.
 
-**A mutual group** is two types declared together, each one mentioning the
-other. Each recursor then takes one motive per type.
+**A [mutual group](../GLOSSARY.md#mutual-group)** is two types declared together, each one
+mentioning the other. Each recursor then takes one motive per type.
 
-**A nested inductive** holds itself inside another type, as in
-`node : List Tree → Tree`. Ask for its recursor and you can see how Lean
+**A [nested inductive](../GLOSSARY.md#nested-inductive)** holds itself inside another
+type, as in `node : List Tree → Tree`. Ask for its recursor and you can see how Lean
 handles it:
 
 ```lean
@@ -246,10 +250,55 @@ honest and both are worth knowing early.
   constructors, so Lean stores the digits and computes with a big number
   library. That choice buys speed and owes two obligations, and chapter 4 of
   the implementation chapters pays them.
-- **Quotients are primitive.** No inductive declaration can give you "these two
-  values are now the same". Lean adds four constants, `Quot`, `Quot.mk`,
+- **[Quotients](../GLOSSARY.md#quotient) are primitive.** No inductive declaration can
+  give you "these two values are now the same". Lean adds four constants, `Quot`, `Quot.mk`,
   `Quot.lift` and `Quot.ind`, and one computation rule. That is how the
   rationals are built from pairs of integers.
+
+---
+
+### If you write TypeScript or Scala 3
+
+You write inductive types every day. Two of the three pieces are the same, and
+the third is the one worth your time.
+
+```scala
+enum Nat:                     // Scala 3: the constructors
+  case Zero
+  case Succ(n: Nat)
+```
+
+**The constructors match.** A Scala `enum`, a Rust `enum`, and a TypeScript
+discriminated union are all "a type described by the ways to build it".
+
+**The recursor is your `fold`.** `Nat.rec` with a motive in `Type` is
+`foldLeft` over the chain of `Succ`. A `match` expression is the same power with
+nicer syntax. Lean needs the function rather than the syntax, because a function
+is a term, and a term is all the five rules of chapter 5 understand.
+
+**A GADT is an indexed family, and that is the real meeting point.**
+
+```scala
+enum Expr[A]:                       // Scala 3
+  case IntLit(i: Int)  extends Expr[Int]
+  case BoolLit(b: Boolean) extends Expr[Boolean]
+```
+
+Each case fixes the type parameter to something different. That parameter is an
+[index](../GLOSSARY.md#index) in the sense of section 6.6, and the pattern match
+that narrows `A` to `Int` is ι reduction doing its job. Lean's version takes any
+**value** as an index, not only a type.
+
+**And one rule your language does not have.** Write the forbidden type in Scala:
+
+```scala
+case class Bad(f: Bad => Nothing)   // Scala accepts this
+```
+
+Scala is right to accept it, because Scala is not a logic. `Nothing` there is
+inhabited by a term that never returns, as chapter 1 showed. Lean refuses the
+same declaration, and section 6.7 is why: with [totality](../GLOSSARY.md#total)
+and that type together, you can prove `False`.
 
 ---
 
@@ -316,6 +365,8 @@ structure, and the theorem `2 + 3 = 5`. Chapter 7 is about the last one.
   DOI [10.1007/BFb0037116](https://doi.org/10.1007/BFb0037116)
 - Dybjer, *Inductive families*, 1994, for a parameter against an index.
   DOI [10.1007/BF01211308](https://doi.org/10.1007/BF01211308)
+- Scala 3, match types, which the GADT of section 6.10 relies on.
+  <https://docs.scala-lang.org/scala3/reference/new-types/match-types.html>
 - Agda, termination and positivity, for the same gate in another system.
   <https://agda.readthedocs.io/en/latest/language/termination-checking.html>
 - Lean's own source. `src/kernel/inductive.cpp` builds the recursor, and
