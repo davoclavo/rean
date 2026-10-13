@@ -1,0 +1,46 @@
+# Our entry for the Lean Kernel Arena.
+#
+# This is the file the arena wants at `checkers/rean.yaml` in
+# <https://github.com/leanprover/lean-kernel-arena>, and the copy here is the
+# record of what we submitted. The arena clones `url` at `rev`, runs `build`,
+# and then runs `run` once per test with `$IN` set to the test file.
+#
+# The exit codes are the whole interface, and `crates/rean/src/main.rs` holds
+# the table: 0 accepted, 1 rejected, 2 declined, anything else our own bug.
+#
+# `rev` must name a commit that is pushed. Fill it in from `git rev-parse HEAD`
+# before opening the pull request.
+description: |
+  **rean** — a Lean 4 kernel written in Rust to be **read**.
+
+  It is a teaching implementation first and a checker second: every rule
+  carries the reason it exists, every optimisation carries the measurement
+  that earned it, and the ones that did not pay are recorded as well. The
+  `docs/` directory is a book, and the kernel is 3,900 lines of Rust in one
+  file with no dependencies.
+
+  What it does:
+
+  - the full term language and the five reduction rules, with proof
+    irrelevance, structure eta, K-like ι and the quotient rules;
+  - `Nat` and `String` literal arithmetic, accelerated;
+  - strict positivity, the universe constraint on constructor fields, large
+    elimination out of `Prop`, and a recursor checked against the inductive
+    declaration it claims to eliminate rather than taken on faith;
+  - a trust report: every accepted declaration names the axioms it rests on.
+
+  What it does not do, and says so rather than guessing: nested inductive
+  positivity is trusted, and a mutual recursor with more than one motive is
+  skipped.
+
+  Both limits it enforces, a work budget by nodes built and a stack budget,
+  report **declined** and never rejected. A budget that runs out means "we did
+  not check it", which is a different sentence from "this is not a proof".
+
+  The arena found fourteen soundness bugs in it, and the chapter on that is
+  the most useful one in the book.
+url: https://github.com/davoclavo/rean
+ref: main
+rev: FILL_ME_IN
+build: cargo build --release -p rean
+run: ./target/release/rean check "$IN"

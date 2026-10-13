@@ -6,42 +6,55 @@
     python3 tools/arena.py /tmp/arena
 
 The arena is a test suite for **kernel checkers**, from the Lean project
-itself: 126 exports that a checker must accept and 72 that it must reject. Its
-own scoring puts them in that order of importance, and so does this script:
+itself: 126 exports that a checker must accept and 72 that it must reject.
 
-1. a **bad** test that we accept is a soundness bug, and nothing else on the
-   list matters while one of those is open;
-2. a **good** test that we reject is a rule we are missing, or a limit we set
-   too low;
-3. the time comes last.
+# It scores through the exit code, so this script does too
 
-# The distinction this script adds
+The arena runs a checker as `run: <command>` with the test file in `$IN`, and
+it reads the exit code. Nothing here parses a message.
 
-A bad test that we reject **because we ran out of budget** is the right answer
-for the wrong reason. The kernel says so itself: `OutOfFuel` and `OutOfStack`
-mean "we did not check it", not "this is wrong". A checker that refused
-everything would score perfectly on the bad half and be useless, and the way
-that failure begins is one test at a time. So a rejection by a limit is counted
-and named apart from a rejection by a rule.
+| code | the arena calls it | what `rean` means |
+|---|---|---|
+| 0 | accepted | every declaration checked |
+| 1 | rejected | the kernel refused one, by a rule |
+| 2 | declined | a limit stopped us, so there is no verdict |
+| anything else | an error in the checker | our own bug |
+
+A **declined** test is ignored for both soundness and completeness. The arena
+gives the reason, and it is the reason this kernel keeps `TypeError::is_a_limit`
+apart from a refusal: a decline does not claim that the proof is invalid. A
+checker that refused everything would score perfectly on the bad half and be
+useless, and the way that failure starts is one test at a time.
+
+# The order it scores in
+
+1. a **bad** test we accept is a soundness bug, and nothing else on the list
+   matters while one of those is open;
+2. a **good** test we reject is a rule we are missing;
+3. the arena then ranks by the time on its `mathlib` test, and last by the
+   number of declined tests.
+
+So a decline is not free. It is the tiebreaker, and it is the honest answer
+while it is true.
 
 See chapter 28.
 """
 
 import os
-import re
 import subprocess
 import sys
 import time
 
-# The messages the kernel uses for a limit rather than a refusal. See
-# `TypeError::is_a_limit` in `rean_kernel`.
-LIMIT = re.compile(r"units of work|of stack it is allowed|levels of recursion")
-
 CHECKER = os.environ.get("REAN", "./target/release/rean")
+
+ACCEPTED, REJECTED, DECLINED, CRASHED, TIMEOUT = range(5)
+
+# What the arena asks for, by the half of the suite a test is in.
+WANTED = {"good": ACCEPTED, "bad": REJECTED}
 
 
 def run(path, seconds):
-    """Checks one export. Returns (accepted, cause, elapsed)."""
+    """Checks one export. Returns (answer, why, elapsed)."""
     started = time.time()
     try:
         done = subprocess.run(
@@ -51,23 +64,45 @@ def run(path, seconds):
             timeout=seconds,
         )
     except subprocess.TimeoutExpired:
-        return False, f"no answer in {seconds}s", time.time() - started
+        # A timeout is recorded as declined by the arena as well, and for the
+        # same reason: it is not a verdict.
+        return TIMEOUT, f"no answer in {seconds}s", time.time() - started
     elapsed = time.time() - started
-    if done.returncode == 0:
-        return True, "", elapsed
-    # The first line under the first FAIL or block is the cause.
-    cause = ""
+    answer = {0: ACCEPTED, 1: REJECTED, 2: DECLINED}.get(done.returncode, CRASHED)
+    if answer == ACCEPTED:
+        return answer, "", elapsed
+    # The first line under the first verdict that is not `ok` is the cause.
+    why = ""
     lines = (done.stdout + done.stderr).splitlines()
     for index, line in enumerate(lines):
-        if line.startswith(("  FAIL", "  block")) and index + 1 < len(lines):
-            cause = lines[index + 1].strip()
+        if line.startswith(("  FAIL", "  decl", "  block")) and index + 1 < len(lines):
+            why = lines[index + 1].strip()
             break
-    if not cause:
+    if not why:
         for line in lines:
             if line.startswith("error:"):
-                cause = line[6:].strip()
+                why = line[6:].strip()
                 break
-    return False, cause, elapsed
+    if answer == CRASHED:
+        why = f"exit {done.returncode}: {why}"
+    return answer, why, elapsed
+
+
+def tests_under(root, only):
+    """Every test of the suite, as (expected, label, path)."""
+    found = []
+    for expected in WANTED:
+        base = os.path.join(root, expected)
+        for here, _, files in os.walk(base):
+            for name in sorted(files):
+                if not name.endswith(".ndjson"):
+                    continue
+                full = os.path.join(here, name)
+                label = os.path.relpath(full, base)[: -len(".ndjson")]
+                if only and only not in label:
+                    continue
+                found.append((expected, label, full))
+    return sorted(found)
 
 
 def main():
@@ -75,70 +110,70 @@ def main():
     only = sys.argv[2] if len(sys.argv) > 2 else ""
     seconds = int(os.environ.get("ARENA_TIMEOUT", "300"))
 
-    tests = []
-    for expected in ("good", "bad"):
-        base = os.path.join(root, expected)
-        for here, _, files in os.walk(base):
-            for name in sorted(files):
-                if name.endswith(".ndjson"):
-                    full = os.path.join(here, name)
-                    label = os.path.relpath(full, base)[: -len(".ndjson")]
-                    if only and only not in label:
-                        continue
-                    tests.append((expected, label, full))
+    tests = tests_under(root, only)
     if not tests:
         print(f"arena.py: no tests under {root}")
         return 1
 
-    wrongly_accepted, wrongly_rejected, by_limit, right = [], [], [], []
-    for expected, label, path in sorted(tests):
-        accepted, cause, elapsed = run(path, seconds)
-        mark = "?"
-        if expected == "good":
-            if accepted:
-                right.append((label, elapsed))
-                mark = "ok"
-            else:
-                wrongly_rejected.append((label, cause, elapsed))
-                mark = "REJECTED"
-        else:
-            if accepted:
-                wrongly_accepted.append((label, elapsed))
-                mark = "ACCEPTED"
-            elif LIMIT.search(cause):
-                by_limit.append((label, cause, elapsed))
-                mark = "limit"
-            else:
-                right.append((label, elapsed))
-                mark = "ok"
-        print(f"{mark:>9}  {expected:<4} {label:<46} {elapsed:6.1f}s  {cause[:60]}")
+    # One list per thing the arena counts, and one for what we got right.
+    wrong = {"good": [], "bad": []}
+    declined = {"good": [], "bad": []}
+    crashed, right = [], []
+    totals = {"good": 0, "bad": 0}
 
-    good = sum(1 for e, _, _ in tests if e == "good")
-    bad = len(tests) - good
+    for expected, label, path in tests:
+        totals[expected] += 1
+        answer, why, elapsed = run(path, seconds)
+        if answer == WANTED[expected]:
+            right.append((label, elapsed))
+            mark = "ok"
+        elif answer == CRASHED:
+            crashed.append((label, why))
+            mark = "CRASH"
+        elif answer in (DECLINED, TIMEOUT):
+            declined[expected].append((label, why))
+            mark = "declined"
+        else:
+            wrong[expected].append((label, why))
+            mark = "REJECTED" if expected == "good" else "ACCEPTED"
+        print(f"{mark:>9}  {expected:<4} {label:<46} {elapsed:6.1f}s  {why[:60]}")
+
     print()
-    print(f"accepted of {good} good:  {good - len(wrongly_rejected)}")
-    print(f"rejected of {bad} bad:   {bad - len(wrongly_accepted)}")
+    for half, verb in (("good", "accepted"), ("bad", "rejected")):
+        kept = totals[half] - len(wrong[half]) - len(declined[half])
+        print(
+            f"of {totals[half]:>3} {half:<4} {verb} {kept:>3}, "
+            f"declined {len(declined[half]):>2}, wrong {len(wrong[half]):>2}"
+        )
     print()
-    if wrongly_accepted:
-        print(f"**{len(wrongly_accepted)} wrongly accepted**, which are soundness bugs:")
-        for label, _ in wrongly_accepted:
+
+    if wrong["bad"]:
+        print(f"**{len(wrong['bad'])} wrongly accepted**, which are soundness bugs:")
+        for label, _ in wrong["bad"]:
             print(f"    {label}")
     else:
         print("no bad test was accepted")
-    if by_limit:
-        print(f"{len(by_limit)} rejected by a **limit** and not by a rule:")
-        for label, cause, _ in by_limit:
-            print(f"    {label}: {cause[:60]}")
-    if wrongly_rejected:
-        print(f"{len(wrongly_rejected)} wrongly rejected:")
-        for label, cause, _ in wrongly_rejected:
-            print(f"    {label}: {cause[:70]}")
+    if wrong["good"]:
+        print(f"**{len(wrong['good'])} wrongly rejected**, which are rules we lack:")
+        for label, why in wrong["good"]:
+            print(f"    {label}: {why[:70]}")
+    else:
+        print("no good test was rejected")
+    if crashed:
+        print(f"**{len(crashed)} crashed**, which is always our own bug:")
+        for label, why in crashed:
+            print(f"    {label}: {why[:70]}")
+    every_decline = declined["good"] + declined["bad"]
+    if every_decline:
+        print(f"{len(every_decline)} declined, which the arena ignores and counts last:")
+        for label, why in every_decline:
+            print(f"    {label}: {why[:66]}")
     slowest = sorted(right, key=lambda row: -row[1])[:5]
     if slowest:
         print("slowest of the ones we got right:")
         for label, elapsed in slowest:
             print(f"    {elapsed:6.1f}s  {label}")
-    return 1 if wrongly_accepted or wrongly_rejected else 0
+    return 1 if wrong["good"] or wrong["bad"] or crashed else 0
 
 
 if __name__ == "__main__":

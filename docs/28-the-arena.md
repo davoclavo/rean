@@ -1,6 +1,6 @@
 # Chapter 28 — The arena
 
-> **Where you are.** The last chapter, and it belongs with Part IV of
+> **Where you are.** It belongs with Part IV of
 > [the guide](README.md), which is about what a checker must refuse.
 >
 > **Before this.** [What a checker must check](13-what-a-checker-must-check.md),
@@ -438,3 +438,7 @@ Four notes.
 - *The Lean Language Reference*, the kernel, for what Lean itself promises about
   a declaration it accepts.
   <https://lean-lang.org/doc/reference/latest/>
+
+---
+
+**Next:** [The eleven that were not wrong](29-the-eleven.md)
