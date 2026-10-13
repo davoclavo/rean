@@ -255,15 +255,27 @@ devbox run cite
 
 ## The scoreboard
 
-The prelude rows are Lean **4.35.0-rc3**, exported by `rean export prelude`:
-59,349 declarations, 345 MB, in 14 seconds.
+Every row is Lean **4.35.0-rc3**, exported by `rean export`. All three of the
+libraries that the toolchain ships now run to completion, with no crash:
+
+| Library | Declarations | Checked | Failed | Time |
+|---|---|---|---|---|
+| `Init`, the prelude | 59,349 | **55,835** | 72 | 231 s |
+| `Std` | 99,619 | **95,237** | 120 | 330 s |
+| `Lean`, the compiler | 171,817 | **150,420** | 127 | 367 s |
+
+```sh
+cargo run --release -p rean -- check prelude
+cargo run --release -p rean -- check Std
+cargo run --release -p rean -- check Lean
+```
 
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, default | **55,754 of 59,349** | the whole prelude, in 199 seconds |
+| level 1, the prelude | **55,835 of 59,349** | the default budget, in 231 seconds |
 | level 1, patient | **59,199 of 59,349** | **99.75%**, with `REAN_FUEL=2000000000 REAN_STACK=8192`, in 36 minutes |
-| level 1, what is left | 45 failures, 105 blocked, at the patient setting | one family, `Int32` and `Int64` and `ISize`. **5 want budget** and reach it at `REAN_FUEL=8000000000`. **40 want stack**, and doubling the stack closes none of them. No rule is missing. |
+| level 1, what is left | one family of limits, and **5 real rejections** | the limits are `Int32`, `Int64` and `ISize`. The five are `_sizeOf_N_eq` lemmas of **nested** inductive types in `Lean`, where our kernel says no and Lean says yes. [Chapter 17](docs/17-twelve-seconds.md) names them. |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
 | tests | **479** | `devbox run test` |

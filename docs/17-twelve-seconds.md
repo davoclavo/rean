@@ -293,7 +293,97 @@ it does, it is a mechanism, and a mechanism can be found.
 
 ---
 
-## 17.7 So how do we get to 100%
+## 17.7 What else can it check?
+
+Sixteen chapters measured one library: `Init`, the prelude. The toolchain ships
+two more, and the front door makes trying them a command each.
+
+```sh
+rean check Std      # 536 MB of NDJSON, exported in 22 s
+rean check Lean     # the compiler itself, 708 MB, exported in 30 s
+```
+
+The first attempt did not finish. `Std` reached 23,699 declarations of 99,619
+and **stopped**, twice, at exactly the same one:
+`Std.Tactic.BVDecide.BVExpr.bitblast.blastUdiv.denote_blastDivSubtractShift_q`.
+Not a crash and not the budget. `rean show` said why in one line:
+
+```text
+2617556290 nodes in the value, counted as a tree
+```
+
+**Two and a half billion nodes.** A term is a graph, because `Arc` shares every
+subterm, and that lemma is a few hundred thousand nodes as a graph. Two of our
+walks did not know the difference.
+
+- `collect_constants` walked the tree. The driver asks what a declaration rests
+  on **before** the kernel sees it, so every run paid it. A visited set keyed by
+  the address of the shared node makes it a graph walk: two minutes became
+  **1.06 seconds**.
+- `infer_type` walked the tree **and was charged one unit for it**. To type an
+  application the kernel instantiates the function's `Forall` body, and that
+  rebuild happens in one call with no reduction step to charge for it. Seven
+  minutes inside a twenty million unit budget, and then the operating system
+  killed the process for its memory. The size is cached in every node, so the
+  kernel now charges for the walk **before** making it: seven minutes and a
+  process kill became **15 seconds and a verdict**.
+
+> **A budget that bounds neither time nor memory bounds nothing.**
+
+With those two, all three libraries run to completion:
+
+| library | declarations | checked | failed | time |
+|---|---|---|---|---|
+| `Init`, the prelude | 59,349 | 55,835 | 72 | 231 s |
+| `Std` | 99,619 | **95,237** | 120 | 330 s |
+| `Lean`, the compiler | 171,817 | **150,420** | 127 | 367 s |
+
+Three hundred and thirty thousand declarations, no crash, about fifteen minutes
+for all three. That is the first time this project has read anything but the
+prelude.
+
+### Five declarations that we refuse and Lean accepts
+
+Every failure of `Init` and of `Std` is a limit. `Lean` has 122 of those and
+**five of another kind**:
+
+```text
+Lean.Elab.Term.Do.Code._sizeOf_4_eq
+Lean.Elab.Term.Do.Code._sizeOf_5_eq
+Lean.Meta.DiscrTree.Trie._sizeOf_3_eq
+Lean.Meta.Grind.Arith.Cutsat.EqCnstr._sizeOf_17_eq
+Lean.Meta.Grind.Arith.Cutsat.EqCnstr._sizeOf_18_eq
+```
+
+They report a **type mismatch**, which means our kernel says no where Lean says
+yes. The shape is the same in all five:
+
+```text
+Nat.add (1 + sizeOf head) (Trie._sizeOf_3 tail)
+Nat.add (1 + sizeOf head) (sizeOf tail)
+```
+
+The kernel cannot see that a generated `_sizeOf_N` equals the `SizeOf` instance
+it was generated from. Every one of those three types is a **nested** inductive:
+`Do.Code` holds an array of itself, `Trie` holds an array of pairs of itself,
+and so does `EqCnstr`.
+
+That is where chapter 7, section 7.1, said the weakness was:
+
+> Every group check would fire on a correct declaration. So a nested recursor is
+> now **trusted**, and that is the one place the checker still takes a recursor
+> on faith.
+
+The roadmap has been asking for a mutual fixture to validate that ordering. It
+can stop asking. There are five counterexamples in the Lean compiler, with
+names, and a counterexample beats a fixture.
+
+> **Run it on something you did not choose.** Sixteen chapters of one library
+> found every kind of fault except the kind that one library does not have.
+
+---
+
+## 17.8 So how do we get to 100%
 
 Ranked by what the measurements support, and each one is a measurement before
 it is a plan.
@@ -321,6 +411,12 @@ it is a plan.
    arithmetic overflows a `u128`, and on these declarations the count is
    **zero**. `nat_lit.rs` names this limit in its own first paragraph, and it is
    still not the one being paid.
+
+**The list has a new first item.** Those five rejections are a rule the kernel
+is missing, not a limit, and they are the only such thing found in 330,785
+declarations. A rule gap outranks every performance item on this list, because
+a checker that refuses a correct declaration is wrong in the direction that
+matters least and is still wrong.
 
 What this chapter does **not** recommend is another sweep. Four knobs were
 swept here, one of them was rebuilt as a better knob first, and the best of

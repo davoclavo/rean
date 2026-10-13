@@ -437,20 +437,22 @@ mutual recursor is still **unvalidated against real Lean**. Getting a mutual
 fixture is the highest value item left, and `rean export` now makes one in a
 command. See `fixtures/lean4export/PROVENANCE.md`.
 
-## Four kinds of oracle
+## Five kinds of oracle
 
-The project now uses four, and each one found something the others could not.
+The project now uses five, and each one found something the others could not.
 
 | Oracle | Finds | Found |
 |---|---|---|
 | **ground truth**, a real Lean file | shapes nobody writes by hand | a projection at the head of an application spine |
 | **coverage**, `devbox run coverage` | paths that no data took | a driver that could not be tested, and two dead branches |
 | **red team**, a crafted lie | checks that are absent | a recursor that smuggled in an axiom and proved `False` |
-| **another checker**, `leanchecker` | how far off our **speed** is | 12 seconds against our 209, on the same input |
+| **another checker**, `leanchecker` | how far off our **speed** is | 12 seconds against our 199, on the same input |
+| **a library nobody chose for us** | rules that one library does not need | five nested `_sizeOf` lemmas of `Lean` that we refuse and Lean accepts |
 
-The fourth is new in chapter 17 and it is the one that changes what the others
-mean. A project that measures only against itself can learn that it is
-improving and nothing else.
+The fourth and fifth are new in chapter 17. The fourth changes what the others
+mean, because a project that measures only against itself can learn that it is
+improving and nothing else. The fifth is the cheapest of the five and it waited
+sixteen chapters: **run it on a library you did not choose.**
 
 The third is still the one to grow. See chapter 5, section 5.8, for the full
 inventory of what a checker must check and where we stand.
