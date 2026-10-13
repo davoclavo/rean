@@ -153,6 +153,13 @@ pub struct DeclOutcome {
 pub struct CheckReport {
     pub meta: String,
     pub outcomes: Vec<DeclOutcome>,
+    /// What the kernel did over the **whole run**, when `REAN_TALLY` is set.
+    ///
+    /// The per-declaration tally in [`DeclOutcome`] is printed for a
+    /// declaration that failed, which answers "why is this one expensive" and
+    /// not "where does the run spend itself". Reading one as the other is a
+    /// mistake chapter 18 made and recorded.
+    pub totals: Vec<(String, u64)>,
 }
 
 impl CheckReport {
@@ -560,6 +567,7 @@ pub fn check_export_streaming(
     Ok(CheckReport {
         meta: module.meta.to_string(),
         outcomes,
+        totals: rean_kernel::tally::totals(),
     })
 }
 

@@ -45,6 +45,37 @@ pub fn on() -> bool {
 
 thread_local! {
     static COUNTS: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
+    static TOTALS: RefCell<HashMap<String, u64>> = RefCell::new(HashMap::new());
+}
+
+/// Counts one event for the **whole run**, and not for one declaration.
+///
+/// [`take`] empties the per-declaration counts, and the driver prints them for
+/// a declaration that **failed**. That is the right report for "why is this one
+/// expensive" and the wrong one for "where does the run spend itself", and
+/// reading one as the other is a mistake this project has now made twice. So
+/// there are two sets of counters, and this is the one nothing clears.
+pub fn total(key: impl FnOnce() -> String, units: u64) {
+    if !on() {
+        return;
+    }
+    let key = key();
+    TOTALS.with(|counts| {
+        *counts.borrow_mut().entry(key).or_insert(0) += units;
+    });
+}
+
+/// Returns every run-wide count, largest first. Nothing is emptied.
+pub fn totals() -> Vec<(String, u64)> {
+    let mut rows: Vec<(String, u64)> = TOTALS.with(|counts| {
+        counts
+            .borrow()
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect()
+    });
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    rows
 }
 
 /// Counts one event, naming it with `key`.

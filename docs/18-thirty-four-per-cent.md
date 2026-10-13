@@ -339,13 +339,68 @@ change. Not materialising a spine at all is the explicit-stack evaluator, which
 the roadmap has called a different project since chapter 14, and which now has a
 measured reason rather than an argument from first principles.
 
+---
+
+## 18.10 And the other candidate, priced
+
+The remaining idea was a cache that outlives a declaration. Today the driver
+builds a fresh `TypeChecker` for every one of the 59,349, so every cache dies
+with it, and the question is how much is being thrown away.
+
+That is a measurement, not an argument, and it needed an instrument: a set of
+every `whnf` question the **run** has asked, which can tell a question that is
+new to the run from one that is new to this declaration.
+
+```text
+1,102,431  whnf asked
+  824,336  whnf question new to the run
+   34,795  answered by a cache
+```
+
+So a quarter of the questions are repeats, and the cache answers **3.2%** of
+all of them. The other **22% are asked again and recomputed**, because the
+answer was thrown away when the declaration changed. A cache that persisted
+could answer seven times as many.
+
+Two warnings on that number, both of which keep it an upper bound. The set is
+keyed by the hash alone, and a repeat may mention a free variable or rest on a
+declaration under check, which makes it **unsafe** to reuse. Pricing the safe
+fraction needs the taint tracking that the real change would carry anyway.
+
+It is the strongest of the cheap ideas that are left, and it is not cheap: the
+driver has to stop building a checker per declaration, which is a borrow, and
+the kernel has to know when an answer depended on the group under check, which
+is a flag through `lookup`. Nobody should start it without the fourth number in
+`Sub` that says whether a term holds a free variable.
+
+### The instrument reads the right population now
+
+The first version of this measurement said **99.88%** of questions were new to
+the run, and that the cache answered 296 of 690,288. Both numbers were true and
+neither answered the question, because the tally prints for the declaration that
+**failed**, and I read one declaration's numbers as the run's.
+
+The same mistake, caught by switching the cache off: 18.1 s became 25.6 s, so
+the cache that "answered 296 questions" is worth **42%**. Its hits are the
+expensive ones, which is why a count of questions cannot be turned into a
+share of the time.
+
+So the tally now has two sets of counters, and the driver prints the run-wide
+one at the end of a check.
+
+> **A per-declaration instrument answers "why is this one expensive". It does
+> not answer "where does the run spend itself", and reading one as the other is
+> a mistake this project has now made twice.**
+
+---
+
 So the candidate list ends this chapter one shorter than it started:
 
 - **ruled out**, here: sharing a node after it is built;
 - **ruled out**, chapter 15 section 15.7: a term as a pointer plus a shift;
-- **untested**: a cache that persists across declarations. It needs the driver
-  to stop building a fresh `TypeChecker` for every declaration, which is a
-  borrow and not a measurement, so nobody has priced it yet;
+- **priced**, section 18.10: a cache that persists across declarations could
+  answer 22% of all `whnf` questions where the present one answers 3.2%. The
+  work is a borrow in the driver and a taint flag in the kernel;
 - **untested and now the strongest**: an evaluator that does not build the
   spine.
 

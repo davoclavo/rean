@@ -158,6 +158,12 @@ fn run_check(path: &str) -> ExitCode {
         Ok(report) => report,
         Err(message) => return fail(&message),
     };
+    if !report.totals.is_empty() {
+        println!("\n  over the whole run:");
+        for (what, count) in &report.totals {
+            println!("  {count:>12}  {what}");
+        }
+    }
     println!("\n  {}", report.meta);
     println!("\n{}", report.score());
     println!("{}", report.trust());

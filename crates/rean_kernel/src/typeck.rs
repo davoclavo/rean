@@ -459,6 +459,13 @@ impl std::error::Error for TypeError {}
 /// The result of a check.
 pub type TypeResult<T> = Result<T, TypeError>;
 
+thread_local! {
+    /// Every `whnf` question the run has asked, by hash. An instrument, and it
+    /// fills only when `REAN_TALLY` is set. See [`TypeChecker::whnf`].
+    static ASKED_EVER: std::cell::RefCell<std::collections::HashSet<u64>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
 /// A checker over one environment.
 pub struct TypeChecker<'e> {
     env: &'e Environment,
@@ -752,10 +759,22 @@ impl<'e> TypeChecker<'e> {
         self.check_stack()?;
         let worth_it = e.size_up_to(CACHE_MIN_SIZE) >= CACHE_MIN_SIZE;
         let key = if worth_it { e.hash_value() } else { 0 };
+        if worth_it && tally::on() {
+            tally::total(|| "whnf asked".to_string(), 1);
+            // A set that is never cleared, so it can tell a question that is
+            // new to the **run** from one that is new to this declaration.
+            // That difference is what a cache which outlived a declaration
+            // would collect, and it is the only honest way to price one before
+            // building it.
+            if ASKED_EVER.with(|seen| seen.borrow_mut().insert(key)) {
+                tally::total(|| "whnf question new to the run".to_string(), 1);
+            }
+        }
         if worth_it
             && let Some(bucket) = self.whnf_cache.get(&key)
             && let Some((_, answer)) = bucket.iter().find(|(question, _)| question.alpha_eq(e))
         {
+            tally::total(|| "whnf answered by a cache".to_string(), 1);
             return Ok(answer.clone());
         }
         let (answer, steps) = self.whnf_uncached(e)?;
