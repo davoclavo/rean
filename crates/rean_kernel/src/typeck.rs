@@ -128,7 +128,26 @@ const CACHE_CAP: usize = 200_000;
 /// loose bound variable range in every node so substitution can skip a closed
 /// subterm without walking it, and cache the result of a comparison. Both are
 /// in the roadmap.
-const FUEL: u64 = 20_000_000;
+///
+/// # The number comes from a sweep
+///
+/// Chapter 13 chose 20,000,000 by sweeping, and chapter 17 had to sweep again,
+/// because the **meter** changed. A walk of a term is now charged before it
+/// happens, so the same work costs more units than it did. The whole prelude,
+/// 59,349 declarations:
+///
+/// | budget | checked | failed | time |
+/// |---|---|---|---|
+/// | 20,000,000 | 55,751 | 82 | 189 s |
+/// | **40,000,000** | **55,835** | 72 | 231 s |
+/// | 100,000,000 | 55,843 | 68 | 260 s |
+///
+/// The third row buys 8 declarations for 29 seconds, and the second buys 84 for
+/// 42. So the default moved to 40,000,000.
+///
+/// **A number chosen by measurement has to be measured again when the thing it
+/// measures changes.**
+const FUEL: u64 = 40_000_000;
 
 /// How many bytes of stack the kernel may use before it declines.
 ///
@@ -675,7 +694,21 @@ impl<'e> TypeChecker<'e> {
 
     /// Spends `units` of the work budget.
     fn spend_many(&mut self, units: u32) -> TypeResult<()> {
-        match self.fuel.checked_sub(u64::from(units)) {
+        self.spend_units(u64::from(units))
+    }
+
+    /// Charges for a walk of `term`, before the walk happens.
+    ///
+    /// Every node caches its size, so this is O(1), and the size as a **tree**
+    /// is what a substitution will rebuild. See the `App` case of
+    /// [`Self::infer_type`].
+    fn charge_walk(&mut self, term: &Sub) -> TypeResult<()> {
+        self.spend_units(u64::from(term.size()))
+    }
+
+    /// Spends `units` of the work budget, counted in nodes.
+    fn spend_units(&mut self, units: u64) -> TypeResult<()> {
+        match self.fuel.checked_sub(units) {
             Some(left) => {
                 self.fuel = left;
                 Ok(())
@@ -792,9 +825,10 @@ impl<'e> TypeChecker<'e> {
         // Lean prelude once the caches made each step cheap enough to reach it.
         let mut steps = 0u32;
         loop {
+            let built_before = crate::expr::nodes_built();
             match self.whnf_step_with(&current, delta)? {
                 Some(next) => {
-                    // A step costs **one, plus whatever it added**.
+                    // A step costs **one, plus every node it built**.
                     //
                     // Each half of that answers a way of getting this wrong.
                     //
@@ -816,11 +850,10 @@ impl<'e> TypeChecker<'e> {
                     // reduction of a thousand steps charged the same shared
                     // structure a thousand times over. The checker was paying
                     // for a tree it never built.
-                    let before = current.size_up_to(u32::MAX);
-                    let after = next.size_up_to(u32::MAX);
-                    let charge = 1 + after.saturating_sub(before);
-                    tally::add(|| "units of work charged".to_string(), u64::from(charge));
-                    self.spend_many(charge)?;
+                    let charge = 1u64
+                        .saturating_add(crate::expr::nodes_built().saturating_sub(built_before));
+                    tally::add(|| "units of work charged".to_string(), charge);
+                    self.spend_units(charge)?;
                     current = next;
                     steps = steps.saturating_add(1);
                 }
@@ -2053,6 +2086,19 @@ impl<'e> TypeChecker<'e> {
                 if !self.is_def_eq(&arg_type, &binder_type)? {
                     return Err(TypeError::mismatch(arg, binder_type.to_expr(), arg_type));
                 }
+                // **Charge for the walk before making it.**
+                //
+                // `instantiate` rebuilds the body as a **tree**, and a term is
+                // a graph, so the two sizes are not the same number. One
+                // `bv_decide` lemma of Lean's `Std` has a body of 2,617,556,290
+                // nodes as a tree, and that walk happens in **one call** with
+                // no reduction step to charge for it. The checker ran for seven
+                // minutes inside a twenty million unit budget and was then
+                // killed by the operating system for its memory.
+                //
+                // The size is cached in every node, so asking costs nothing,
+                // and it is the exact upper bound on what the walk will build.
+                self.charge_walk(&body)?;
                 Ok(body.instantiate(arg))
             }
 

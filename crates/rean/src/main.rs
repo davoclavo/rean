@@ -179,6 +179,11 @@ fn run_show(args: &[String]) -> ExitCode {
     println!("{} {}{}", report.kind, report.name, report.levels);
     println!("\ntype\n  {}", report.ty.replace('\n', "\n  "));
     match (&report.value, report.value_cut) {
+        (None, _) if report.nodes > 0 => println!(
+            "\nvalue\n  {} nodes, counted as a tree, and not printed. \
+             `--full` prints it anyway.",
+            report.nodes
+        ),
         (None, _) => println!("\nvalue\n  none. A {} has no value.", report.kind),
         (Some(value), 0) => println!("\nvalue\n  {}", value.replace('\n', "\n  ")),
         (Some(value), cut) => {
@@ -186,7 +191,10 @@ fn run_show(args: &[String]) -> ExitCode {
             println!("  ... and {cut} more bytes. `--full` prints all of it.");
         }
     }
-    println!("\nrests on {} constant(s)", report.uses.len());
+    if report.nodes > 0 {
+        println!("\n{} nodes in the value, counted as a tree", report.nodes);
+    }
+    println!("rests on {} constant(s)", report.uses.len());
     if report.axioms.is_empty() {
         println!("trust: no axiom");
     } else {

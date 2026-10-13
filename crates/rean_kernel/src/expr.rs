@@ -26,6 +26,7 @@
 
 use crate::level::Level;
 use rean_core::Name;
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -106,9 +107,37 @@ pub struct Sub {
     hash: u64,
 }
 
+// How many nodes this thread has built. See `nodes_built`. Every node of every
+// term goes through `Sub::new`, so one counter here measures the work that a
+// reduction really does.
+thread_local! {
+    static NODES_BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Returns how many term nodes this thread has built.
+///
+/// The work budget is charged with the difference across a reduction step, and
+/// that is the only honest meter this kernel has found.
+///
+/// The number it replaced was the **growth** of the term: one unit per step,
+/// plus the size it added. That misses the case this function exists for. A β
+/// step substitutes into a lambda body, and [`Expr::instantiate_at`] walks that
+/// body as a **tree**, so a body whose tree is billions of nodes costs billions
+/// of nodes to rebuild while the result is no bigger than what it replaced.
+/// Charged by growth, that step costs **one unit**.
+///
+/// One `bv_decide` lemma of Lean's `Std` holds 2,617,556,290 nodes as a tree.
+/// Checking it inside the default budget of twenty million units ran for seven
+/// minutes and was then killed by the operating system for its memory. A budget
+/// that bounds neither time nor memory bounds nothing.
+pub fn nodes_built() -> u64 {
+    NODES_BUILT.get()
+}
+
 impl Sub {
     /// Wraps a term, computing its loose range from its children.
     pub fn new(expr: Expr) -> Sub {
+        NODES_BUILT.set(NODES_BUILT.get().wrapping_add(1));
         let loose = loose_range(&expr);
         let size = size_range(&expr);
         let hash = hash_range(&expr);
@@ -751,42 +780,77 @@ impl Expr {
     /// A driver uses this to see what a declaration depends on, so that it can
     /// tell a real failure from one that only rests on an earlier failure.
     pub fn collect_constants(&self, out: &mut Vec<Name>) {
-        match self {
-            Expr::Const { name, .. } => {
-                if !out.contains(name) {
-                    out.push(name.clone());
+        // **A term is a graph, and this walks the graph.**
+        //
+        // The old version recursed into both children of every node, which
+        // walks the **tree**. An `Expr` shares its subterms through [`Arc`], so
+        // the two are not the same size, and on a real input they are not close
+        // to the same size: one `bv_decide` lemma of Lean's `Std` holds
+        // **2,617,556,290 nodes** as a tree and a few hundred thousand as a
+        // graph. `rean show` spent two minutes of a two minute run right here,
+        // and `check` pays the same walk for every declaration before the
+        // kernel sees it, because the driver asks what a declaration rests on.
+        //
+        // Two faults, one line each. The visited set makes it a graph walk.
+        // The name set makes the "have I seen this name" test O(1) instead of a
+        // scan of everything found so far.
+        //
+        // The walk is iterative as well. A graph of a few hundred thousand
+        // nodes can still be deep, and nothing here is protected by the stack
+        // guard in the type checker.
+        let mut seen_nodes: HashSet<usize> = HashSet::new();
+        let mut seen_names: HashSet<Name> = HashSet::new();
+        for name in out.iter() {
+            seen_names.insert(name.clone());
+        }
+        let mut stack: Vec<&Expr> = vec![self];
+        // The address of a shared node is its identity. A node that has been
+        // walked once holds no name that is not found yet, so it is skipped.
+        macro_rules! visit {
+            ($sub:expr) => {
+                if seen_nodes.insert(Arc::as_ptr(&$sub.expr) as usize) {
+                    stack.push(&$sub.expr);
                 }
-            }
-            Expr::App { fun, arg } => {
-                fun.collect_constants(out);
-                arg.collect_constants(out);
-            }
-            Expr::Lam {
-                binder_type, body, ..
-            }
-            | Expr::Forall {
-                binder_type, body, ..
-            } => {
-                binder_type.collect_constants(out);
-                body.collect_constants(out);
-            }
-            Expr::Let {
-                binder_type,
-                value,
-                body,
-                ..
-            } => {
-                binder_type.collect_constants(out);
-                value.collect_constants(out);
-                body.collect_constants(out);
-            }
-            Expr::Proj(proj) => {
-                if !out.contains(&proj.structure) {
-                    out.push(proj.structure.clone());
+            };
+        }
+        while let Some(current) = stack.pop() {
+            match current {
+                Expr::Const { name, .. } => {
+                    if seen_names.insert(name.clone()) {
+                        out.push(name.clone());
+                    }
                 }
-                proj.value.collect_constants(out);
+                Expr::App { fun, arg } => {
+                    visit!(fun);
+                    visit!(arg);
+                }
+                Expr::Lam {
+                    binder_type, body, ..
+                }
+                | Expr::Forall {
+                    binder_type, body, ..
+                } => {
+                    visit!(binder_type);
+                    visit!(body);
+                }
+                Expr::Let {
+                    binder_type,
+                    value,
+                    body,
+                    ..
+                } => {
+                    visit!(binder_type);
+                    visit!(value);
+                    visit!(body);
+                }
+                Expr::Proj(proj) => {
+                    if seen_names.insert(proj.structure.clone()) {
+                        out.push(proj.structure.clone());
+                    }
+                    visit!(proj.value);
+                }
+                Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Lit(_) => {}
             }
-            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Lit(_) => {}
         }
     }
 

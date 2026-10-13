@@ -45,7 +45,7 @@ options for check and export:
   --no-check             export only, as `rean export` does
 
 two knobs, and they are coupled:
-  REAN_FUEL=<units>      work budget per declaration, default 20000000
+  REAN_FUEL=<units>      work budget per declaration, default 40000000
   REAN_STACK=<MiB>       stack for the checker, default 512
 
 A larger budget lets a reduction run longer, a longer reduction builds a
@@ -580,8 +580,15 @@ pub struct ShowReport {
     /// The universe parameters, as `{u, v}`, or empty.
     pub levels: String,
     pub ty: String,
-    /// `None` for an axiom, an inductive type, a constructor or a recursor.
+    /// `None` for an axiom, an inductive type, a constructor or a recursor,
+    /// and for a value too large to print. See `nodes`.
     pub value: Option<String>,
+    /// How many nodes the value holds, counted as a tree.
+    ///
+    /// This is the number that says why a value was not printed, and it is the
+    /// most interesting number about a generated proof. A `bv_decide` lemma
+    /// reaches hundreds of millions.
+    pub nodes: u32,
     /// How many bytes of the value were left out, if any.
     pub value_cut: usize,
     /// Every constant that the type and the value name.
@@ -598,6 +605,17 @@ pub struct ShowReport {
 /// see the **shape** of one, so the default is a page of it and the report says
 /// how much it cut.
 const SHOW_LIMIT: usize = 2_000;
+
+/// How many nodes a value may hold before `show` refuses to print it.
+///
+/// A term is a **graph** and printing it writes a **tree**, so the two sizes
+/// are not the same number. One theorem of `Std` has 13 GB of tree, and asking
+/// `pretty` for it asks the allocator for 13 GB.
+///
+/// A reader who really wants it can say `--full` and watch what happens. That
+/// is their business, and it should not be the default for a command whose job
+/// is to answer a question in half a second.
+const HUGE_TERM: u32 = 200_000;
 
 /// Reads one declaration out of an export and describes it.
 ///
@@ -635,6 +653,12 @@ pub fn show(path: &str, name: &str, full: bool) -> Result<ShowReport, String> {
     };
     let (value, value_cut) = match decl.value() {
         None => (None, 0),
+        // **Ask the size before printing.** A `bv_decide` lemma of `Std` has a
+        // value whose tree is 13,064,816,779 bytes of text. `Arc` sharing
+        // keeps it small in memory and `pretty` does not share anything, so
+        // asking for the string is asking for 13 GB. The node count is O(1),
+        // because every node caches it.
+        Some(term) if !full && term.size_up_to(u32::MAX) > HUGE_TERM => (None, 0),
         Some(term) => {
             let text = lctx.pretty(term);
             if full || text.len() <= SHOW_LIMIT {
@@ -661,6 +685,7 @@ pub fn show(path: &str, name: &str, full: bool) -> Result<ShowReport, String> {
         name: decl.name().to_string(),
         kind: decl.kind_label(),
         levels,
+        nodes: decl.value().map_or(0, |term| term.size_up_to(u32::MAX)),
         ty: lctx.pretty(decl.ty()),
         value,
         value_cut,

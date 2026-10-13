@@ -570,9 +570,15 @@ mod tests {
     }
 
     /// Makes a directory with the files named in it, and returns the path.
-    fn a_directory_holding(files: &[&str]) -> PathBuf {
+    ///
+    /// `whose` is the name of the test. The tests run in parallel in one
+    /// process, so a directory named after its **contents** is shared by two
+    /// tests that want the same contents, and one of them deletes it while the
+    /// other is reading. That failed once, as a flake, which is the worst way
+    /// to find out.
+    fn a_directory_holding(whose: &str, files: &[&str]) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "rean-export-test-{}-{}",
+            "rean-export-test-{}-{whose}-{}",
             std::process::id(),
             files.join("-")
         ));
@@ -589,20 +595,20 @@ mod tests {
         // with only `lean` in it is the common case on a machine where nobody
         // has built the exporter, and taking `lean` from there and the
         // exporter from somewhere else is how a version mismatch happens.
-        let lean_only = a_directory_holding(&["lean"]);
+        let lean_only = a_directory_holding("pair", &["lean"]);
         assert_eq!(pair_in(&lean_only, None, None), None);
 
-        let exporter_only = a_directory_holding(&["lean4export"]);
+        let exporter_only = a_directory_holding("pair", &["lean4export"]);
         assert_eq!(pair_in(&exporter_only, None, None), None);
 
-        let both = a_directory_holding(&["lean", "lean4export"]);
+        let both = a_directory_holding("pair", &["lean", "lean4export"]);
         let (lean, exporter) = pair_in(&both, None, None).expect("both are there");
         assert_eq!(lean, both.join("lean"));
         assert_eq!(exporter, both.join("lean4export"));
 
         // The short name is accepted as well, because a toolchain that carries
         // the exporter beside `lean` often renames it.
-        let short = a_directory_holding(&["lean", "leanexport"]);
+        let short = a_directory_holding("pair", &["lean", "leanexport"]);
         let (_, exporter) = pair_in(&short, None, None).expect("both are there");
         assert_eq!(exporter, short.join("leanexport"));
 
@@ -615,7 +621,7 @@ mod tests {
     fn an_override_stands_in_for_the_binary_it_names() {
         // A reader who built the exporter themselves keeps the toolchain's
         // `lean`, so one override must not require the other.
-        let lean_only = a_directory_holding(&["lean"]);
+        let lean_only = a_directory_holding("override", &["lean"]);
         let mine = PathBuf::from("/somewhere/of/my/own/lean4export");
         let (lean, exporter) =
             pair_in(&lean_only, None, Some(&mine)).expect("the override completes the pair");
