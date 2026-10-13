@@ -208,14 +208,18 @@ fn run_show(args: &[String]) -> ExitCode {
     match (&report.value, report.value_cut) {
         (None, _) if report.nodes > 0 => println!(
             "\nvalue\n  {} nodes, counted as a tree, and not printed. \
-             `--full` prints it anyway.",
+             `--full` prints the first megabyte of it.",
             report.nodes
         ),
         (None, _) => println!("\nvalue\n  none. A {} has no value.", report.kind),
         (Some(value), 0) => println!("\nvalue\n  {}", value.replace('\n', "\n  ")),
         (Some(value), cut) => {
             println!("\nvalue\n  {}", value.replace('\n', "\n  "));
-            println!("  ... and {cut} more bytes. `--full` prints all of it.");
+            println!(
+                "  ... and {cut} more bytes. `--full` prints up to a megabyte \
+                 of it, which is the bound that `Expr::PRETTY_LIMIT` sets for \
+                 every printer in the kernel."
+            );
         }
     }
     if report.nodes > 0 {

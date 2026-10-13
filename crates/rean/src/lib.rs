@@ -612,9 +612,11 @@ const SHOW_LIMIT: usize = 2_000;
 /// are not the same number. One theorem of `Std` has 13 GB of tree, and asking
 /// `pretty` for it asks the allocator for 13 GB.
 ///
-/// A reader who really wants it can say `--full` and watch what happens. That
-/// is their business, and it should not be the default for a command whose job
-/// is to answer a question in half a second.
+/// `--full` prints it anyway, and that is now bounded too:
+/// `Expr::PRETTY_LIMIT` stops every printer in the kernel at a megabyte, so the
+/// 13 GB above comes out as a megabyte in half a second. Nobody reads a
+/// megabyte of a term, and a message that reports a failure must not ask the
+/// allocator for gigabytes while it does so.
 const HUGE_TERM: u32 = 200_000;
 
 /// Reads one declaration out of an export and describes it.

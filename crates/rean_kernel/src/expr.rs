@@ -947,53 +947,63 @@ impl Expr {
     /// use. Anything else is a free universe variable, and a free universe
     /// variable has no meaning.
     pub fn collect_level_params(&self, out: &mut Vec<Name>) {
-        // A graph walk, for the reason [`Self::collect_constants`] gives: a
-        // term shares its subterms, so walking it as a tree can be billions of
-        // nodes where the graph is thousands. `check_universes` calls this for
-        // the type **and** the value of every declaration.
-        let mut seen_nodes: HashSet<usize> = HashSet::new();
-        let mut stack: Vec<&Expr> = vec![self];
-        macro_rules! visit {
-            ($sub:expr) => {
-                if seen_nodes.insert(Arc::as_ptr(&$sub.expr) as usize) {
-                    stack.push(&$sub.expr);
+        // **A tree walk, on purpose, and that is a measurement.**
+        //
+        // [`Self::collect_constants`] walks the graph, with a visited set keyed
+        // by the address of the shared node, because walking it as a tree cost
+        // two minutes on one declaration of `Std`. This function has the same
+        // shape and the same hazard, so chapter 18 gave it the same treatment
+        // and then measured it:
+        //
+        // | input | tree walk | graph walk |
+        // |---|---|---|
+        // | the slice that blocks 2,283 | 16.97 s | 16.61 s |
+        // | the bitblasting slice | 11.61 s | 11.30 s |
+        // | the whole `Lean` library | **231.64 s** | 233.90 s |
+        //
+        // Nothing, and a little worse on the biggest input, where the visited
+        // set is 343,634 allocations that find nothing to skip.
+        //
+        // The reason is **which declarations reach here**. `check_universes`
+        // runs on a declaration the kernel is about to check, and the colossal
+        // ones are `blocked` by a dependency that failed, so they never arrive.
+        // Its sibling is called by the **driver**, for every declaration in the
+        // file, before anything is blocked.
+        //
+        // So the pair is worth keeping in view: the same fault in two functions
+        // was worth 120 times in one of them and nothing in the other.
+        match self {
+            Expr::Sort(level) => level.collect_params(out),
+            Expr::Const { levels, .. } => {
+                for level in levels {
+                    level.collect_params(out);
                 }
-            };
-        }
-        while let Some(current) = stack.pop() {
-            match current {
-                Expr::Sort(level) => level.collect_params(out),
-                Expr::Const { levels, .. } => {
-                    for level in levels.iter() {
-                        level.collect_params(out);
-                    }
-                }
-                Expr::App { fun, arg } => {
-                    visit!(fun);
-                    visit!(arg);
-                }
-                Expr::Lam {
-                    binder_type, body, ..
-                }
-                | Expr::Forall {
-                    binder_type, body, ..
-                } => {
-                    visit!(binder_type);
-                    visit!(body);
-                }
-                Expr::Let {
-                    binder_type,
-                    value,
-                    body,
-                    ..
-                } => {
-                    visit!(binder_type);
-                    visit!(value);
-                    visit!(body);
-                }
-                Expr::Proj(proj) => visit!(proj.value),
-                Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
             }
+            Expr::App { fun, arg } => {
+                fun.collect_level_params(out);
+                arg.collect_level_params(out);
+            }
+            Expr::Lam {
+                binder_type, body, ..
+            }
+            | Expr::Forall {
+                binder_type, body, ..
+            } => {
+                binder_type.collect_level_params(out);
+                body.collect_level_params(out);
+            }
+            Expr::Let {
+                binder_type,
+                value,
+                body,
+                ..
+            } => {
+                binder_type.collect_level_params(out);
+                value.collect_level_params(out);
+                body.collect_level_params(out);
+            }
+            Expr::Proj(proj) => proj.value.collect_level_params(out),
+            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
         }
     }
 
