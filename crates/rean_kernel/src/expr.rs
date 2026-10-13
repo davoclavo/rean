@@ -1038,9 +1038,10 @@ impl Expr {
         //
         // That is sound only because `hash_range` leaves a thing out exactly
         // where this function leaves it out: a binder name, and a universe
-        // level. `the_hash_agrees_with_alpha_eq` in `tests/sweep.rs` holds the
-        // two together, with pairs that are alpha-equal and written
-        // differently, because a loop over unequal terms would prove nothing.
+        // level. Three tests in `tests/sweep.rs` hold the two together, with
+        // pairs that are alpha-equal and written differently, because a loop
+        // over unequal terms would prove nothing: see
+        // `a_binder_name_is_ignored_by_both` and the two beside it.
         //
         // The recursion below goes through `Sub::alpha_eq`, which tests the
         // pointer and the **stored** hash, so no subterm pair is hashed twice.

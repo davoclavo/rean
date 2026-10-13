@@ -184,6 +184,7 @@ exercises and answers.
 | [15 — The last two hundred and forty-eight](docs/15-the-last-two-hundred.md) | eleven hypotheses, eleven measurements. Eight changed nothing, one ruled out a rewrite, one test failed because the kernel got **more correct**, and a profile found a **crash** that hours of measurement had read as a slow run. |
 | [16 — The front door](docs/16-the-front-door.md) | `rean check Demo.lean`. Three lines of Lean cost **39 declarations**, the one substitution that chapter 9's rule had missed, a limit that counted the wrong thing, and the instrument that is kept because a profiler cannot name a definition. |
 | [17 — Twelve seconds](docs/17-twelve-seconds.md) | `rean show`, and the two bugs it found in an hour. Three knobs that reach nothing. And the number that reframes the project: **Lean's own kernel re-checks the whole prelude in 12 seconds**, so measure against something that is not yourself. |
+| [18 — Thirty-four per cent](docs/18-thirty-four-per-cent.md) | six changes, **three kept and three reverted**. A hash that may refuse, a name that carries its own, and an allocator. Why one of them was worth nothing alone, why `Arc<[Level]>` made the common case worse, and why the same fix was worth 120× in one function and nothing in its twin. |
 | [Glossary](docs/GLOSSARY.md) | every term the chapters use, including what a check **costs** |
 
 Every claim in a chapter has a test:
@@ -260,9 +261,12 @@ libraries that the toolchain ships now run to completion, with no crash:
 
 | Library | Declarations | Checked | Failed | Time |
 |---|---|---|---|---|
-| `Init`, the prelude | 59,349 | **55,835** | 72 | 231 s |
-| `Std` | 99,619 | **95,237** | 120 | 330 s |
-| `Lean`, the compiler | 171,817 | **150,420** | 127 | 367 s |
+| `Init`, the prelude | 59,349 | **55,835** | 72 | 155 s |
+| `Std` | 99,619 | **95,237** | 120 | 268 s |
+| `Lean`, the compiler | 171,817 | **150,420** | 127 | 299 s |
+
+[Chapter 18](docs/18-thirty-four-per-cent.md) took **34%** off those times and
+moved no verdict. Lean's own kernel still does the first row in 12 seconds.
 
 ```sh
 cargo run --release -p rean -- check prelude
@@ -273,18 +277,18 @@ cargo run --release -p rean -- check Lean
 | Checkpoint | Score | Meaning |
 |---|---|---|
 | level 1 | **95 of 95** | the two committed fixtures |
-| level 1, the prelude | **55,835 of 59,349** | the default budget, in 231 seconds |
+| level 1, the prelude | **55,835 of 59,349** | the default budget, in 155 seconds |
 | level 1, patient | **59,199 of 59,349** | **99.75%**, with `REAN_FUEL=2000000000 REAN_STACK=8192`, in 36 minutes |
 | level 1, what is left | one family of limits, and **5 real rejections** | the limits are `Int32`, `Int64` and `ISize`. The five are `_sizeOf_N_eq` lemmas of **nested** inductive types in `Lean`, where our kernel says no and Lean says yes. [Chapter 17](docs/17-twelve-seconds.md) names them. |
 | level 2 | 0 of 32 | our pipeline inhabits Lean's types. Needs a parser. |
 | level 3 | 0 of 32 | our term matches Lean's term |
-| tests | **479** | `devbox run test` |
+| tests | **482** | `devbox run test` |
 | citations | every chapter's test names resolve | `devbox run cite` |
 | coverage | **93.1% of regions, 95.1% of lines** | `devbox run coverage` |
 | red team | **39 lies refused** | `cargo test -p rean_kernel --test soundness` |
 | trust | every axiom reported, by name | the `trust:` line of `rean check` |
 | crashes | **none**, at any setting | the kernel reports `OutOfStack` instead. [Chapter 16](docs/16-the-front-door.md) |
-| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 199 s. [Chapter 17](docs/17-twelve-seconds.md) |
+| the oracle for speed | **12 s** | `leanchecker Init`, Lean's own kernel, all of it. We take 155 s. [Chapter 17](docs/17-twelve-seconds.md) |
 
 ```sh
 cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjson

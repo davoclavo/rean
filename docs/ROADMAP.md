@@ -339,7 +339,22 @@ against:
 
 | settings, Lean 4.35.0-rc3 | checked of 59,349 | failed | blocked | time |
 |---|---|---|---|---|
-| default | 55,754 | 71 | 3,524 | 199 s |
+| default, chapter 16 | 55,754 | 71 | 3,524 | 199 s |
+| default, after chapter 17's honest meter | 55,835 | 72 | 3,442 | 231 s |
+| default, after chapter 18 | 55,835 | 72 | 3,442 | **155 s** |
+
+Every library the toolchain ships, with the same binary as the last row:
+
+| Library | Declarations | Checked | Failed | Time |
+|---|---|---|---|---|
+| `Init`, the prelude | 59,349 | 55,835 | 72 | 155 s |
+| `Std` | 99,619 | 95,237 | 120 | 268 s |
+| `Lean`, the compiler | 171,817 | 150,420 | 127 | 299 s |
+
+Chapter 18 took **34%** off and moved no verdict. Its profile says where the
+rest is: **two fifths of this kernel is still building term nodes and dropping
+them**, and `mimalloc` made each one cheaper without making them fewer. Making
+them fewer is the next tier, and section 17.8 names the two candidates.
 
 And one row of the old table was never a timeout. At a hundred times the default
 budget the run **crashed**, after 16,583 declarations, on a 4 GB stack. Chapter
@@ -398,13 +413,13 @@ Each level reports one number. Put all three in the README and move them up.
 
 ```
 level 1   our kernel checks        95 of 95 on the two committed fixtures
-          and                   55754 of 59349 of the Lean prelude, in 199 s
+          and                   55835 of 59349 of the Lean prelude, in 155 s
           and                   59199 of 59349 at REAN_FUEL=2000000000
                                                  REAN_STACK=8192, in 36 min
 level 2   our elaborator inhabits     0 types              <- needs a parser
 level 3   our term matches Lean's     0 terms
 
-tests     479
+tests     482
 coverage  see devbox run coverage
 red team  39 lies refused, each one once accepted
 trust     every axiom reported, by name
@@ -446,7 +461,7 @@ The project now uses five, and each one found something the others could not.
 | **ground truth**, a real Lean file | shapes nobody writes by hand | a projection at the head of an application spine |
 | **coverage**, `devbox run coverage` | paths that no data took | a driver that could not be tested, and two dead branches |
 | **red team**, a crafted lie | checks that are absent | a recursor that smuggled in an axiom and proved `False` |
-| **another checker**, `leanchecker` | how far off our **speed** is | 12 seconds against our 199, on the same input |
+| **another checker**, `leanchecker` | how far off our **speed** is | 12 seconds against our 155, on the same input |
 | **a library nobody chose for us** | rules that one library does not need | five nested `_sizeOf` lemmas of `Lean` that we refuse and Lean accepts |
 
 The fourth and fifth are new in chapter 17. The fourth changes what the others
