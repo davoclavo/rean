@@ -188,7 +188,7 @@ fn it_checks_a_program_and_then_runs_it() {
     // `brecOn`, whose table holds every smaller answer, and the evaluator is
     // lazy, so only the entries somebody asks for are computed. The step count
     // in the report is the proof that it stayed linear.
-    let out = run(&["run", "Prog.lean", "answer"], &dir);
+    let out = run(&["run", "Prog.lean", "answer", "--out", "."], &dir);
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     let errors = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(out.status.success(), "stdout:\n{text}\nstderr:\n{errors}");
@@ -199,11 +199,11 @@ fn it_checks_a_program_and_then_runs_it() {
     assert!(text.contains("steps,"), "{text}");
 
     // A list pipeline and a string, both through Lean's own definitions.
-    let out = run(&["run", "Prog.lean", "squares"], &dir);
+    let out = run(&["run", "Prog.lean", "squares", "--out", "."], &dir);
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(text.contains("squares = 2470"), "{text}");
 
-    let out = run(&["run", "Prog.lean", "greeting"], &dir);
+    let out = run(&["run", "Prog.lean", "greeting", "--out", "."], &dir);
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(text.contains("greeting = \"hello, world\""), "{text}");
 
@@ -218,12 +218,71 @@ fn run_refuses_a_declaration_that_is_not_there() {
     }
     let dir = work_dir("runs-missing");
     std::fs::write(dir.join("Prog.lean"), PROGRAM).expect("the source must be written");
-    let out = run(&["run", "Prog.lean", "nowhere"], &dir);
+    let out = run(&["run", "Prog.lean", "nowhere", "--out", "."], &dir);
     assert!(!out.status.success());
     let errors = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(
         errors.contains("nowhere") || errors.contains("refused"),
         "{errors}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A program with a `main`, which writes.
+///
+/// This is the whole pipeline on something a reader would call a program: a
+/// `do` block, string interpolation, a `for` loop and a recursive function.
+/// The output is compared against Lean's own `#eval main`, which produced
+/// these seven lines byte for byte.
+const MAIN: &str = "\
+def fib : Nat → Nat\n\
+  | 0 => 0\n\
+  | 1 => 1\n\
+  | (n + 2) => fib n + fib (n + 1)\n\
+\n\
+def main : IO Unit := do\n\
+  IO.println \"hello from rean\"\n\
+  IO.println s!\"fib 25 = {fib 25}\"\n\
+  for i in [0:3] do\n\
+    IO.println s!\"  square of {i} is {i * i}\"\n\
+";
+
+#[test]
+fn a_program_with_a_main_writes_what_lean_writes() {
+    if Toolchain::find().is_err() {
+        eprintln!("skipped: no lean and lean4export. See the module comment.");
+        return;
+    }
+    let dir = work_dir("main");
+    std::fs::write(dir.join("Prog.lean"), MAIN).expect("the source must be written");
+
+    let out = run(&["run", "Prog.lean", "main", "--out", "."], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let errors = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(out.status.success(), "stdout:\n{text}\nstderr:\n{errors}");
+
+    // The kernel first, and it checks every declaration the program rests on.
+    assert!(text.contains("level 1: checked"), "{text}");
+    assert!(!text.contains("failed"), "{text}");
+
+    // Then the program's own output, in order. `s!` interpolation means a
+    // `toString`, a `String.append` and a `String.push` all ran, and the loop
+    // means the `ForIn` instance of a range ran too.
+    let lines: Vec<&str> = text
+        .lines()
+        .skip_while(|line| !line.starts_with("hello"))
+        .take(4)
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            "hello from rean",
+            "fib 25 = 75025",
+            "  square of 0 is 0",
+            "  square of 1 is 1",
+        ],
+        "{text}"
+    );
+    assert!(text.contains("main ran"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -49,6 +49,12 @@ use std::rc::Rc;
 mod prim;
 pub use prim::{Binop, Compare, Prim};
 
+/// What an `IO` action that worked gives back, by the names Lean has used.
+///
+/// The first one the environment holds is the one to build. See
+/// `Evaluator::io_ok`.
+const IO_OK: [&str; 2] = ["EST.Out.ok", "EStateM.Result.ok"];
+
 /// How many steps one evaluation may take.
 ///
 /// A Lean program can loop: `partial def` exists, and a term the kernel never
@@ -410,6 +416,11 @@ impl<'e> Evaluator<'e> {
         }
     }
 
+    /// Forces a thunk, at most once. See [`Self::force`].
+    pub fn force_thunk(&mut self, thunk: &Thunk) -> EvalResult<Value> {
+        self.force(thunk)
+    }
+
     /// Forces a thunk, at most once.
     pub fn force(&mut self, thunk: &Thunk) -> EvalResult<Value> {
         {
@@ -438,7 +449,7 @@ impl<'e> Evaluator<'e> {
     }
 
     /// Takes field `index` out of a structure value.
-    fn project(&mut self, whole: &Value, index: u32) -> EvalResult<Value> {
+    pub(crate) fn project(&mut self, whole: &Value, index: u32) -> EvalResult<Value> {
         match whole {
             Value::Ctor { name, args } => {
                 let params = self
@@ -618,6 +629,135 @@ impl Evaluator<'_> {
         let mut spine = vec![mk_args[2].clone()];
         spine.extend(args[major_index + 1..].iter().cloned());
         self.apply(function, spine)
+    }
+}
+
+impl Evaluator<'_> {
+    /// Returns the text of a value, if it is a string.
+    ///
+    /// Two shapes are a string. A literal is [`Value::Str`], and a `String`
+    /// that a program **built** is `String.mk` holding a `List Char`, because
+    /// that is what `String` is in Lean. A runtime has to read both.
+    pub fn text_of(&mut self, value: &Value) -> EvalResult<Option<String>> {
+        match value {
+            Value::Str(text) => Ok(Some(text.to_string())),
+            Value::Ctor { .. } => {
+                // `String.mk data`. The one field is the list of characters.
+                let data = self.project(value, 0)?;
+                let mut out = String::new();
+                let mut current = data;
+                // A list is `nil` or `cons head tail`, and the loop forces one
+                // cell at a time, so a long string is not a deep recursion.
+                loop {
+                    let Value::Ctor { name, args } = &current else {
+                        return Ok(None);
+                    };
+                    match name.last_str() {
+                        Some("nil") => return Ok(Some(out)),
+                        Some("cons") if args.len() >= 3 => {
+                            let head = self.force(&args[args.len() - 2].clone())?;
+                            let Some(code) = self.code_point(&head)? else {
+                                return Ok(None);
+                            };
+                            match char::from_u32(code) {
+                                Some(ch) => out.push(ch),
+                                None => return Ok(None),
+                            }
+                            current = self.force(&args[args.len() - 1].clone())?;
+                        }
+                        _ => return Ok(None),
+                    }
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Returns the code point of a `Char`.
+    ///
+    /// A `Char` in Lean is a structure around a `UInt32`, which is a structure
+    /// around a `Fin`, which is a structure around a `Nat` and a proof. So this
+    /// takes field zero until a number appears, and gives up after four levels.
+    /// Field zero of a single field structure is the value in it.
+    pub fn code_point(&mut self, value: &Value) -> EvalResult<Option<u32>> {
+        let mut current = value.clone();
+        for _ in 0..4 {
+            match &current {
+                Value::Nat(n) => return Ok(u32::try_from(*n).ok()),
+                Value::Ctor { .. } => current = self.project(&current, 0)?,
+                _ => return Ok(None),
+            }
+        }
+        Ok(None)
+    }
+
+    /// Writes text, as a program's output and not as a report.
+    ///
+    /// The driver prints its own lines to the standard output as well, so a
+    /// reader has to be able to tell which lines are the **program's**. Those
+    /// go out as they are; everything the driver says about them is prefixed.
+    pub(crate) fn write(&mut self, text: &str, newline: bool) {
+        use std::io::Write as _;
+        let mut out = std::io::stdout();
+        let _ = out.write_all(text.as_bytes());
+        if newline {
+            let _ = out.write_all(b"\n");
+        }
+        let _ = out.flush();
+    }
+
+    /// Returns the value an `IO` action gives back when it worked.
+    ///
+    /// The shape is `ok () world`: three implicit type arguments, then the
+    /// value, then the state. Nothing looks at the three, because a `match` on
+    /// this takes the **last two** arguments and the recursor knows how many
+    /// fields there are.
+    ///
+    /// The **name** is asked of the environment rather than written here.
+    /// Lean 4.35 calls it `EST.Out.ok`, with the state typed `Void σ`, and
+    /// earlier versions call it `EStateM.Result.ok`. A hardcoded name is a
+    /// silent failure one Lean release later: the recursor finds no rule for
+    /// the constructor it was handed, stops, and the program runs its **first**
+    /// statement and no more. That is how this was found.
+    fn io_ok(&self, world: Thunk) -> EvalResult<Value> {
+        let hidden = || {
+            Thunk::done(Value::Opaque {
+                head: Name::from_dotted("Sort"),
+                args: Vec::new(),
+            })
+        };
+        let name = IO_OK
+            .iter()
+            .map(|candidate| Name::from_dotted(candidate))
+            .find(|candidate| self.env.contains(candidate))
+            .ok_or_else(|| EvalError::Unknown(Name::from_dotted(IO_OK[0])))?;
+        Ok(Value::Ctor {
+            name,
+            args: vec![
+                hidden(),
+                hidden(),
+                hidden(),
+                Thunk::done(Value::Ctor {
+                    name: Name::from_dotted("Unit.unit"),
+                    args: Vec::new(),
+                }),
+                world,
+            ],
+        })
+    }
+
+    /// Runs a program: the value of `name`, given a world to act on.
+    ///
+    /// An `IO a` in Lean is a function from the state of the world, so running
+    /// one means handing it that state. Nothing looks inside the token, and
+    /// that is the whole of our `IO.RealWorld`.
+    pub fn run_main(&mut self, name: &Name) -> EvalResult<Value> {
+        let action = self.run(name)?;
+        let world = Thunk::done(Value::Opaque {
+            head: Name::from_dotted("IO.RealWorld"),
+            args: Vec::new(),
+        });
+        self.apply(action, vec![world])
     }
 }
 

@@ -182,8 +182,19 @@ impl Toolchain {
         work: &Path,
     ) -> Result<ExportReport, String> {
         let path = work.join(format!("{module}.ndjson"));
-        let file = std::fs::File::create(&path)
-            .map_err(|err| format!("cannot write {}: {err}", path.display()))?;
+        // **Write somewhere private, then rename.**
+        //
+        // The name of the file comes from the name of the module, so two runs
+        // on one module write the same path. Two of our own tests did that in
+        // parallel and the second one read a **truncated** file: 36 KB of
+        // export and then "EOF while parsing an object".
+        //
+        // A rename on one filesystem is atomic, so a reader sees either the old
+        // file or the whole new one. Two writers still race for the name, and
+        // each of them wins a complete file.
+        let partial = work.join(format!("{module}.ndjson.{}", std::process::id()));
+        let file = std::fs::File::create(&partial)
+            .map_err(|err| format!("cannot write {}: {err}", partial.display()))?;
 
         // Every entry is made absolute. `lean4export` does not find
         // `Demo.olean` through a search path entry of `.`, and the error it
@@ -233,7 +244,7 @@ impl Toolchain {
         // the failure and delete the file, rather than let the reader check a
         // truncated export and read our own reader's complaint instead.
         if !run.status.success() {
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(&partial);
             return Err(format!(
                 "{} refused module `{module}`:\n{}",
                 self.exporter.display(),
@@ -241,6 +252,13 @@ impl Toolchain {
             ));
         }
 
+        std::fs::rename(&partial, &path).map_err(|err| {
+            format!(
+                "cannot put {} in place as {}: {err}",
+                partial.display(),
+                path.display()
+            )
+        })?;
         let bytes = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
         Ok(ExportReport {
             path,

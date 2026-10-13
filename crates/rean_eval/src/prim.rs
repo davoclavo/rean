@@ -31,6 +31,19 @@ pub enum Prim {
     StrAppend,
     /// `Nat.repr` and `toString`-like, which the printer needs.
     NatRepr,
+    /// `String.push`, which a `toString` chain uses to add a newline.
+    StrPush,
+    /// `IO.print` and `IO.println`: the effect, performed by our runtime.
+    ///
+    /// Lean's `IO.println` reaches `IO.getStdout`, which is `@[extern]` and is
+    /// a C function, and then writes through an `IO.FS.Stream` whose fields are
+    /// more C functions. A runtime has to provide that somewhere, and this is
+    /// where ours does.
+    ///
+    /// It is higher up the chain than Lean cuts, and that is the honest limit
+    /// of this evaluator: a program that writes to a stream it built itself
+    /// will not run. One that says `IO.println` will.
+    IoPrint { newline: bool },
 }
 
 /// A function of two numbers that gives a number.
@@ -89,6 +102,9 @@ impl Prim {
             ("Nat", "blt") => Some(Prim::Compare(Compare::Lt)),
             ("String", "length") => Some(Prim::StrLength),
             ("String", "append") => Some(Prim::StrAppend),
+            ("String", "push") => Some(Prim::StrPush),
+            ("IO", "print") => Some(Prim::IoPrint { newline: false }),
+            ("IO", "println") => Some(Prim::IoPrint { newline: true }),
             _ => None,
         }
     }
@@ -98,7 +114,11 @@ impl Prim {
         match self {
             Prim::Zero => 0,
             Prim::Succ | Prim::Pred | Prim::StrLength | Prim::NatRepr => 1,
-            Prim::Binary(_) | Prim::Compare(_) | Prim::StrAppend => 2,
+            Prim::Binary(_) | Prim::Compare(_) | Prim::StrAppend | Prim::StrPush => 2,
+            // The type, the `ToString` instance, the value, and the world.
+            // The world is what makes an `IO` action a function, and giving it
+            // one is what performs the effect.
+            Prim::IoPrint { .. } => 4,
         }
     }
 }
@@ -217,6 +237,37 @@ impl Evaluator<'_> {
                         args: args.to_vec(),
                     }),
                 }
+            }
+            Prim::StrPush => {
+                let (text, ch) = (self.force(&args[0])?, self.force(&args[1])?);
+                let (Some(text), Some(code)) = (self.text_of(&text)?, self.code_point(&ch)?) else {
+                    return Ok(Value::Opaque {
+                        head: name.clone(),
+                        args: args.to_vec(),
+                    });
+                };
+                let Some(ch) = char::from_u32(code) else {
+                    return Ok(Value::Opaque {
+                        head: name.clone(),
+                        args: args.to_vec(),
+                    });
+                };
+                Ok(Value::Str(std::rc::Rc::from(
+                    format!("{text}{ch}").as_str(),
+                )))
+            }
+            Prim::IoPrint { newline } => {
+                // The text is `ToString.toString α inst s`, which runs through
+                // Lean's own instance. Only the write is ours.
+                let shown =
+                    self.constant(&Name::from_dotted("ToString.toString"), args[..3].to_vec())?;
+                let Some(text) = self.text_of(&shown)? else {
+                    return Err(EvalError::NotAStructure(
+                        "something that is not a string, given to `IO.println`".to_string(),
+                    ));
+                };
+                self.write(&text, newline);
+                self.io_ok(args[3].clone())
             }
             Prim::StrAppend => {
                 let (a, b) = (self.force(&args[0])?, self.force(&args[1])?);

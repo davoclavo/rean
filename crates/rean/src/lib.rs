@@ -42,6 +42,7 @@ options for show:
 options for run:
   --no-check             run it without checking it first. Say what you mean.
   --steps <n>            how many steps the evaluation may take
+  --out <dir>            where the export file goes
 
 options for check and export:
   --decl <name>          export only this declaration and what it rests on.
@@ -751,6 +752,14 @@ pub struct RunReport {
     pub steps: u64,
     /// How deep it recursed.
     pub deepest: u32,
+    /// `true` when the declaration was run as a **program**, with a world.
+    pub as_program: bool,
+    /// What a program came to, for the line that says it ran.
+    ///
+    /// Empty when the action gave back nothing, which is what `IO Unit` does.
+    /// A program that returns a value has it named here, because "it ran" and
+    /// "it ran and gave you this" are different reports.
+    pub outcome: String,
 }
 
 /// Checks a declaration with our kernel, then runs it with our evaluator.
@@ -763,6 +772,7 @@ pub fn run_declaration(
     name: &str,
     check_first: bool,
     steps: Option<u64>,
+    report: &mut dyn FnMut(&str),
 ) -> Result<RunReport, String> {
     let module =
         rean_export::read_module(path).map_err(|err| format!("cannot read {path}: {err}"))?;
@@ -774,8 +784,14 @@ pub fn run_declaration(
     // Stage 4. Only the declarations that check go into the environment the
     // evaluator runs against, so a refused declaration cannot be run by
     // accident.
+    let report_score = report;
     let (env, checked, refused) = if check_first {
         let report = check_export(path)?;
+        let score = report.score();
+        // **Say what the kernel found before running anything.** The program
+        // writes to the same standard output, and a reader who sees its output
+        // above the verdict cannot tell which came first.
+        report_score(&score);
         let mut refused: Vec<String> = report
             .outcomes
             .iter()
@@ -799,7 +815,7 @@ pub fn run_declaration(
                 }
             }
         }
-        (env, Some(report.score()), refused)
+        (env, Some(score), refused)
     } else {
         (module.env.clone(), None, Vec::new())
     };
@@ -817,9 +833,27 @@ pub fn run_declaration(
         eval.set_steps(steps);
     }
     let before = eval.steps_left();
-    let value = eval
-        .run(&wanted)
-        .map_err(|err| format!("`{name}` did not run: {err}"))?;
+    // An `IO` action is a function of the state of the world, so running one
+    // means handing it that state. Anything else is a value and is simply
+    // evaluated. The type decides which, and the type is the one thing this
+    // evaluator does not read, so the **name** of the head of the type does:
+    // a declaration whose type starts with `IO` is a program.
+    let is_program = module
+        .env
+        .get(&wanted)
+        .map(|decl| {
+            let (head, _) = decl.ty().unfold_apps();
+            matches!(head, Expr::Const { name, .. } if name.to_string().starts_with("IO")
+                || name.to_string().starts_with("EIO")
+                || name.to_string().starts_with("BaseIO"))
+        })
+        .unwrap_or(false);
+    let value = if is_program {
+        eval.run_main(&wanted)
+    } else {
+        eval.run(&wanted)
+    }
+    .map_err(|err| format!("`{name}` did not run: {err}"))?;
     Ok(RunReport {
         name: wanted.to_string(),
         checked,
@@ -827,7 +861,33 @@ pub fn run_declaration(
         value: format!("{}", rean_eval::Shown(&value, 6)),
         steps: before - eval.steps_left(),
         deepest: eval.deepest(),
+        as_program: is_program,
+        outcome: outcome_of(&value, &mut eval),
     })
+}
+
+/// Describes what an `IO` action gave back, for the report.
+///
+/// An action that worked is `EStateM.Result.ok a world`, and for an `IO Unit`
+/// the `a` is `Unit.unit`, which is worth no words. Anything else is worth
+/// naming, and an `error` is worth naming loudly.
+fn outcome_of(value: &rean_eval::Value, eval: &mut rean_eval::Evaluator<'_>) -> String {
+    let rean_eval::Value::Ctor { name, args } = value else {
+        return String::new();
+    };
+    let shape = name.to_string();
+    if shape.ends_with("Result.error") {
+        return ", and **failed**".to_string();
+    }
+    if !shape.ends_with("Result.ok") || args.len() < 2 {
+        return String::new();
+    }
+    // The fields are the last two: the value, and the world.
+    match eval.force_thunk(&args[args.len() - 2]) {
+        Ok(rean_eval::Value::Ctor { name, .. }) if name.to_string() == "Unit.unit" => String::new(),
+        Ok(inner) => format!(", and gave {}", rean_eval::Shown(&inner, 4)),
+        Err(_) => String::new(),
+    }
 }
 
 /// What `prove` found.

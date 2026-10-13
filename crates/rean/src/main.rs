@@ -252,12 +252,21 @@ fn run_run(args: &[String]) -> ExitCode {
         .position(|arg| arg == "--steps")
         .and_then(|at| args.get(at + 1))
         .and_then(|value| value.parse::<u64>().ok());
+    let out = args
+        .iter()
+        .position(|arg| arg == "--out")
+        .and_then(|at| args.get(at + 1));
+    // An option that takes a value hides that value from the plain arguments,
+    // or `--steps 2000` reads as a target called `2000`.
     let plain: Vec<&String> = args
         .iter()
         .enumerate()
         .filter(|(index, arg)| {
             !arg.starts_with("--")
-                && args.get(index.wrapping_sub(1)).map(String::as_str) != Some("--steps")
+                && !matches!(
+                    args.get(index.wrapping_sub(1)).map(String::as_str),
+                    Some("--steps" | "--out")
+                )
         })
         .map(|(_, arg)| arg)
         .collect();
@@ -274,7 +283,7 @@ fn run_run(args: &[String]) -> ExitCode {
         Target::Export(_) => Vec::new(),
         _ => vec![(*name).clone()],
     };
-    let ready = match prepare(&target_kind, &decls, None) {
+    let ready = match prepare(&target_kind, &decls, out.map(String::as_str)) {
         Ok(ready) => ready,
         Err(message) => {
             eprintln!("error: {message}");
@@ -284,16 +293,24 @@ fn run_run(args: &[String]) -> ExitCode {
     if let Some(report) = &ready.export {
         println!("{}", report.line());
     }
-    let report = match run_declaration(&ready.path.to_string_lossy(), name, check_first, steps) {
+    // The check prints as it finishes, through this, so that the verdict is
+    // above the program's own output rather than below it.
+    let mut say = |score: &str| println!("{score}");
+    let report = match run_declaration(
+        &ready.path.to_string_lossy(),
+        name,
+        check_first,
+        steps,
+        &mut say,
+    ) {
         Ok(report) => report,
         Err(message) => {
             eprintln!("error: {message}");
             return ExitCode::FAILURE;
         }
     };
-    match &report.checked {
-        Some(score) => println!("{score}"),
-        None => println!("level 1: not checked, because `--no-check` was given"),
+    if report.checked.is_none() {
+        println!("level 1: not checked, because `--no-check` was given");
     }
     if !report.refused.is_empty() {
         println!(
@@ -301,16 +318,15 @@ fn run_run(args: &[String]) -> ExitCode {
             report.refused.len()
         );
     }
-    println!(
-        "
-{} = {}",
-        report.name, report.value
-    );
-    println!(
-        "
-{} steps, {} levels deep",
-        report.steps, report.deepest
-    );
+    if report.as_program {
+        // The program has written whatever it writes by now. What is left is
+        // the result of the action, which for an `IO Unit` carries nothing, so
+        // the line says that it ran rather than printing the plumbing.
+        println!("\n{} ran{}", report.name, report.outcome);
+    } else {
+        println!("\n{} = {}", report.name, report.value);
+    }
+    println!("{} steps, {} levels deep", report.steps, report.deepest);
     ExitCode::SUCCESS
 }
 
