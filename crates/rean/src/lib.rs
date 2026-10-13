@@ -23,6 +23,7 @@ usage:
   rean check <target>    check Lean declarations with our kernel
   rean export <target>   export a target and print the path, without checking
   rean show <target> <name>   print one declaration as the kernel sees it
+  rean run <target> <name>    check a declaration, then **run** it
   rean prove             check a proof with the kernel
   rean demo              walk the stages over a small example
   rean help              print this text
@@ -37,6 +38,10 @@ a check target is one of three things:
 
 options for show:
   --full                 print the whole value, however large
+
+options for run:
+  --no-check             run it without checking it first. Say what you mean.
+  --steps <n>            how many steps the evaluation may take
 
 options for check and export:
   --decl <name>          export only this declaration and what it rests on.
@@ -726,6 +731,103 @@ fn nearest_names(env: &Environment, name: &str) -> Vec<String> {
     found.sort_by_key(String::len);
     found.truncate(5);
     found
+}
+
+/// What `run` found out about one declaration.
+///
+/// Stage 4 decides whether the term is correct and stage 5 decides what it
+/// comes to. This holds both answers, in that order, because the order is the
+/// point: **we checked it, then we ran it.**
+#[derive(Debug)]
+pub struct RunReport {
+    pub name: String,
+    /// The score of the check, or `None` when `--no-check` was given.
+    pub checked: Option<String>,
+    /// What the kernel refused, if it refused anything this declaration needs.
+    pub refused: Vec<String>,
+    /// The value, printed.
+    pub value: String,
+    /// How many steps the evaluation took.
+    pub steps: u64,
+    /// How deep it recursed.
+    pub deepest: u32,
+}
+
+/// Checks a declaration with our kernel, then runs it with our evaluator.
+///
+/// The check comes first and it is not optional by default. A value that came
+/// out of an unchecked term is a value from a program nobody verified, and this
+/// project exists to know the difference.
+pub fn run_declaration(
+    path: &str,
+    name: &str,
+    check_first: bool,
+    steps: Option<u64>,
+) -> Result<RunReport, String> {
+    let module =
+        rean_export::read_module(path).map_err(|err| format!("cannot read {path}: {err}"))?;
+    let wanted = rean_core::Name::from_dotted(name);
+    if !module.env.contains(&wanted) {
+        return Err(format!("{path} holds no declaration called `{name}`"));
+    }
+
+    // Stage 4. Only the declarations that check go into the environment the
+    // evaluator runs against, so a refused declaration cannot be run by
+    // accident.
+    let (env, checked, refused) = if check_first {
+        let report = check_export(path)?;
+        let mut refused: Vec<String> = report
+            .outcomes
+            .iter()
+            .filter(|outcome| outcome.verdict != Verdict::Ok)
+            .map(|outcome| outcome.name.clone())
+            .collect();
+        refused.sort();
+        let mut env = Environment::new();
+        let ok: HashSet<String> = report
+            .outcomes
+            .iter()
+            .filter(|outcome| outcome.verdict == Verdict::Ok)
+            .map(|outcome| outcome.name.clone())
+            .collect();
+        for group in &module.groups {
+            for member in group {
+                if ok.contains(&member.to_string())
+                    && let Some(decl) = module.env.get(member)
+                {
+                    env.add(decl.clone());
+                }
+            }
+        }
+        (env, Some(report.score()), refused)
+    } else {
+        (module.env.clone(), None, Vec::new())
+    };
+
+    if !env.contains(&wanted) {
+        return Err(format!(
+            "`{name}` did not check, so there is nothing to run. \
+             `--no-check` runs it anyway."
+        ));
+    }
+
+    // Stage 5.
+    let mut eval = rean_eval::Evaluator::new(&env);
+    if let Some(steps) = steps {
+        eval.set_steps(steps);
+    }
+    let before = eval.steps_left();
+    let value = eval
+        .run(&wanted)
+        .map_err(|err| format!("`{name}` did not run: {err}"))?;
+    Ok(RunReport {
+        name: wanted.to_string(),
+        checked,
+        refused,
+        value: format!("{}", rean_eval::Shown(&value, 6)),
+        steps: before - eval.steps_left(),
+        deepest: eval.deepest(),
+    })
 }
 
 /// What `prove` found.

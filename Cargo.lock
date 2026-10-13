@@ -72,6 +72,7 @@ version = "0.1.0"
 dependencies = [
  "mimalloc",
  "rean_core",
+ "rean_eval",
  "rean_export",
  "rean_kernel",
  "rean_lexer",
@@ -81,6 +82,15 @@ dependencies = [
 [[package]]
 name = "rean_core"
 version = "0.1.0"
+
+[[package]]
+name = "rean_eval"
+version = "0.1.0"
+dependencies = [
+ "rean_core",
+ "rean_export",
+ "rean_kernel",
+]
 
 [[package]]
 name = "rean_export"

@@ -1,0 +1,16 @@
+[package]
+name = "rean_eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rean_core.workspace = true
+rean_kernel.workspace = true
+
+[dev-dependencies]
+rean_export.workspace = true

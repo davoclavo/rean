@@ -32,7 +32,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use rean::{
     CheckArgs, DeclOutcome, Target, USAGE, Verdict, check_export_streaming, demo, lex_file,
-    prepare, prove, show, stack_bytes,
+    prepare, prove, run_declaration, show, stack_bytes,
 };
 use std::process::ExitCode;
 
@@ -58,6 +58,7 @@ fn run() -> ExitCode {
         Some("check") => run_target(&args[1..], true),
         Some("export") => run_target(&args[1..], false),
         Some("show") => run_show(&args[1..]),
+        Some("run") => run_run(&args[1..]),
         Some("prove") => run_prove(),
         Some("demo") => {
             print!("{}", demo());
@@ -237,6 +238,79 @@ fn run_show(args: &[String]) -> ExitCode {
     } else {
         println!("trust: {}", report.axioms.join(", "));
     }
+    ExitCode::SUCCESS
+}
+
+/// Checks one declaration and then runs it.
+///
+/// Both stages print, in order, because the order is the whole claim: our
+/// kernel said yes, and then our evaluator said what it comes to.
+fn run_run(args: &[String]) -> ExitCode {
+    let check_first = !args.iter().any(|arg| arg == "--no-check");
+    let steps = args
+        .iter()
+        .position(|arg| arg == "--steps")
+        .and_then(|at| args.get(at + 1))
+        .and_then(|value| value.parse::<u64>().ok());
+    let plain: Vec<&String> = args
+        .iter()
+        .enumerate()
+        .filter(|(index, arg)| {
+            !arg.starts_with("--")
+                && args.get(index.wrapping_sub(1)).map(String::as_str) != Some("--steps")
+        })
+        .map(|(_, arg)| arg)
+        .collect();
+    let (Some(target), Some(name)) = (plain.first(), plain.get(1)) else {
+        return fail("run needs a target and a declaration name");
+    };
+    let target_kind = match Target::parse(target) {
+        Ok(kind) => kind,
+        Err(message) => return fail(&message),
+    };
+    // The closure of one declaration, and not of the whole module. A program
+    // that imports the prelude pulls 345 MB in otherwise.
+    let decls = match &target_kind {
+        Target::Export(_) => Vec::new(),
+        _ => vec![(*name).clone()],
+    };
+    let ready = match prepare(&target_kind, &decls, None) {
+        Ok(ready) => ready,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Some(report) = &ready.export {
+        println!("{}", report.line());
+    }
+    let report = match run_declaration(&ready.path.to_string_lossy(), name, check_first, steps) {
+        Ok(report) => report,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match &report.checked {
+        Some(score) => println!("{score}"),
+        None => println!("level 1: not checked, because `--no-check` was given"),
+    }
+    if !report.refused.is_empty() {
+        println!(
+            "         {} declaration(s) did not check and were left out",
+            report.refused.len()
+        );
+    }
+    println!(
+        "
+{} = {}",
+        report.name, report.value
+    );
+    println!(
+        "
+{} steps, {} levels deep",
+        report.steps, report.deepest
+    );
     ExitCode::SUCCESS
 }
 

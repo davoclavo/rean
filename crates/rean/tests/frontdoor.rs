@@ -156,3 +156,74 @@ fn show_reads_a_declaration_out_of_a_lean_file() {
     assert!(text.contains("trust: no axiom"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The whole pipeline, on a program with real computation in it.
+///
+/// Our kernel checks it and our evaluator runs it, and the answers are
+/// cross-checked against Lean's own `#eval`, which is the only oracle that
+/// settles whether a value is right.
+const PROGRAM: &str = "\
+def fib : Nat → Nat\n\
+  | 0 => 0\n\
+  | 1 => 1\n\
+  | (n + 2) => fib n + fib (n + 1)\n\
+\n\
+def answer : Nat := fib 25\n\
+\n\
+def squares : Nat := (List.range 20).foldl (fun acc n => acc + n * n) 0\n\
+\n\
+def greeting : String := \"hello, \" ++ \"world\"\n\
+";
+
+#[test]
+fn it_checks_a_program_and_then_runs_it() {
+    if Toolchain::find().is_err() {
+        eprintln!("skipped: no lean and lean4export. See the module comment.");
+        return;
+    }
+    let dir = work_dir("runs");
+    std::fs::write(dir.join("Prog.lean"), PROGRAM).expect("the source must be written");
+
+    // `fib 25` is 242,785 calls if the recursion is naive. Lean compiles it to
+    // `brecOn`, whose table holds every smaller answer, and the evaluator is
+    // lazy, so only the entries somebody asks for are computed. The step count
+    // in the report is the proof that it stayed linear.
+    let out = run(&["run", "Prog.lean", "answer"], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let errors = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(out.status.success(), "stdout:\n{text}\nstderr:\n{errors}");
+    // Stage 4 first, and then stage 5. The order is the claim.
+    assert!(text.contains("level 1: checked"), "{text}");
+    assert!(!text.contains("failed"), "{text}");
+    assert!(text.contains("answer = 75025"), "{text}");
+    assert!(text.contains("steps,"), "{text}");
+
+    // A list pipeline and a string, both through Lean's own definitions.
+    let out = run(&["run", "Prog.lean", "squares"], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("squares = 2470"), "{text}");
+
+    let out = run(&["run", "Prog.lean", "greeting"], &dir);
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("greeting = \"hello, world\""), "{text}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn run_refuses_a_declaration_that_is_not_there() {
+    if Toolchain::find().is_err() {
+        eprintln!("skipped: no lean and lean4export. See the module comment.");
+        return;
+    }
+    let dir = work_dir("runs-missing");
+    std::fs::write(dir.join("Prog.lean"), PROGRAM).expect("the source must be written");
+    let out = run(&["run", "Prog.lean", "nowhere"], &dir);
+    assert!(!out.status.success());
+    let errors = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(
+        errors.contains("nowhere") || errors.contains("refused"),
+        "{errors}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
