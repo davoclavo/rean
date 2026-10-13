@@ -725,7 +725,6 @@ fn a_literal_variant_compares_by_value() {
 /// "alpha_eq implies the same hash" would hold for the self-pairs and for
 /// nothing else. A test that passes for the wrong reason is worse than no test.
 mod the_hash_agrees_with_alpha_eq {
-    use rean_core::Name;
     use rean_kernel::{Expr, Level};
 
     /// Asserts that two terms are alpha-equal, differently written, and share
@@ -783,14 +782,8 @@ mod the_hash_agrees_with_alpha_eq {
             "a sort whose level is written two ways",
         );
         pair(
-            &Expr::Const {
-                name: Name::from_dotted("List"),
-                levels: vec![u],
-            },
-            &Expr::Const {
-                name: Name::from_dotted("List"),
-                levels: vec![same],
-            },
+            &Expr::const_("List", vec![u]),
+            &Expr::const_("List", vec![same]),
             "a constant whose level argument is written two ways",
         );
     }

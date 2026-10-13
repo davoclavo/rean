@@ -34,14 +34,15 @@
 use crate::environment::{
     ConstructorVal, Declaration, Environment, InductiveVal, QuotKind, RecursorRule, RecursorVal,
 };
-use crate::expr::{BinderInfo, Expr, FVarId, Literal, MVarId, Proj, Sub, mix_hashes};
+use crate::expr::{
+    BinderInfo, Expr, FVarId, KeyMap, KeySet, Literal, MVarId, Proj, Sub, mix_hashes,
+};
 use crate::level::Level;
 use crate::local::LocalContext;
 use crate::nat_lit::{self, NatShape};
 use crate::positivity::{self, PositivityError};
 use crate::tally;
 use rean_core::Name;
-use std::collections::HashMap;
 use std::fmt;
 
 /// How deep [`TypeChecker::read_nat`] will force a nested arithmetic argument.
@@ -488,7 +489,7 @@ pub struct TypeChecker<'e> {
     /// The key is a hash, so **one bucket can hold more than one answer**. A
     /// lookup compares the question with [`Expr::alpha_eq`] before it trusts
     /// the answer. A proof checker may not be probably right.
-    whnf_cache: HashMap<u64, Vec<(Expr, Expr)>>,
+    whnf_cache: KeyMap<u64, Vec<(Expr, Expr)>>,
     /// Answers that [`Self::is_def_eq`] already found.
     ///
     /// The same discipline as [`Self::whnf_cache`]. The key mixes the hash of
@@ -497,18 +498,18 @@ pub struct TypeChecker<'e> {
     /// A **negative** answer is cached as well as a positive one. `Ok(false)`
     /// means the two terms are not equal, which is a decision; a comparison
     /// that ran out of budget returns `Err` instead, and no error is cached.
-    def_eq_cache: HashMap<u64, Vec<(Expr, Expr, bool)>>,
+    def_eq_cache: KeyMap<u64, Vec<(Expr, Expr, bool)>>,
     /// Types that [`Self::infer_type`] already found.
     ///
     /// The same discipline again. Proof irrelevance asks for the type of both
     /// sides of every comparison, and the answer for one term never changes
     /// inside one declaration.
-    infer_cache: HashMap<u64, Vec<(Expr, Expr)>>,
+    infer_cache: KeyMap<u64, Vec<(Expr, Expr)>>,
     /// Answers that [`Self::whnf_core`] already found.
     ///
     /// A core answer and a full answer are answers to different questions, so
     /// they cannot share one map.
-    core_cache: HashMap<u64, Vec<(Expr, Expr)>>,
+    core_cache: KeyMap<u64, Vec<(Expr, Expr)>>,
     /// Terms that [`Self::read_nat`] has already found are not numbers.
     ///
     /// `nat_step` is tried on **every** reduction step whose head is a `Nat`
@@ -522,7 +523,7 @@ pub struct TypeChecker<'e> {
     /// declines and unfolds the definition instead. That is slower and it is
     /// not wrong. A cache may skip its confirmation exactly when being wrong
     /// costs time rather than truth.
-    not_a_number: std::collections::HashSet<u64>,
+    not_a_number: KeySet<u64>,
     /// Numbers that [`Self::read_nat`] has already found.
     ///
     /// The other half of [`Self::not_a_number`], and it was missing for a
@@ -537,7 +538,7 @@ pub struct TypeChecker<'e> {
     /// **decides**, because a wrong number is a wrong answer. The exception
     /// that the negative cache enjoys does not apply: being wrong there costs
     /// time, and being wrong here would cost the truth.
-    numbers: HashMap<u64, Vec<(Expr, u128)>>,
+    numbers: KeyMap<u64, Vec<(Expr, u128)>>,
     /// How many arithmetic arguments [`Self::read_nat`] is forcing right now.
     ///
     /// See [`SUCC_LIMIT`] for the other half of the same story.
@@ -608,12 +609,12 @@ impl<'e> TypeChecker<'e> {
             pending: Vec::new(),
             fuel: FUEL,
             budget: FUEL,
-            whnf_cache: HashMap::new(),
-            def_eq_cache: HashMap::new(),
-            infer_cache: HashMap::new(),
-            core_cache: HashMap::new(),
-            not_a_number: std::collections::HashSet::new(),
-            numbers: HashMap::new(),
+            whnf_cache: KeyMap::default(),
+            def_eq_cache: KeyMap::default(),
+            infer_cache: KeyMap::default(),
+            core_cache: KeyMap::default(),
+            not_a_number: KeySet::default(),
+            numbers: KeyMap::default(),
             nat_depth: 0,
             nat_depth_limit: NAT_DEPTH_LIMIT,
             stack_base: 0,

@@ -13,7 +13,7 @@
 
 use crate::expr::Expr;
 use rean_core::Name;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// How eager the elaborator should be to unfold a definition.
 ///
@@ -328,7 +328,7 @@ impl Declaration {
 /// Every declaration that the checker knows.
 #[derive(Clone, Default, Debug)]
 pub struct Environment {
-    decls: HashMap<Name, Declaration>,
+    decls: crate::expr::KeyMap<Name, Declaration>,
 }
 
 impl Environment {

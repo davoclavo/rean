@@ -278,6 +278,65 @@ fn loose_range(e: &Expr) -> u32 {
     }
 }
 
+/// A hasher for a key that is **already** a hash.
+///
+/// Every map in this kernel is keyed by a `u64` that the kernel computed, or by
+/// a [`Name`] that carries its own. The standard hasher is SipHash, which is
+/// built to resist somebody who chooses the keys in order to collide them.
+/// Nobody chooses these keys: they come from `hash_range` and from `Name::str`.
+///
+/// So this writes the number through, with one FNV mix to spread the low bits
+/// that a `HashMap` uses to pick a bucket. It is the shortest honest hasher,
+/// and it keeps the kernel free of dependencies.
+#[derive(Clone, Copy, Default)]
+pub struct KeyHasher(u64);
+
+impl std::hash::Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // A key that is not written as a number falls back to FNV over the
+        // bytes. Nothing in the kernel takes this path, and a hasher that
+        // answered zero for the shapes it did not expect would be a very quiet
+        // way to turn every map into a list.
+        for byte in bytes {
+            self.0 = mix(self.0, u64::from(*byte));
+        }
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = mix(self.0, value);
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+}
+
+/// Builds a [`KeyHasher`]. Use it as the third parameter of a map.
+#[derive(Clone, Copy, Default)]
+pub struct ByKey;
+
+impl std::hash::BuildHasher for ByKey {
+    type Hasher = KeyHasher;
+
+    fn build_hasher(&self) -> KeyHasher {
+        KeyHasher(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+/// A [`HashMap`] whose keys are already hashes. See [`ByKey`].
+///
+/// [`HashMap`]: std::collections::HashMap
+pub type KeyMap<K, V> = std::collections::HashMap<K, V, ByKey>;
+
+/// A [`HashSet`] whose keys are already hashes. See [`ByKey`].
+///
+/// [`HashSet`]: std::collections::HashSet
+pub type KeySet<K> = std::collections::HashSet<K, ByKey>;
+
 /// Mixes a value into a hash. This is the FNV-1a step.
 ///
 /// The kernel needs a hash that is cheap to compute, not one that resists an
@@ -415,6 +474,15 @@ pub enum Expr {
     /// A universe, such as `Prop` or `Type 3`.
     Sort(Level),
     /// A name from the environment, with its universe arguments.
+    ///
+    /// The levels are a `Vec` and **not** an `Arc<[Level]>`, which was tried
+    /// and measured and reverted. The premise was that a constant is the most
+    /// common node in a term and that every clone of one allocates. The second
+    /// half is false: most constants carry **no** level at all, and an empty
+    /// `Vec` allocates nothing, while an `Arc<[Level]>` always allocates its
+    /// header. The change made the common case worse to make the rare case
+    /// better, and the slice that holds the declaration blocking 2,283 others
+    /// said so: 16.77 s against 16.97 s. See chapter 18.
     Const { name: Name, levels: Vec<Level> },
     /// An application of one argument. `f x y` is `App(App(f, x), y)`.
     App { fun: Sub, arg: Sub },
@@ -879,38 +947,53 @@ impl Expr {
     /// use. Anything else is a free universe variable, and a free universe
     /// variable has no meaning.
     pub fn collect_level_params(&self, out: &mut Vec<Name>) {
-        match self {
-            Expr::Sort(level) => level.collect_params(out),
-            Expr::Const { levels, .. } => {
-                for level in levels {
-                    level.collect_params(out);
+        // A graph walk, for the reason [`Self::collect_constants`] gives: a
+        // term shares its subterms, so walking it as a tree can be billions of
+        // nodes where the graph is thousands. `check_universes` calls this for
+        // the type **and** the value of every declaration.
+        let mut seen_nodes: HashSet<usize> = HashSet::new();
+        let mut stack: Vec<&Expr> = vec![self];
+        macro_rules! visit {
+            ($sub:expr) => {
+                if seen_nodes.insert(Arc::as_ptr(&$sub.expr) as usize) {
+                    stack.push(&$sub.expr);
                 }
+            };
+        }
+        while let Some(current) = stack.pop() {
+            match current {
+                Expr::Sort(level) => level.collect_params(out),
+                Expr::Const { levels, .. } => {
+                    for level in levels.iter() {
+                        level.collect_params(out);
+                    }
+                }
+                Expr::App { fun, arg } => {
+                    visit!(fun);
+                    visit!(arg);
+                }
+                Expr::Lam {
+                    binder_type, body, ..
+                }
+                | Expr::Forall {
+                    binder_type, body, ..
+                } => {
+                    visit!(binder_type);
+                    visit!(body);
+                }
+                Expr::Let {
+                    binder_type,
+                    value,
+                    body,
+                    ..
+                } => {
+                    visit!(binder_type);
+                    visit!(value);
+                    visit!(body);
+                }
+                Expr::Proj(proj) => visit!(proj.value),
+                Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
             }
-            Expr::App { fun, arg } => {
-                fun.collect_level_params(out);
-                arg.collect_level_params(out);
-            }
-            Expr::Lam {
-                binder_type, body, ..
-            }
-            | Expr::Forall {
-                binder_type, body, ..
-            } => {
-                binder_type.collect_level_params(out);
-                body.collect_level_params(out);
-            }
-            Expr::Let {
-                binder_type,
-                value,
-                body,
-                ..
-            } => {
-                binder_type.collect_level_params(out);
-                value.collect_level_params(out);
-                body.collect_level_params(out);
-            }
-            Expr::Proj(proj) => proj.value.collect_level_params(out),
-            Expr::BVar(_) | Expr::FVar(_) | Expr::MVar(_) | Expr::Lit(_) => {}
         }
     }
 
@@ -1475,6 +1558,18 @@ impl Expr {
         out
     }
 
+    /// How much text [`Self::pretty_with`] will write before it stops.
+    ///
+    /// **A term is a graph and its text is a tree.** One `bv_decide` lemma of
+    /// Lean's `Std` holds 2,617,556,290 nodes as a tree, and asking for its
+    /// text asked the allocator for **13 GB** and took two minutes.
+    ///
+    /// `rean show` guards itself by reading the node count first. A **message**
+    /// cannot: `TypeError::render` builds one out of the terms that failed, so
+    /// a type mismatch on a term like that would spend gigabytes while
+    /// reporting a failure. Nobody reads a megabyte of a term anyway.
+    pub const PRETTY_LIMIT: usize = 1 << 20;
+
     fn write_pretty(
         &self,
         out: &mut String,
@@ -1482,6 +1577,16 @@ impl Expr {
         prec: u8,
         fvar: &dyn Fn(FVarId) -> Option<String>,
     ) {
+        // **Stop when the text is long enough to be useless.** See
+        // [`Self::PRETTY_LIMIT`]. The test is here rather than at the top,
+        // because this is the function that recurses, and a term whose text
+        // runs to gigabytes has to be cut somewhere that every path reaches.
+        if out.len() >= Self::PRETTY_LIMIT {
+            if !out.ends_with('…') {
+                out.push('…');
+            }
+            return;
+        }
         // The precedence levels are: 0 for a binder body, 1 for an argument of
         // an arrow, and 2 for an argument of an application.
         match self {
