@@ -3,6 +3,33 @@
 //! This file does the printing and nothing else. Every decision lives in the
 //! library, so a test can reach it.
 
+/// The allocator.
+///
+/// Nearly **half** of a profile of this checker was `malloc` and `free`. The
+/// kernel builds a term for every reduction step and drops it on the next one,
+/// so the allocator is not a detail of the work: for a while it **was** the
+/// work, and chapter 15 found `drop_slow` at the top of the list.
+///
+/// Measured on the slice that holds the declaration which blocks 2,283 others,
+/// at `REAN_FUEL=1600000000 REAN_STACK=4096`, three runs of each. The numbers
+/// are **CPU** time, because the machine was loaded and the wall clock said
+/// anything between 21 and 50 seconds for the same work.
+///
+/// | allocator | CPU time |
+/// |---|---|
+/// | the system allocator | 24.57, 24.37, 24.42 s |
+/// | **`mimalloc`** | **19.84, 19.96, 19.92 s** |
+///
+/// Nineteen per cent, for one line, and the verdicts do not move: 4,143 of
+/// 4,144 either way. An allocator cannot change an answer, which is what makes
+/// it the one change in this family that needs no argument about soundness.
+///
+/// It is here, in the driver, rather than in `rean_kernel`. A global allocator
+/// is a property of the program, and the kernel is the part you have to trust.
+/// Anybody who uses `rean_kernel` as a library picks their own.
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use rean::{
     CheckArgs, DeclOutcome, Target, USAGE, Verdict, check_export_streaming, demo, lex_file,
     prepare, prove, show, stack_bytes,

@@ -22,3 +22,8 @@ rean_lexer.workspace = true
 rean_syntax.workspace = true
 rean_kernel.workspace = true
 rean_export.workspace = true
+# The allocator, and the only dependency of this workspace that is not ours or
+# `serde_json`. See the comment on `ALLOC` in `main.rs` for the measurement
+# that bought it. It is in the **driver** and not in `rean_kernel`, because a
+# proof checker is a smaller thing to trust when it depends on nothing.
+mimalloc.workspace = true

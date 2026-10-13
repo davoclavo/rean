@@ -15,6 +15,7 @@ rean_syntax = { path = "crates/rean_syntax" }
 rean_kernel = { path = "crates/rean_kernel" }
 rean_export = { path = "crates/rean_export" }
 serde_json = "1"
+mimalloc = "0.1"
 
 [workspace.lints.clippy]
 all = "warn"
