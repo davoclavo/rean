@@ -5,8 +5,8 @@
 
 use rean_core::Name;
 use rean_kernel::{
-    AxiomVal, ConstructorVal, Declaration, Environment, Expr, InductiveVal, Level, Proj,
-    RecursorRule, RecursorVal, Sub, TheoremVal, TypeChecker, TypeError,
+    AxiomVal, ConstructorVal, Declaration, Environment, Expr, InductiveVal, Level, Proj, QuotKind,
+    QuotVal, RecursorRule, RecursorVal, Sub, TheoremVal, TypeChecker, TypeError, quot,
 };
 
 fn u() -> Expr {
@@ -1104,6 +1104,46 @@ fn a_prop_may_hold_anything() {
 }
 
 #[test]
+fn a_field_in_an_unrelated_universe_is_refused() {
+    // inductive Big.{u, v} : Sort v where | mk : Sort u -> Big
+    //
+    // The field `Sort u` lives in `u+1`, and the type promises `v`. No value
+    // of `v` makes that hold for every `u`, so Lean refuses it and so must
+    // we: `Big.{2, 1}` would put a `Type 1` inside a `Type 0`, which is
+    // Russell's paradox again.
+    let mut env = Environment::new();
+    env.add(Declaration::Inductive(InductiveVal {
+        name: Name::from_dotted("Big"),
+        level_params: vec![Name::from_dotted("u"), Name::from_dotted("v")],
+        ty: Expr::Sort(Level::param("v")),
+        num_params: 0,
+        num_indices: 0,
+        all: vec![Name::from_dotted("Big")],
+        ctors: vec![Name::from_dotted("Big.mk")],
+        num_nested: 0,
+        is_rec: false,
+        is_unsafe: false,
+        is_reflexive: false,
+    }));
+    let ctor = ConstructorVal {
+        name: Name::from_dotted("Big.mk"),
+        level_params: vec![Name::from_dotted("u"), Name::from_dotted("v")],
+        ty: Expr::arrow(
+            Expr::Sort(Level::param("u")),
+            Expr::const_("Big", vec![Level::param("u"), Level::param("v")]),
+        ),
+        induct: Name::from_dotted("Big"),
+        cidx: 0,
+        num_params: 0,
+        num_fields: 1,
+        is_unsafe: false,
+    };
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_field_universes(&ctor).unwrap_err();
+    assert!(matches!(err, TypeError::FieldTooLarge { .. }), "{err}");
+}
+
+#[test]
 fn the_level_order_decides_what_it_can_and_accepts_the_rest() {
     let u = Level::param("u");
     let v = Level::param("v");
@@ -1121,8 +1161,105 @@ fn the_level_order_decides_what_it_can_and_accepts_the_rest() {
     assert_eq!(u.is_leq(&u.succ()), Some(true));
     // `u+1 ≤ (max u v)+1` because `u ≤ max u v`.
     assert_eq!(u.succ().is_leq(&u.max(&v).succ()), Some(true));
-    // Two unrelated parameters cannot be ordered, and the answer is honest.
-    assert_eq!(u.is_leq(&v), None);
+    // Two unrelated parameters are **ordered**, and the answer is no: `u` is
+    // not at most `v`, because `u` may be `1` while `v` is `0`.
+    assert_eq!(u.is_leq(&v), Some(false));
+    // A plain number needs the room on the right, and a parameter may be zero.
+    assert_eq!(Level::of_nat(2).is_leq(&u.succ()), Some(false));
+    assert_eq!(Level::of_nat(2).is_leq(&u.succ().succ()), Some(true));
+    // `imax` is the shape that is left undecided, because it is two levels at
+    // once: `imax u v` is zero when `v` is zero and `max u v` otherwise.
+    assert_eq!(u.is_leq(&u.imax(&v)), None);
+}
+
+// --- the four quotient declarations -------------------------------------
+
+/// An environment that holds Lean's `Quot`, `Quot.mk` and `Eq`.
+///
+/// The two quotient types come from the kernel's own table, and the arena
+/// checks that table against the real Lean: six of its `good` tests declare
+/// these four, and so does `fixtures/lean4export/shapes.ndjson`.
+///
+/// `Eq` is here because the type of `Quot.lift` speaks about it.
+fn with_quot() -> Environment {
+    let mut env = Environment::new();
+    let u = vec![Name::from_dotted("u")];
+    for kind in [QuotKind::Type, QuotKind::Ctor] {
+        env.add(Declaration::Quot(QuotVal {
+            name: Name::from_dotted(quot::name_of(kind)),
+            level_params: u.clone(),
+            ty: quot::declared_type(kind, &u).expect("the kernel knows this type"),
+            kind,
+        }));
+    }
+    // Eq.{u} : {α : Sort u} → α → α → Prop
+    env.add(Declaration::Axiom(AxiomVal {
+        name: Name::from_dotted("Eq"),
+        level_params: u,
+        ty: Expr::forall(
+            "α",
+            Expr::Sort(Level::param("u")),
+            Expr::arrow(Expr::bvar(0), Expr::arrow(Expr::bvar(0), Expr::prop())),
+        ),
+        is_unsafe: false,
+    }));
+    env
+}
+
+#[test]
+fn a_quotient_declaration_with_a_type_of_its_own_is_refused() {
+    // `quot_step` rewrites `Quot.ind p (Quot.mk r a)` to `p a` and **trusts
+    // the result**, exactly as the ι rule trusts a recursor. So a `Quot.ind`
+    // with another type is an untracked axiom. Here it is `{α : Sort u} → α`,
+    // which proves anything at all.
+    let env = with_quot();
+    let forged = Declaration::Quot(QuotVal {
+        name: Name::from_dotted("Quot.ind"),
+        level_params: vec![Name::from_dotted("u")],
+        ty: Expr::forall("α", Expr::Sort(Level::param("u")), Expr::bvar(0)),
+        kind: QuotKind::Ind,
+    });
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&forged).unwrap_err();
+    assert!(matches!(err, TypeError::BadQuot { .. }), "{err}");
+    assert!(err.to_string().contains("has the type"), "{err}");
+}
+
+#[test]
+fn a_quotient_rule_under_another_name_is_refused() {
+    // The rule belongs to `Quot.lift`, and the kernel finds it by the kind of
+    // the declaration. Without the name, a file could declare `Evil.lift`
+    // beside the real one and get a second eliminator, whose type it chooses.
+    let env = with_quot();
+    let levels = vec![Name::from_dotted("u"), Name::from_dotted("v")];
+    let rogue = Declaration::Quot(QuotVal {
+        name: Name::from_dotted("Evil.lift"),
+        level_params: levels.clone(),
+        ty: quot::declared_type(QuotKind::Lift, &levels).expect("the kernel knows this type"),
+        kind: QuotKind::Lift,
+    });
+    let mut tc = TypeChecker::new(&env);
+    let err = tc.check_declaration(&rogue).unwrap_err();
+    assert!(matches!(err, TypeError::BadQuot { .. }), "{err}");
+}
+
+#[test]
+fn the_real_quotient_declarations_are_accepted() {
+    // The other direction, and the one that would break first if the table
+    // were wrong.
+    let env = with_quot();
+    for (kind, levels) in [(QuotKind::Lift, vec!["u", "v"]), (QuotKind::Ind, vec!["u"])] {
+        let levels: Vec<Name> = levels.into_iter().map(Name::from_dotted).collect();
+        let decl = Declaration::Quot(QuotVal {
+            name: Name::from_dotted(quot::name_of(kind)),
+            level_params: levels.clone(),
+            ty: quot::declared_type(kind, &levels).expect("the kernel knows this type"),
+            kind,
+        });
+        let mut tc = TypeChecker::new(&env);
+        tc.check_declaration(&decl)
+            .unwrap_or_else(|err| panic!("{} must pass: {err}", quot::name_of(kind)));
+    }
 }
 
 // --- eta on a dependent function, found in the Lean prelude --------------

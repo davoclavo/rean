@@ -22,6 +22,7 @@ pub mod level;
 pub mod local;
 pub mod nat_lit;
 pub mod positivity;
+pub mod quot;
 pub mod tally;
 pub mod typeck;
 

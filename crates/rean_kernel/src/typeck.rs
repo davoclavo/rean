@@ -26,9 +26,10 @@
 //!
 //! | Missing | Effect |
 //! |---|---|
-//! | recursor re-derivation | the recursor and its ι rules are trusted as given |
-//! | positivity for a nested inductive | skipped, not checked. See [`crate::positivity`]. |
-//! | a full level normal form | a hard pair of open levels can fail to match |
+//! | recursor re-derivation | a recursor is **checked** against its inductive type, not derived from it. A **nested** recursor is trusted. See [`TypeChecker::check_recursor`]. |
+//! | strict positivity for a nested inductive | a weaker rule runs: no negative occurrence. See [`crate::positivity`]. |
+//! | a full level normal form | a hard pair of open levels can fail to match, so a correct declaration can be refused |
+//! | the order on an `imax` | [`Level::is_leq`] decides every other shape and leaves this one undecided, and [`TypeChecker::check_field_universes`] then accepts |
 //! | big number arithmetic | a literal past `u128` stays stuck rather than compute |
 
 use crate::environment::{
@@ -277,6 +278,10 @@ pub enum TypeError {
     /// eliminate. Without this check, a file can smuggle in an arbitrary
     /// axiom disguised as a recursor, and prove `False`.
     BadRecursor { recursor: Name, reason: String },
+    /// A quotient declaration does not have the type that Lean fixes for it.
+    /// Without this check, a file can smuggle in an arbitrary axiom disguised
+    /// as `Quot.lift`, and prove `False`. See [`crate::quot`].
+    BadQuot { declaration: Name, reason: String },
     /// A declaration uses a universe parameter that it does not declare.
     UndeclaredUniverse { declaration: Name, param: Name },
     /// A declaration lists one universe parameter twice.
@@ -470,6 +475,12 @@ impl TypeError {
             }
             TypeError::BadRecursor { recursor, reason } => {
                 format!("the recursor `{recursor}` is not acceptable: {reason}")
+            }
+            TypeError::BadQuot {
+                declaration,
+                reason,
+            } => {
+                format!("the quotient declaration `{declaration}` is not acceptable: {reason}")
             }
             TypeError::UndeclaredUniverse { declaration, param } => format!(
                 "`{declaration}` uses the universe parameter `{param}` and does not declare it"
@@ -869,9 +880,9 @@ impl<'e> TypeChecker<'e> {
 
     /// Reduces to weak head normal form **without** δ.
     ///
-    /// Shares the cache with [`Self::whnf`] by key, because a core answer and a
-    /// full answer are different answers to different questions. So this keeps
-    /// its own.
+    /// This cannot share the cache of [`Self::whnf`], because the two methods
+    /// key on the same term and give different answers to different questions.
+    /// So it keeps its own. See [`Self::core_cache`].
     fn whnf_core(&mut self, e: &Expr) -> TypeResult<Expr> {
         self.check_stack()?;
         let key = e.hash_value();
@@ -940,8 +951,8 @@ impl<'e> TypeChecker<'e> {
         }
     }
 
-    /// Does one reduction step at the head, or returns `None` if none applies.
-    /// Does one reduction step, with δ switched on or off.
+    /// Does one reduction step at the head, with δ switched on or off, or
+    /// returns `None` if no rule applies.
     ///
     /// Everything except δ is called **core** reduction, and
     /// [`Self::lazy_delta`] needs the two separated: it reduces both sides by
@@ -2731,7 +2742,7 @@ impl<'e> TypeChecker<'e> {
         }
         let mut used = Vec::new();
         decl.ty().collect_level_params(&mut used);
-        if let Some(value) = declaration_value(decl) {
+        if let Some(value) = decl.value() {
             value.collect_level_params(&mut used);
         }
         for param in used {
@@ -2765,8 +2776,11 @@ impl<'e> TypeChecker<'e> {
     /// different type lets you transport a term into a type it does not
     /// inhabit.
     ///
-    /// A mutual recursor, with more than one motive, is **skipped**. The
-    /// fixture has none, and a wrong check is worse than a missing one.
+    /// A **mutual** recursor is checked too. It carries one motive per type of
+    /// its group and one minor premise per constructor of the whole group, and
+    /// both counts are read from the group rather than from the recursor. The
+    /// one shape that is trusted instead of checked is a **nested** recursor,
+    /// and the reason is in the body.
     pub fn check_recursor(&mut self, rec: &RecursorVal) -> TypeResult<()> {
         let bad = |reason: String| TypeError::BadRecursor {
             recursor: rec.name.clone(),
@@ -3560,10 +3574,11 @@ impl<'e> TypeChecker<'e> {
                 self.check_positivity(ctor)?;
             }
             Declaration::Recursor(rec) => self.check_recursor(rec)?,
+            Declaration::Quot(quot) => self.check_quot(quot)?,
             Declaration::Theorem(thm) => self.check_proposition(thm)?,
             _ => {}
         }
-        if let Some(value) = declaration_value(decl) {
+        if let Some(value) = decl.value() {
             let got = self.infer_type(value)?;
             if !self.is_def_eq(&got, decl.ty())? {
                 return Err(TypeError::mismatch(value, decl.ty().clone(), got));
@@ -3596,6 +3611,51 @@ impl<'e> TypeChecker<'e> {
             declaration: thm.name.clone(),
             level: level.to_string(),
         })
+    }
+
+    /// Checks one of the four quotient declarations against the type that
+    /// Lean fixes for it.
+    ///
+    /// `Quot` is the one family of declarations that the kernel computes with
+    /// and cannot derive. [`Self::quot_step`] rewrites
+    /// `Quot.lift f h (Quot.mk r a)` to `f a` and trusts the result, so the
+    /// type of `Quot.lift` has to be the type that makes the rewrite sound.
+    /// A file that gives it another type gets an untracked axiom.
+    /// [`crate::quot`] holds the four types and the whole argument.
+    pub fn check_quot(&mut self, quot: &crate::QuotVal) -> TypeResult<()> {
+        let bad = |reason: String| TypeError::BadQuot {
+            declaration: quot.name.clone(),
+            reason,
+        };
+        let wanted = crate::quot::name_of(quot.kind);
+        if quot.name != Name::from_dotted(wanted) {
+            return Err(bad(format!(
+                "only Lean's `{wanted}` may be declared with this kind"
+            )));
+        }
+        let Some(expected) = crate::quot::declared_type(quot.kind, &quot.level_params) else {
+            return Err(bad(format!(
+                "`{wanted}` takes {} universe parameter(s) and this one lists {}",
+                crate::quot::level_arity(quot.kind),
+                quot.level_params.len()
+            )));
+        };
+        // `is_def_eq` and not `alpha_eq`, because a type that **computes** to
+        // the fixed one is the fixed one. The comparison needs `Eq` for
+        // `Quot.lift`, and a file that declares `Quot.lift` without `Eq` is
+        // not declaring Lean's.
+        match self.is_def_eq(&expected, &quot.ty) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(bad(format!(
+                "its type is `{}` and `{wanted}` has the type `{}`",
+                quot.ty.pretty(),
+                expected.pretty()
+            ))),
+            Err(error) if error.is_a_limit() => Err(error),
+            Err(error) => Err(bad(format!(
+                "its type could not be compared with the type of `{wanted}`: {error}"
+            ))),
+        }
     }
 
     /// Checks that an inductive declaration describes a type.
@@ -3762,18 +3822,5 @@ fn mentions_fvar(e: &Expr, id: FVarId) -> bool {
         } => mentions_fvar(binder_type, id) || mentions_fvar(value, id) || mentions_fvar(body, id),
         Expr::Proj(proj) => mentions_fvar(&proj.value, id),
         Expr::BVar(_) | Expr::MVar(_) | Expr::Sort(_) | Expr::Const { .. } | Expr::Lit(_) => false,
-    }
-}
-
-/// Returns the value that a declaration must be checked against, if it has one.
-///
-/// An `Opaque` value is included. Opacity hides a value from the δ rule. It does
-/// not excuse the value from being correct.
-fn declaration_value(decl: &Declaration) -> Option<&Expr> {
-    match decl {
-        Declaration::Definition(d) => Some(&d.value),
-        Declaration::Theorem(d) => Some(&d.value),
-        Declaration::Opaque(d) => Some(&d.value),
-        _ => None,
     }
 }

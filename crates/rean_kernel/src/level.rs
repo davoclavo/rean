@@ -247,7 +247,7 @@ impl Level {
                 }
                 let left = a.normalize();
                 // The right side is never zero, so `imax` acts like `max`.
-                if is_never_zero(&right) {
+                if right.is_never_zero() {
                     let mut parts = Vec::new();
                     flatten(&left, &mut parts);
                     flatten(&right, &mut parts);
@@ -282,12 +282,12 @@ impl Level {
 
     /// Returns whether `self` is at most `other`, when that can be decided.
     ///
-    /// `None` means **undecided**, and a caller must then accept. An order on
-    /// open universe levels is hard, and a check that refuses what it does not
-    /// understand would refuse correct Lean. So this method only ever answers
-    /// `Some(false)` when both sides are closed numbers.
+    /// `None` means **undecided**, and a caller must then accept. A check that
+    /// refuses what it does not understand would refuse correct Lean.
     ///
-    /// The rules it does know:
+    /// The question is "does `self ≤ other` hold for **every** value of every
+    /// parameter", so one assignment that breaks it is a refusal. The cheap
+    /// rules come first:
     ///
     /// - two closed levels compare by value
     /// - `u ≤ u`
@@ -295,6 +295,9 @@ impl Level {
     /// - `u ≤ max a b` when `u ≤ a` or `u ≤ b`
     /// - `max a b ≤ v` when both `a ≤ v` and `b ≤ v`
     /// - `u ≤ v+1` when `u ≤ v`
+    ///
+    /// When those do not settle it, [`leq_without_imax`] decides, and `imax`
+    /// is the only shape that is left undecided.
     pub fn is_leq(&self, other: &Level) -> Option<bool> {
         leq_normal(&self.normalize(), &other.normalize())
     }
@@ -380,7 +383,56 @@ fn leq_normal(left: &Level, right: &Level) -> Option<bool> {
     {
         return Some(true);
     }
-    None
+    // Nothing above said yes, and that is not the same as no.
+    leq_without_imax(left, right)
+}
+
+/// Decides `left ≤ right` when no `imax` is left in either **normal** level.
+///
+/// # Why this can answer `false`
+///
+/// A normal level is a `max` of parts, and each part is an atom with a count
+/// of successors on top. Without `imax`, every atom is either `0` or a
+/// parameter, and a parameter can take any value. So one assignment is enough
+/// to refuse the whole question, and two of them decide it:
+///
+/// - give **every** parameter the value `0`. A part `0+k` on the left then
+///   needs a part on the right whose count is at least `k`.
+/// - give **one** parameter `p` a huge value and the rest `0`. Only a part
+///   based on `p` grows with it, so a part `p+k` on the left needs a part
+///   `p+m` on the right with `m` at least `k`.
+///
+/// Both conditions are the same sentence, and that sentence is also enough for
+/// `true`, because an atom is never negative.
+///
+/// # Why `imax` is left out
+///
+/// `imax u v` is `0` when `v` is `0` and `max u v` otherwise, so an atom of
+/// that shape is two levels at once and the argument above does not hold for
+/// it. The real Lean kernel decides this case by splitting on `v`, once for
+/// `0` and once for `v+1`. We do not, so the answer stays `None` and the
+/// caller accepts. That is the last gap in this order.
+///
+/// # Why a `false` here is worth having
+///
+/// `TypeChecker::check_field_universes` is the caller, and it accepts whatever
+/// this cannot decide. A constructor field in `Sort u` inside a type that
+/// promises `Sort v` is the shape of Russell's paradox, and the old answer of
+/// `None` accepted it.
+fn leq_without_imax(left: &Level, right: &Level) -> Option<bool> {
+    let mut left_parts = Vec::new();
+    flatten(left, &mut left_parts);
+    let mut right_parts = Vec::new();
+    flatten(right, &mut right_parts);
+    let an_imax = |(atom, _): &(Level, u32)| !matches!(atom, Level::Zero | Level::Param(_));
+    if left_parts.iter().any(an_imax) || right_parts.iter().any(an_imax) {
+        return None;
+    }
+    Some(left_parts.iter().all(|(atom, count)| {
+        right_parts
+            .iter()
+            .any(|(base, room)| room >= count && (atom.is_zero() || base == atom))
+    }))
 }
 
 /// Splits a level into its atom and the number of successors on top.
@@ -440,20 +492,6 @@ fn rebuild_max(parts: Vec<(Level, u32)>) -> Level {
         result = Level::Max(Arc::new(result), Arc::new(piece));
     }
     result
-}
-
-/// Returns `true` if `level` cannot be zero, whatever its parameters are.
-///
-/// `imax a b` only differs from `max a b` when `b` is zero. So this test is
-/// what lets an `imax` collapse into a `max`.
-fn is_never_zero(level: &Level) -> bool {
-    match level {
-        Level::Succ(_) => true,
-        Level::Max(a, b) => is_never_zero(a) || is_never_zero(b),
-        // `imax a b` is zero exactly when `b` is zero.
-        Level::IMax(_, b) => is_never_zero(b),
-        Level::Zero | Level::Param(_) => false,
-    }
 }
 
 /// A total order on levels, for a canonical `max`.
