@@ -93,8 +93,25 @@ The kernel implements a theory. These sources state it.
 |---|---|
 | *Theorem Proving in Lean 4*. <https://lean-lang.org/theorem_proving_in_lean4/> | propositions as types, from the first page |
 | *Functional Programming in Lean*. <https://lean-lang.org/functional_programming_in_lean/> | Lean as a programming language |
+| *Mathematics in Lean*. <https://leanprover-community.github.io/mathematics_in_lean/> | the tactics first, with a real library under you |
 | *Metaprogramming in Lean 4*. <https://leanprover-community.github.io/lean4-metaprogramming-book/> | `Syntax`, macros, and the elaborator, with code |
 | *The Lean Language Reference*. <https://lean-lang.org/doc/reference/latest/> | the index to everything else |
+
+### How each of them is built
+
+[Part I of the book](book/README.md) states its method as four beats: the idea,
+then your language, then the notation, then Lean. That method is assembled out
+of these seven, and the table in Part I says what each one gave it.
+
+| Source | How it opens |
+|---|---|
+| *Theorem Proving in Lean 4*. <https://lean-lang.org/theorem_proving_in_lean4/> | the type theory first, and propositions as types only after it. The machine before the logic. |
+| *Functional Programming in Lean*. <https://lean-lang.org/functional_programming_in_lean/> | a program that runs on page one. Proofs arrive as an interlude. |
+| Friedman and Christiansen, *The Little Typer*, MIT Press, 2018. <https://mitpress.mit.edu/9780262536431/the-little-typer/> | a dialogue. One tiny language, one question per line, and the answer in the next column. |
+| Pierce and others, *Software Foundations*. <https://softwarefoundations.cis.upenn.edu/> | short chapters, and the whole text is a proof script a machine checks. |
+| Nederpelt and Geuvers, *Type Theory and Formal Proof*, CUP, 2014. <https://www.cambridge.org/core/books/type-theory-and-formal-proof/0472640AAD34E045C7F140B46A57A67C> | the Barendregt cube, one axis per chapter, from the untyped calculus to λC. |
+| Harper, *Practical Foundations for Programming Languages*. <https://www.cs.cmu.edu/~rwh/pfpl.html> | a judgment and an inference rule, taught as notation before any rule uses them. |
+| Carneiro, *The Type Theory of Lean*. <https://github.com/digama0/lean-type-theory> | the rules, as rules, with no prose. The place a claim is settled. |
 
 ---
 
@@ -147,8 +164,8 @@ A chapter names the rule. These are where the rule comes from.
 ## 7. How other systems do it
 
 Each chapter has a section with this name. These are the sources behind them.
-Part I adds a section called **If you write TypeScript or Scala 3**, and the
-last six rows of this table are what it rests on.
+Part I adds a section called **If you write TypeScript**, and the last six rows
+of this table are what it rests on.
 
 | System | Source | What differs |
 |---|---|---|
@@ -161,13 +178,17 @@ last six rows of this table are what it rests on.
 | GHC, for Haskell | the debugging flags, `-dcore-lint`. <https://downloads.haskell.org/ghc/latest/docs/users_guide/debugging.html> | a re-checker for its own intermediate language. The nearest thing in a mainstream compiler to a kernel. |
 | GHC | *System F with type equality coercions*. <https://www.microsoft.com/en-us/research/publication/system-f-with-type-equality-coercions/> | types carry proofs of equality, and the compiler checks them |
 | rustc, for Rust | the developer guide, macro expansion. <https://rustc-dev-guide.rust-lang.org/macro-expansion.html> | a macro works on a token stream. It cannot add a token or a precedence. |
-| Scala 3 | dependent function types. <https://docs.scala-lang.org/scala3/reference/new-types/dependent-function-types.html> | a result type may depend on a **type member** of the argument. A Pi type may depend on any value. |
-| Scala 3 | match types. <https://docs.scala-lang.org/scala3/reference/new-types/match-types.html> | a type that reduces, with a limit in the compiler. The nearest thing to definitional equality. |
-| Scala 3 | `given` instances. <https://docs.scala-lang.org/scala3/reference/contextual/givens.html> | instance search, which Lean puts in the untrusted elaborator |
-| Scala 3 | `inline` and macros. <https://docs.scala-lang.org/scala3/reference/metaprogramming/inline.html> | the compiler typechecks an expansion rather than trusting the macro. The De Bruijn criterion, for macros. |
-| Scala 3 | `erased` definitions. <https://docs.scala-lang.org/scala3/reference/experimental/erased-defs.html> | erasure as a language feature. Lean erases every proof, for a reason it can prove. |
-| TypeScript | conditional types. <https://www.typescriptlang.org/docs/handbook/2/conditional-types.html> | a type that reduces, and `ts(2589)` when it reduces too far |
-| Effect, for TypeScript | the `Effect` type. <https://effect.website/docs/v4/getting-started/the-effect-type> | three facts about a program, in its type. The `R` channel is the bookkeeping of a local context. |
+| TypeScript | generics. <https://www.typescriptlang.org/docs/handbook/2/generics.html> | the identity function of Part I chapter 1. A type that forces a behaviour. |
+| TypeScript | everyday types. <https://www.typescriptlang.org/docs/handbook/2/everyday-types.html> | `unknown` at the top and `never` at the bottom, in place of a tower of universes |
+| TypeScript | indexed access types. <https://www.typescriptlang.org/docs/handbook/2/indexed-access-types.html> | `O[K]`, a result type that depends on an argument. The nearest thing to a Pi type. |
+| TypeScript | conditional types. <https://www.typescriptlang.org/docs/handbook/2/conditional-types.html> | a type that reduces, and `TS2589` when it reduces too far |
+| TypeScript | 4.5 release notes, tail recursion on conditional types. <https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-5.html> | the budget behind `TS2589`, and how it was raised |
+| TypeScript | narrowing. <https://www.typescriptlang.org/docs/handbook/2/narrowing.html> | the exhaustiveness check that makes a `switch` total, which is a recursor by another name |
+| TypeScript | `erasableSyntaxOnly`. <https://www.typescriptlang.org/tsconfig/#erasableSyntaxOnly> | erasure as a rule a compiler enforces. Lean erases every proof, for a reason it can prove. |
+| TypeScript | the specification, version 1.8 of 2016, and the issue that asks what became of it. <https://github.com/microsoft/TypeScript/issues/21477> | why Part I chapter 5 can print five rules and `tsc` cannot |
+| Effect, for TypeScript | the `Effect` type. <https://effect.website/docs/getting-started/the-effect-type/> | three facts about a program, in its type. The `R` channel is the bookkeeping of a local context. |
+| Effect, for TypeScript | `Data.TaggedEnum`. <https://effect.website/docs/data-types/data/> | a declaration and a `$match`, which is an inductive type and its recursor |
+| Babel | `babel-traverse`. <https://babeljs.io/docs/babel-traverse> | `generateUidIdentifier`, which is the cure for capture in Part I chapter 2 |
 | Metamath Zero | <https://arxiv.org/abs/1910.10703> | a verifier small enough to audit in an afternoon |
 
 ---

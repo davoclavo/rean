@@ -23,17 +23,25 @@ have watched run is a rule you keep.
 **Kindly.** Nothing here is obvious. Where a part is hard, it says so. Where a
 question catches everybody, it is answered rather than avoided.
 
-**One note on numbers.** The chapters run from 1 to 28 with no repeats.
+**One note on numbers.** The chapters run from 1 to 29 with no repeats.
 Part I holds 1 to 8 and lives in `docs/book/`. The chapters that build the
-checker hold 9 to 28. A reference into Part I is written in full, as
+checker hold 9 to 29. A reference into Part I is written in full, as
 "Part I chapter 4", because Part I sits in a folder of its own.
 
-**If you write TypeScript or Scala 3.** You already use most of the ideas here
-under other names. The glossary opens with a table that maps them:
-[if you come from TypeScript or Scala 3](GLOSSARY.md#if-you-come-from-typescript-or-scala-3).
-Every chapter of Part I also has a section with that name, which puts the
-chapter next to `never`, `Nothing`, `given`, a match type, a GADT, or the `R`
-channel of `Effect<A, E, R>`.
+**If you write TypeScript.** You already use most of the ideas here under other
+names. The glossary opens with a table that maps them:
+[if you come from TypeScript](GLOSSARY.md#if-you-come-from-typescript).
+Every chapter of Part I also has a section called **If you write TypeScript**,
+which puts the chapter next to `never`, `unknown`, a discriminated union, a
+conditional type, the `tsc` error `TS2589`, or the three channels of
+`Effect<A, E, R>`.
+
+**How Part I is built.** Every section of Part I runs the same four beats:
+**the idea** in plain words, then **in your language**, then **the notation**,
+then **in Lean**. An abstract idea comes before a formula, and a formula comes
+before Lean syntax, with no exceptions.
+[The contents of Part I](book/README.md) states the method and names the seven
+books it comes from.
 
 Two files stay open beside you the whole way.
 
@@ -153,8 +161,9 @@ measurement overrule the plan. Four plans die that way.
 | # | Chapter | Adds |
 |---|---|---|
 | 28 | [The arena](28-the-arena.md) | what a suite written by other people found that our own tests did not |
+| 29 | [The eleven that were not wrong](29-the-eleven.md) | the exit code as an interface, and a tree walk over a graph |
 
-Chapter 28 belongs with Part IV, because it is about what a checker must
+Part VIII belongs with Part IV, because it is about what a checker must
 **refuse**. It reads last, because it measures everything the earlier parts
 built.
 

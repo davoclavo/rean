@@ -17,22 +17,25 @@ a chapter that reads like
 
 ---
 
-## If you come from TypeScript or Scala 3
+## If you come from TypeScript
 
 You already use most of these ideas. The names are different, and two of them
 are stronger here than in your language.
 
 | You know | Here it is | The difference |
 |---|---|---|
-| `never` in TypeScript, `Nothing` in Scala | the [empty type](#empty-type), which is how `False` is built | none. A type with no values **is** a false proposition. |
-| `Unit` in Scala, `void` in TypeScript | the [unit type](#unit-type), which is how `True` is built | none |
+| `never` | the [empty type](#empty-type), which is how `False` is built | in Lean it really is empty. A type with no values **is** a false proposition. |
+| `undefined` as a type, with one value | the [unit type](#unit-type), which is how `True` is built | none |
 | a generic function, `<A>(a: A) => A` | a [proof](#proof) of `A → A` | a Lean function must be [total](#total), so the type is a real promise |
+| a discriminated union | an [inductive type](#inductive-type) in `Type` | the kernel also hands you a [recursor](#recursor), and the recursor may return a proof |
+| `switch` with an exhaustiveness check | a [recursor](#recursor) | the same coverage, written as a term rather than as syntax |
+| `Data.TaggedEnum` and `$match` in Effect | an inductive type and its [recursor](#recursor) | the same pair. `$match` cannot land in a proof. |
 | the `R` channel of `Effect<A, E, R>`, and a `Layer` that satisfies it | the [environment](#environment) and the [local context](#local-context) | the same bookkeeping, and the kernel checks it on every term |
-| the `E` channel of `Effect<A, E, R>` | a type that records a fact about a value | none. You are already writing propositions. |
-| `given` and `using` in Scala 3, instance search | what the [elaborator](#elaborator) does before the kernel sees a term | it is **untrusted**. The kernel re-checks the term it builds. |
-| `inline` and a macro in Scala 3 | stage 3 again, also untrusted | a Lean macro may add a **token** as well. Chapter 16. |
-| a match type in Scala 3, a conditional type in TypeScript | a type that **reduces**, which is [definitional equality](#definitional-equality) | Lean reduces with β δ ι ζ η on any term, and it must end |
-| a dependent method, `def key(e: Entry): e.Key` | a [Pi type](#pi-type) | in Lean the result type may hold **any** value, not only a member type |
+| the `E` channel of `Effect<A, E, R>` | a type that records a fact about a program | none. You are already writing propositions. |
+| a code generator whose output `tsc` reads | stage 3, which is **untrusted**, and the kernel that re-reads it | the same idea. The [De Bruijn criterion](#de-bruijn-criterion) names it. |
+| a conditional or mapped type | a type that **reduces**, which is [definitional equality](#definitional-equality) | Lean reduces with β δ ι ζ η on any term, and it must end |
+| `TS2589`, "excessively deep" | the fuel limit of a [kernel](#kernel) | the same budget. Lean gives up on a declaration and says so. |
+| a lookup type, `O[K]` | a [Pi type](#pi-type) | in Lean the result type may hold **any** value, not only a key known while `tsc` runs |
 | type erasure at run time | [erasure](#erasure) of a proof | the reason is [proof irrelevance](#proof-irrelevance), not a compiler choice |
 | a literal type, `"GET"` or `23` | an [index](#index) of a type family | Lean computes with it, so `Vector α (2 + 1)` and `Vector α 3` are one type |
 
@@ -50,11 +53,11 @@ Two warnings for a reader with this background.
 |---|---|
 | <a id="proposition"></a>**proposition** | a statement. In Lean it is a **type**. |
 | <a id="proof"></a>**proof** | a reason the statement holds. In Lean it is a **term** of that type. |
-| <a id="curry-howard"></a>**Curry-Howard** | the name for that correspondence. "Check this proof" becomes "check this type". Part I chapter 1, section 1.3. |
+| <a id="curry-howard"></a>**Curry-Howard** | the name for that correspondence. "Check this proof" becomes "check this type". Part I chapter 1, section 1.4. |
 | <a id="data"></a>**data** | a value you compute with, such as `3`. It lives in `Type`. |
 | <a id="inhabited"></a>**inhabited** | a type that has at least one element. A proposition is true exactly when its type is inhabited. |
-| <a id="empty-type"></a>**empty type** | a type with no element, such as `False`. `never` in TypeScript and `Nothing` in Scala are the same idea. |
-| <a id="unit-type"></a>**unit type** | a type with exactly one element, such as `True`. `Unit` in Scala is the same idea. |
+| <a id="empty-type"></a>**empty type** | a type with no element, such as `False`. `never` in TypeScript is the same idea, and TypeScript does not keep it empty. |
+| <a id="unit-type"></a>**unit type** | a type with exactly one element, such as `True`. The type `undefined` in TypeScript is the same idea. |
 | <a id="total"></a>**total** | a function that returns for every input, and never loops. Every Lean function is total, and that is what makes a type a promise. |
 
 ## The two theories

@@ -4,9 +4,12 @@ A Lean compiler in Rust. This repository holds the foundations of the frontend.
 
 **New here? Start at [Part I of the book](docs/book/README.md).** Eight short
 chapters build the theory that Lean 4 rests on, in order, and they assume
-nothing. A reader who writes TypeScript or Scala 3 will find a section in every
-one of them that maps the idea onto `never`, `Nothing`, a match type, a GADT, or
-the `R` channel of `Effect<A, E, R>`. [The guide](docs/README.md) holds the whole reading order,
+nothing. Every section runs the same four beats: the idea in plain words, then
+the nearest thing in TypeScript, then the notation, then Lean. A reader who
+writes TypeScript will find a section in every chapter that maps the idea onto
+`never`, a discriminated union, a conditional type, the `tsc` error `TS2589`,
+or the three channels of `Effect<A, E, R>`.
+[The guide](docs/README.md) holds the whole reading order,
 [the glossary](docs/GLOSSARY.md) holds every word, and
 [the references](docs/REFERENCES.md) hold every source.
 

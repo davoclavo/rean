@@ -3,9 +3,37 @@
 Eight short chapters. Read them in order. Each one adds exactly one idea, and
 every chapter after it uses that idea.
 
-No mathematics is assumed. If you can read a function signature, you can read
-this. Where a chapter uses an example, the example is Lean, Rust, or
-TypeScript, and the output shown is real output.
+No mathematics is assumed. **If you can read a TypeScript signature, you can
+read this.** The examples come from TypeScript, from Effect, and from Lean, and
+every output shown is real output.
+
+---
+
+## The four beats
+
+This part has one method, and it repeats in every section. The order is always
+the same, and it never starts with a formula.
+
+```
+  1. the idea       ──►  2. in your language  ──►  3. the notation  ──►  4. in Lean
+  words and a            TypeScript or             the rule,             real Lean,
+  picture                Effect                    written down          real output
+```
+
+| Beat | What it gives you | How to read it |
+|---|---|---|
+| **1. The idea** | the concept, in plain words, with a picture or a metaphor | slowly. If this beat does not land, the next three will not. |
+| **2. In your language** | the nearest thing you already use | fast. You know this one. |
+| **3. The notation** | the rule or the equation, with every symbol named | once aloud. The symbols are short names for beat 1. |
+| **4. In Lean** | the real syntax, and the output Lean prints | at the keyboard. Run it. |
+
+Why this order. A formula is a compression of an idea, so it only reads as a
+formula once you hold the idea. Lean syntax is a compression of the formula.
+Start at the compressed end and you memorise shapes. Start at the idea and you
+keep the whole chain.
+
+A beat carries a label where the text could be mistaken for the other kind.
+Elsewhere the order alone carries it.
 
 ---
 
@@ -41,6 +69,11 @@ TypeScript, and the output shown is real output.
 If a chapter feels hard, the chapter before it holds the missing piece. That is
 the design, not an accident.
 
+Chapters 2, 3 and 4 each add one axis to the language, and chapter 5 names the
+system that the three axes make. That staircase is not ours. Nederpelt and
+Geuvers climb the same one, and the table below says where every part of this
+method comes from.
+
 ---
 
 ## The chapters
@@ -59,14 +92,37 @@ the design, not an accident.
 Each chapter ends with a **Check yourself** section, with answers. Those three
 questions are the gate. If you can answer them, go on.
 
-Each chapter also has an **If you write TypeScript or Scala 3** section. It puts
-the idea next to something you already use: `never` and `Nothing`, a dependent
-method, a match type, a GADT, a macro that the compiler re-checks, or the `R`
-channel of `Effect<A, E, R>`. Read it when a chapter feels abstract.
+Each chapter also has an **If you write TypeScript** section. Beat 2 is the
+short hook inside a section. That section is the long form, and it holds the
+table of what your language can do, what it cannot, and why. It names `never`,
+`unknown`, a conditional type, a discriminated union, a lookup type, the `tsc`
+error `TS2589`, and the three channels of `Effect<A, E, R>`.
 
 Every mathematical term links to its definition in
 [the glossary](../GLOSSARY.md), so the right word is used and the word is never
 only a word.
+
+---
+
+## Where this method comes from
+
+Seven books teach this material, and no two of them open the same way. We read
+how each one is built and took one thing from each.
+
+| Book | How it opens | What this part took |
+|---|---|---|
+| *Theorem Proving in Lean 4* | the type theory first, and the logic second | the order of the ideas, and `#check` as the way to ask Lean a question |
+| *Functional Programming in Lean* | a program that runs on page one. The proofs arrive as an interlude. | a `Try it` section in every chapter, with a command you can run |
+| *The Little Typer* | one tiny language, one question at a time, and the answer beside it | **Check yourself**, and the rule that a chapter adds one idea |
+| *Software Foundations* | short chapters, and every claim in the text is machine-checked | `tools/cite.py`, which fails the build when a chapter names a test nobody wrote |
+| Nederpelt and Geuvers, *Type Theory and Formal Proof* | one axis of the Barendregt cube per chapter, from the untyped calculus up | chapters 2, 3 and 4, which add one axis each, and chapter 5, which names the result |
+| Harper, *Practical Foundations for Programming Languages* | a judgment and an inference rule, named as notation **before** any rule uses them | section 5.2, which teaches the fraction bar before section 5.3 writes five of them |
+| Carneiro, *The Type Theory of Lean* | the rules, as rules, with no prose at all | the reference list at the end of each chapter. This is where a claim is settled. |
+
+One thing none of them does, and this part does. **Every chapter points at a
+second implementation.** The `Try it` command runs our checker, in Rust, on the
+same file that Lean wrote. An idea you have watched a second program agree with
+is an idea you can trust.
 
 ---
 
@@ -103,9 +159,10 @@ the rules. The theory comes first because every later decision quotes it.
 >
 > How does Lean 4 work, with other ways of seeing it?
 
-So each chapter has a **Three ways to see it** section. One metaphor, one
-analogy in a language you already use, and one picture. If the first way does
-not land, the next one might.
+So each chapter shows its idea three ways, under a heading called **Three ways
+to see it**. One metaphor, one analogy in a language you already use, and one
+picture. If the first way does not land, the next one might. The four beats
+grew out of this one sentence.
 
 > "Se amable, porque siempre es bueno ser amable."
 >

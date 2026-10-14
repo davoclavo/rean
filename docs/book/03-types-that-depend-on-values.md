@@ -8,39 +8,120 @@
 > **This chapter adds** the function type that chapter 1 promised, the one that
 > can speak about its own argument.
 >
+> **The four beats.** The idea is section 3.1. Your language is section 3.2.
+> The notation is section 3.3. Lean arrives in section 3.4.
+>
 > **Do not skip ahead.** This is the step where Lean leaves every mainstream
 > language behind. Chapter 7 exists because of this chapter.
 
 ---
 
-## 3.1 The question
+## 3.1 The idea
 
-A normal function type says nothing about values.
+A type is a promise. The question of this chapter is **how much** a promise may
+say.
+
+Start with the weakest useful promise. "This function takes a number and gives
+back a number." It rules out a great deal. It cannot rule out the one thing you
+usually care about, which is **the relation between what went in and what came
+out**. A function that always returns zero keeps that promise.
+
+Now the move. **Let the promise mention the argument.**
+
+"This function takes a list and a number `n`, and gives back a list of length
+`n`." The promise now speaks about a value that does not exist yet. When the
+value arrives, the promise becomes a specific one.
+
+That is a **dependent type**, and it is the whole chapter.
+
+### Three ways to see it
+
+Pick whichever one sticks. The second is the one to keep.
+
+**A promise that does arithmetic.** A function that adds an item to a list does
+not only return a list. It returns a list that is one longer than the one it
+got. Put the arithmetic in the type, and the checker checks the arithmetic.
+
+**A shelf of boxes.** Picture a shelf, with one box per length.
 
 ```
-Nat → Nat
+   length:      0        1        2        3        4     ...
+            ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
+            │      │ │      │ │      │ │      │ │      │
+            └──────┘ └──────┘ └──────┘ └──────┘ └──────┘
 ```
 
-It promises a number in and a number out. It cannot promise that the output is
-larger than the input, or that a list keeps its length.
+The shelf is a **family** of types. The number that picks a box is an
+[index](../GLOSSARY.md#index). The item type, which is the same on the whole
+shelf, is a [parameter](../GLOSSARY.md#parameter). A dependent function is one
+that takes a value and picks a box with it.
 
-Now look at a real Lean signature. It is from the library, and this is the
-output of `#check @Vector.push`:
+**A contract filled in at the call.** A signature is a blank contract. The
+argument writes a number into the blank, and the contract becomes a specific
+one. No mainstream language lets a run-time value hold the pen.
 
-```text
-@Vector.push : {α : Type u_1} → {n : Nat} → Vector α n → α → Vector α (n + 1)
-```
-
-Read the end of it. The result type is `Vector α (n + 1)`, and `n` is an
-**argument of the function**. The type of the result is computed from a value
-that arrives at run time.
-
-That is a **dependent type**, and the kernel's name for the form is a
-[Pi type](../GLOSSARY.md#pi-type). It is the whole chapter.
+So a type is no longer a fixed label. **A type is the result of a function from
+values to types.** Hold on to that sentence. It is the source of everything
+hard in this book, and of everything powerful.
 
 ---
 
-## 3.2 The new form
+## 3.2 In your language
+
+TypeScript gets closer to this than most people notice, and then stops at an
+exact place. The place is worth knowing, because it tells you what the chapter
+is really adding.
+
+**A result type that depends on an argument.** This is ordinary TypeScript:
+
+```ts
+declare function get<O, K extends keyof O>(o: O, k: K): O[K]
+
+const row = { a: 1, b: "x" }
+const n: number = get(row, "a")      // the result type came from the argument
+```
+
+Read the signature. The result type `O[K]` is computed from `k`, which is an
+argument. That is section 3.1, in your editor, today.
+
+**And here is the stop.** `tsc` could only do that because it knew the key
+while it checked. Hand it a key that arrives at run time:
+
+```ts
+declare const fromNetwork: string
+const bad = get(row, fromNetwork)
+```
+
+```text
+error TS2345: Argument of type 'string' is not assignable to parameter of
+type '"a" | "b"'.
+```
+
+TypeScript lifted `"a"` into a **literal type** and then computed with the
+type. It never computed with the value. A key that only exists while the
+program runs is a `string`, and a `string` carries nothing the type system can
+use.
+
+**One more near miss.** A tuple carries its length in its type, and an array
+does not:
+
+```ts
+type Len = (readonly ["a", "b", "c"])["length"]   // 3
+```
+
+So TypeScript can say "exactly three". It cannot say "as long as the number
+this function returns".
+
+| | can a type hold a run-time value? | where the limit is |
+|---|---|---|
+| TypeScript | no | a value must be known while `tsc` runs, as a literal type |
+| Rust, with `[T; N]` | no | `N` must be known when the program is built |
+| C++, with a template parameter | no | the same |
+| Lean, with `Vector α n` | **yes** | nothing. `n` may arrive at run time. |
+
+---
+
+## 3.3 The notation
 
 Write it like this.
 
@@ -51,8 +132,8 @@ Write it like this.
 Read it: "give me an `x` of type `A`, and I give you a `B`, and `B` may mention
 `x`".
 
-The name for this form is a **[Pi type](../GLOSSARY.md#pi-type)**. Two spellings of it
-hide in plain sight.
+The name for this form is a **[Pi type](../GLOSSARY.md#pi-type)**. Two
+spellings of it hide in plain sight.
 
 - When `B` ignores `x`, people write `A → B`. The arrow is the short form.
 - When `A` is a proposition, people write `∀ x : A, B`.
@@ -61,115 +142,53 @@ hide in plain sight.
 Lean has one node for it, and so does our checker. Every `→` you have ever
 written in Lean is a Pi type whose body ignores its binder.
 
-That single fact is why the language of chapter 2 stays so small.
+That single fact is why the language of chapter 2 stays so small. Chapter 2
+listed three term forms. This chapter adds one, and it is the fourth of six.
 
----
-
-## 3.3 Three ways to see it
-
-**As a promise that does arithmetic.** `push` does not only return a vector. It
-returns a vector whose length is one more than the one it got. The type carries
-the arithmetic, so the compiler checks the arithmetic.
-
-**As a family.** Think of `Vector Nat` as a shelf of boxes, one per length.
-The number that picks the box is an [index](../GLOSSARY.md#index), and the type that is
-fixed across the whole shelf is a [parameter](../GLOSSARY.md#parameter).
-`Vector Nat 3` is one box. A dependent function picks a box by the value you
-give it. The type is a function from values to types, and Lean says so:
-
-```text
-#check fun (n : Nat) => Vector Nat n
-fun n => Vector Nat n : Nat → Type
-```
-
-Read that output. `Nat → Type`. An ordinary function, and its results are
-types.
-
-**As the thing your language almost has.** Every mainstream language reaches for
-this and stops short.
-
-| Language | How far it gets | Where it stops |
-|---|---|---|
-| Rust | `[T; N]`, a length in the type | `N` must be known when the program is built |
-| C++ | a template parameter | the same. No run-time value may enter a type. |
-| TypeScript | a literal type, such as `"GET"` | types are erased and no arithmetic follows a value |
-| Lean | `Vector α n`, for any `n` | nothing. `n` may arrive at run time. |
-
-Keep the Rust row in mind. Rust can say "an array of 3". It cannot say "an array
-whose length is the number this function returns".
-
----
-
-### If you write TypeScript or Scala 3
-
-This is the chapter where your language gets closest and still stops.
-
-**Scala 3 has dependent function types.** This is from the language reference,
-and it is real Scala:
-
-```scala
-trait Entry { type Key; val key: Key }
-
-def extractKey(e: Entry): e.Key = e.key          // a dependent method
-val extractor: (e: Entry) => e.Key = extractKey  // a dependent function value
-```
-
-Read the result type, `e.Key`. It depends on the **argument**, which is exactly
-section 3.2. The limit is what it may depend on: `e.Key` is a type **member** of
-the argument. Lean's `Vector α n` depends on `n`, which is a number, and
-nothing stops it depending on a list, a function, or a proof.
-
-**TypeScript has the type-level half and not the value-level half.** A
-conditional type and a literal type let you compute with types that a value
-cannot reach. A tuple carries its length, and an `Array<T>` does not. So you can
-say "an array of exactly three" and not "an array as long as this function
-returns".
-
-**Effect shows why you want it.** `Effect<A, E, R>` tracks three facts about a
-program in its type, and every one of them is checked where you use it. A
-dependent type is the same move with no ceiling: the type may state **any**
-fact, and the proof is the term that satisfies it.
-
-| | can a type hold a run-time value? | type-level computation |
-|---|---|---|
-| TypeScript | no | conditional and mapped types, with a depth limit |
-| Scala 3 | a type **member** of an argument | match types, with a depth limit |
-| Lean | **yes**, any value | the same reduction the program uses |
-
----
-
-## 3.4 What it costs
-
-Here is the application rule, in words. You will see it again in chapter 5 as a
-rule of the calculus.
+The rule that makes it useful is the rule for a call, and it uses the one
+operation of chapter 2:
 
 ```
 if   f : (x : A) → B      and   a : A
 then f a : B[x := a]
 ```
 
-Look at the last line. The type of `f a` is **`B` with the argument
-substituted into it**. The [substitution](../GLOSSARY.md#substitution) of chapter 2,
-section 2.3, now runs inside types.
-
-So a checker for dependent types has to do something that no C compiler ever
-does: it has to compute with values while it checks types. Ask whether
-`Vector α (2 + 1)` and `Vector α 3` are the same type, and somebody has to add
-two and one.
-
-**That somebody is the kernel.** Chapter 7 is about exactly this, and
-[Part V of the guide](../README.md) is about what it costs in seconds.
+Read the last line. The type of `f a` is **`B` with the argument substituted
+into it**. The [substitution](../GLOSSARY.md#substitution) of chapter 2,
+section 2.3, now runs inside types. Section 3.5 says what that costs.
 
 ---
 
-## 3.5 Try it
+## 3.4 In Lean
 
-Each line below is real, and the output is what Lean prints.
+Here is the shelf of section 3.1, in the real library. This is the output of
+`#check`:
 
 ```lean
 #check @Vector.push
 -- {α : Type u_1} → {n : Nat} → Vector α n → α → Vector α (n + 1)
+```
 
+Read the end of it. The result type is `Vector α (n + 1)`, and `n` is an
+**argument of the function**. The type of the result is computed from a value
+that arrives at run time. That is `push` keeping a promise that does
+arithmetic.
+
+Now ask Lean to show you the shelf itself. A family of types is an ordinary
+function whose results are types, and Lean will say so:
+
+```lean
+#check fun (n : Nat) => Vector Nat n
+-- fun n => Vector Nat n : Nat → Type
+```
+
+Read that output. `Nat → Type`. A function from a number to a type. The last
+sentence of section 3.1, printed by the compiler.
+
+And here is a function that walks the shelf. It takes a length and builds a
+vector of that length:
+
+```lean
 def repeatN (α : Type) (a : α) : (n : Nat) → Vector α n
   | 0 => #v[]
   | n + 1 => (repeatN α a n).push a
@@ -178,41 +197,120 @@ def repeatN (α : Type) (a : α) : (n : Nat) → Vector α n
 -- (α : Type) → α → (n : Nat) → Vector α n
 ```
 
-Read the type of `repeatN`. It takes a number and gives back a vector of that
-length. The type checker already knows the length is right. There is no test to
-write for it.
+Read the type. It takes a number and gives back a vector of that length. The
+type checker already knows the length is right. There is no test to write for
+it.
 
 ---
 
-## 3.6 Check yourself
+## 3.5 What it costs
+
+A checker for dependent types has to do something that no C compiler ever does.
+**It has to compute with values while it checks types.**
+
+Ask whether `Vector α (2 + 1)` and `Vector α 3` are the same type. Somebody has
+to add two and one. That somebody is the kernel.
+
+```
+   the question    Vector α (2 + 1)   ≟   Vector α 3
+   the work        add 2 and 1
+   the answer      yes
+```
+
+Chapter 7 is about exactly this, and
+[Part VI of the guide](../README.md) is about what it costs in seconds. The
+cause is the one line of section 3.3, `f a : B[x := a]`. Let a type hold a
+value and a type checker becomes an evaluator.
+
+---
+
+### If you write TypeScript
+
+This is the chapter where your language gets closest and still stops.
+
+**You already write a dependent signature.** `get<O, K extends keyof O>(o, k):
+O[K]` from section 3.2 is one. So is any overload set, and so is any
+conditional return type. The result type depends on the argument.
+
+**The limit is always the same.** The value has to be known while `tsc` runs.
+TypeScript lifts a known value into a literal type and then computes in the
+type world. That world is separate, with its own rules and its own budget. A
+value from a network response never enters it. Chapter 7, section 7.4 is the
+same budget in a kernel.
+
+**Effect shows you why you want more.** `Effect<A, E, R>` tracks three facts
+about a program in its type. The compiler checks every one of them where you
+use it:
+
+```ts
+import { Effect } from "effect"
+
+const ok: Effect.Effect<number, never, never> = Effect.succeed(1)
+```
+
+A dependent type is that move with no ceiling. The type may state **any** fact,
+including a fact about a value, and the proof is the term that satisfies it.
+Where Effect gives you three fixed channels, Lean gives you one type and lets
+you write the fact yourself.
+
+| | a type that depends on a value | type-level computation | the ceiling |
+|---|---|---|---|
+| TypeScript | a literal type only | conditional, mapped and template literal types | `TS2589`, a work budget |
+| Effect | the same, with three named channels | the same | the same |
+| Lean | **any** value, at run time | the same reduction the program uses | a fuel limit the checker reports. Chapter 7. |
+
+---
+
+## 3.6 Try it
+
+Each line of section 3.4 is real Lean, and the comment after it is what Lean
+prints. Paste them into a file and run `lake env lean` on it, or open it in an
+editor with the Lean extension.
+
+Our own checker reaches the same place from the other side. It reads a file that
+Lean wrote, and that file holds a type whose index is a value:
+
+```sh
+devbox run -- cargo run -p rean -- check fixtures/lean4export/shapes.ndjson
+```
+
+[The ground truth](../11-the-ground-truth.md) says where that file comes from.
+For now, the point is that a second program agreed.
+
+---
+
+## 3.7 Check yourself
 
 1. `A → B` is the short form of what?
-2. Why can a Rust array length not do what `Vector α n` does?
+2. Why can a TypeScript lookup type not do what `Vector α n` does?
 3. The type of `f a` is `B[x := a]`. Which chapter 2 operation is that?
 
 ### Answers
 
 1. `(x : A) → B`, where `B` does not mention `x`. One term form, two spellings.
    `∀` is the third spelling.
-2. Because Rust needs the length when it builds the program. A Lean `n` may be
-   a value that only exists while the program runs.
+2. Because `tsc` needs the key while it checks, as a literal type. A Lean `n`
+   may be a value that only exists while the program runs.
 3. Substitution, from section 2.3. The one operation. Now it runs in types as
    well as terms.
 
 ---
 
-## 3.7 References
+## 3.8 References
 
 - *Theorem Proving in Lean 4*, on dependent function types.
   <https://lean-lang.org/theorem_proving_in_lean4/>
 - *The Lean Language Reference*, the type system, for the official rules.
   <https://lean-lang.org/doc/reference/latest/The-Type-System/>
-- Scala 3, dependent function types, for the example in section 3.3.
-  <https://docs.scala-lang.org/scala3/reference/new-types/dependent-function-types.html>
-- Scala 3, match types, for type-level computation with a limit.
-  <https://docs.scala-lang.org/scala3/reference/new-types/match-types.html>
-- TypeScript, conditional types, for the same half of the idea.
+- TypeScript, indexed access types, for `O[K]` in section 3.2.
+  <https://www.typescriptlang.org/docs/handbook/2/indexed-access-types.html>
+- TypeScript, conditional types, for the type-level half of the idea.
   <https://www.typescriptlang.org/docs/handbook/2/conditional-types.html>
+- Effect, the `Effect` type, for three facts in one type.
+  <https://effect.website/docs/getting-started/the-effect-type/>
+- Nederpelt and Geuvers, *Type Theory and Formal Proof*, chapter 7, for this
+  axis of the cube on its own.
+  <https://www.cambridge.org/core/books/type-theory-and-formal-proof/0472640AAD34E045C7F140B46A57A67C>
 - Dybjer, *Inductive families*, 1994, for the idea of a type indexed by a
   value. DOI [10.1007/BF01211308](https://doi.org/10.1007/BF01211308)
 - Brady, *Idris 2: Quantitative Type Theory in Practice*, 2021, for another

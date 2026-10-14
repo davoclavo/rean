@@ -267,7 +267,7 @@ Expr::Lam { binder_name, binder_type, body, info } => {
 ```
 
 A lambda gets a `Forall`. The shape goes in, and the same shape comes out one
-level up. This is the Curry-Howard idea of Part I chapter 1, section 1.3, written as
+level up. This is the Curry-Howard idea of Part I chapter 1, section 1.4, written as
 code.
 
 ### The application rule
@@ -428,7 +428,7 @@ shows both types.
 
 Read the `got` line once more. The second binder prints as `Prop →` and not as
 `(β : Prop) →`, because the inferred body never uses `β`. That is the arrow rule
-of Part I chapter 3, section 3.2 at work in the printer.
+of Part I chapter 3, section 3.3 at work in the printer.
 
 ---
 

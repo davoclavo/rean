@@ -1135,9 +1135,10 @@ Four differences are worth a sentence each.
   kernel, and the status is not. It is a debugging aid, and nobody ships a
   proof that rests on it.
 
-One last likeness. Rust and Haskell erase every type before the program runs,
-because nothing computes with a type. Lean erases a proof for the same reason.
-Chapter 27 is where that matters.
+One last likeness. TypeScript, Rust and Haskell erase every type before the
+program runs, because nothing computes with a type. Lean erases a proof for the
+same reason, and Lean can **prove** the reason. Chapter 27 is where that
+matters.
 
 ## 0.20 References
 
