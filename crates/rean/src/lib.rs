@@ -51,19 +51,21 @@ options for check and export:
   --no-check             export only, as `rean export` does
 
 two knobs, and they are coupled:
-  REAN_FUEL=<units>      work budget per declaration, default 40000000
+  REAN_FUEL=<units>      work budget per declaration. The default reads the
+                         size of the file: 20000000000 for a file of up to
+                         10000 declarations, and 40000000 above that
   REAN_STACK=<MiB>       stack for the checker, default 512
 
 A larger budget lets a reduction run longer, a longer reduction builds a
 deeper term, and a deeper term needs more stack to reduce. The kernel may
 use four fifths of the stack and then reports, rather than crashing.
 
-two more, for finding out why a declaration is expensive:
+three more, for finding out why a declaration is expensive:
   REAN_TALLY=1           count every rule the kernel fires, by name
   REAN_KERNEL_STACK=<MiB>  the kernel's allowance, held apart from the stack
   REAN_NAT_DEPTH=<levels>  how deep the arithmetic reader forces, default 16
 
-three more, for the front door:
+four more, for the front door:
   REAN_LEAN              the `lean` binary to use
   REAN_LEANEXPORT        the `lean4export` binary to use
   REAN_LEAN_PATH         extra directories of compiled `.olean` files

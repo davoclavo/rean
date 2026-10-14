@@ -57,9 +57,11 @@
 //!
 //! 1. It does not understand the auxiliary form that Lean builds, so it checks
 //!    the declaration as written.
-//! 2. An abbreviation can hide a negative occurrence. If `Bad X` unfolds to
-//!    `X → False`, then `Bad Tree` looks clean and is not. The check is
-//!    syntactic and does not unfold.
+//! 2. The check reads a shape, so it only ever sees the shape it is given.
+//!    `TypeChecker::check_positivity` reduces the binders of a constructor
+//!    type first, which is what stops an abbreviation from hiding an
+//!    occurrence. It does not reduce the **arguments** of an application, so
+//!    an occurrence inside `List (Bad Tree)` is refused rather than read.
 //!
 //! It still refuses `(Tree → False) → Tree`, which is the shape that proves
 //! `False` directly. Refusing that is worth more than skipping everything.

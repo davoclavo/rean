@@ -262,6 +262,10 @@ impl Declaration {
     ///
     /// Unlike [`Declaration::unfoldable_value`], this includes an `Opaque`
     /// value. Use it to ask what a declaration depends on, not to reduce.
+    ///
+    /// Opacity hides a value from the δ rule and from nothing else. So the
+    /// kernel still **checks** that value against the declared type, and the
+    /// evaluator still **runs** it. Both ask here.
     pub fn value(&self) -> Option<&Expr> {
         match self {
             Declaration::Definition(d) => Some(&d.value),

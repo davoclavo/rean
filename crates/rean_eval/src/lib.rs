@@ -278,7 +278,7 @@ impl<'e> Evaluator<'e> {
             .env
             .get(name)
             .ok_or_else(|| EvalError::Unknown(name.clone()))?;
-        match value_of(decl) {
+        match decl.value() {
             Some(body) => self.eval(&body.clone(), &Env::new()),
             // An axiom or an inductive type has nothing to run.
             None => Ok(Value::Opaque {
@@ -491,14 +491,19 @@ impl<'e> Evaluator<'e> {
             Declaration::Recursor(_) => self.recurse(name, args),
             Declaration::Quot(_) => self.quotient(name, args),
             // A definition, a theorem, or an opaque with a value.
-            _ => match value_of(decl) {
+            _ => match decl.value() {
                 Some(body) => {
                     let body = body.clone();
                     let head = self.eval(&body, &Env::new())?;
                     self.apply(head, args)
                 }
-                // An axiom, an inductive type, or an opaque that hides its
-                // value. Nothing to run, and nothing will look inside.
+                // An axiom or an inductive type. Nothing to run, and
+                // nothing will look inside.
+                //
+                // An `Opaque` takes the arm above, because it does have a
+                // value. Opacity hides that value from the kernel's δ rule,
+                // which is a statement about proofs. It does not mean the
+                // program cannot run it.
                 None => Ok(Value::Opaque {
                     head: name.clone(),
                     args,
@@ -646,7 +651,7 @@ impl Evaluator<'_> {
     ///
     /// So this asks **Lean's own function**, `String.toList`, and walks the
     /// list it gives back. The decoding that function does is real work, and
-    /// it is the `utf8DecodeChar` family that chapters 24 and 17 found so
+    /// it is the `utf8DecodeChar` family that chapters 24 and 25 found so
     /// expensive **to check**. Running it is cheap.
     ///
     /// A literal is still a literal, and that is the fast path.
@@ -859,20 +864,6 @@ impl Evaluator<'_> {
             args: Vec::new(),
         });
         self.apply(action, vec![world])
-    }
-}
-
-/// Returns the value that a declaration computes, if it has one.
-///
-/// An `Opaque` **is** included, unlike in the kernel's δ rule. Opacity hides a
-/// value from definitional equality, which is a statement about proofs. It does
-/// not mean the program cannot run it.
-fn value_of(decl: &Declaration) -> Option<&Expr> {
-    match decl {
-        Declaration::Definition(d) => Some(&d.value),
-        Declaration::Theorem(d) => Some(&d.value),
-        Declaration::Opaque(d) => Some(&d.value),
-        _ => None,
     }
 }
 
