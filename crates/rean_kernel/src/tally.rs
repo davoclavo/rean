@@ -12,7 +12,7 @@
 //!
 //! # Why it is permanent
 //!
-//! Chapters 21 and 15 each wrote an instrument, measured, and deleted it. The
+//! Chapters 21 and 23 each wrote an instrument, measured, and deleted it. The
 //! third time it was written, the lesson of chapter 23 section 23.3 was already
 //! paid for: **an instrument that watches one exit of three reports a fact about
 //! the instrument.** That bug cost hours, and it is the kind that a throwaway
