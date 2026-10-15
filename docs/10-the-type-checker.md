@@ -1,10 +1,10 @@
-# Chapter 9 — The type checker
+# Chapter 10 — The type checker
 
-> **Where you are.** Chapter 9 of 28, and the first of Part II in
+> **Where you are.** Chapter 10 of 28, and the first of Part II in
 > [the guide](README.md).
 >
 > **Before this.** [Part I](book/README.md), all eight chapters. This chapter
-> is Part I chapters 5 and 7, turned into code.
+> is Part I chapters 6 and 8, turned into code.
 >
 > **After it you can** read `infer_type` one arm at a time, and name the rule
 > each arm implements.
@@ -27,7 +27,7 @@ Every claim here has a test in `crates/rean_kernel/tests/typeck.rs`.
 
 ---
 
-## 9.1 The goal
+## 10.1 The goal
 
 One line. Does this proof prove this proposition?
 
@@ -56,12 +56,12 @@ the proposition lives in : Prop
 ```
 
 Read the last line. The proposition itself lives in `Prop`, not in `Type`. That
-is `imax 1 0 = 0` from Part I chapter 4, section 4.4, and now a running program
+is `imax 1 0 = 0` from Part I chapter 5, section 5.4, and now a running program
 computes it.
 
 ---
 
-## 9.2 The four pieces
+## 10.2 The four pieces
 
 | Piece | File | Job |
 |---|---|---|
@@ -82,7 +82,7 @@ says otherwise has not read one.
 
 ---
 
-## 9.3 `alpha_eq`: why `==` is not enough
+## 10.3 `alpha_eq`: why `==` is not enough
 
 Chapter 0, section 0.5 flagged this. `Expr::Lam` keeps a `binder_name` for the
 printer, and `PartialEq` is derived, so `==` compares that field:
@@ -106,7 +106,7 @@ real kernel normalizes a level expression first.
 
 ---
 
-## 9.4 `LocalContext`: opening a binder
+## 10.4 `LocalContext`: opening a binder
 
 To check `fun (x : A) => b`, the checker must look inside `b`. But `b` holds a
 loose `BVar 0` that points at the binder, and the binder is no longer there.
@@ -127,7 +127,7 @@ ctx.with_binder(name, ty, |ctx, id| {
 })
 ```
 
-`instantiate` and `abstract_fvar` are the pair from Part I chapter 2, section 2.6. This
+`instantiate` and `abstract_fvar` are the pair from Part I chapter 3, section 3.6. This
 is what they were for.
 
 Two properties matter:
@@ -140,7 +140,7 @@ Two properties matter:
 
 ---
 
-## 9.5 `whnf`: reduce the head
+## 10.5 `whnf`: reduce the head
 
 The name is short for weak head normal form:
 
@@ -148,7 +148,7 @@ The name is short for weak head normal form:
 - **Head** means it only reduces the outermost shape, and leaves the arguments
   alone.
 
-This version uses two of the seven rules of Part I chapter 7, section 7.2:
+This version uses two of the seven rules of Part I chapter 8, section 8.2:
 
 ```rust
 pub fn whnf(e: &Expr) -> Expr {
@@ -178,11 +178,11 @@ Note the ζ arm. It splits the application spine first, so
 
 There is no δ arm, because no constant has a value yet. The test
 `an_empty_environment_does_not_unfold_a_constant` records that, and it still
-passes: δ needs an environment, and chapter 10 is where one arrives.
+passes: δ needs an environment, and chapter 11 is where one arrives.
 
 ---
 
-## 9.6 `is_def_eq`: the same by computation
+## 10.6 `is_def_eq`: the same by computation
 
 ```
 cheap test  ->  reduce both sides  ->  compare the parts
@@ -211,9 +211,9 @@ Two cases need the recursive step:
 
 ---
 
-## 9.7 `infer_type`: one arm per rule
+## 10.7 `infer_type`: one arm per rule
 
-Each arm of the `match` is one rule of Part I chapter 5, section 5.3.
+Each arm of the `match` is one rule of Part I chapter 6, section 6.3.
 
 ### The sort rule
 
@@ -352,7 +352,7 @@ Three private constructors keep the call sites readable:
 
 ---
 
-## 9.8 The worked check, step by step
+## 10.8 The worked check, step by step
 
 Target: does `fun (α : Prop) (h : α) => h` have the type `(α : Prop) → α → α`?
 
@@ -369,14 +369,14 @@ Target: does `fun (α : Prop) (h : α) => h` have the type `(α : Prop) → α �
 
 Step 3 is worth a pause. `infer_sort(_f0)` returns 0, because the context says
 `α : Prop` and `Prop` is `Sort 0`. So `α` is a **type at level 0**. That is
-Part I chapter 4, section 4.3, and the checker now relies on it.
+Part I chapter 5, section 5.3, and the checker now relies on it.
 
 Step 8 is where `alpha_eq` earns its place. The inferred type and the target
 agree in every field except the binder name, and `==` would reject it.
 
 ---
 
-## 9.9 What the checker can prove now
+## 10.9 What the checker can prove now
 
 Every theorem of implicational logic, with no environment and no inductive type.
 Four tests record the headline cases.
@@ -397,7 +397,7 @@ hand.
 
 ---
 
-## 9.10 The errors
+## 10.10 The errors
 
 A checker is only as good as what it refuses. Eight tests cover the refusals.
 
@@ -428,16 +428,16 @@ shows both types.
 
 Read the `got` line once more. The second binder prints as `Prop →` and not as
 `(β : Prop) →`, because the inferred body never uses `β`. That is the arrow rule
-of Part I chapter 3, section 3.3 at work in the printer.
+of Part I chapter 4, section 4.3 at work in the printer.
 
 ---
 
-## 9.11 The gaps, and the test that records each one
+## 10.11 The gaps, and the test that records each one
 
 Each gap was a test that asserted the **wrong** answer on purpose. When chapter
 2 closed the gap, the test failed, and that was the reminder to flip it.
 
-| Gap | What chapter 10 closed it with |
+| Gap | What chapter 11 closed it with |
 |---|---|
 | the δ rule | `a_definition_unfolds_to_its_value` |
 | proof irrelevance | `proof_irrelevance_makes_two_proofs_equal` |
@@ -470,7 +470,7 @@ It checks two kinds of citation, because both rot the same way and neither is
 visible:
 
 - a **name** in backticks must be a `fn` or a `def` somewhere in the code;
-- a **section** a document points at, as "chapter 17, section 17.6" or as `§17.6`,
+- a **section** a document points at, as "chapter 18, section 18.6" or as `§18.6`,
   must be a heading of that chapter.
 
 `devbox run check` runs it, so a chapter that names a test nobody wrote, or a
@@ -481,9 +481,9 @@ chapter you read after this one is held to the same gate, and so is Part I.
 
 ---
 
-## 9.12 How other systems do it
+## 10.12 How other systems do it
 
-The four pieces of section 9.2 are not our invention. Every checker for a
+The four pieces of section 10.2 are not our invention. Every checker for a
 dependent type theory has them, under the same names or close ones.
 
 | Our name | Lean's name, and where | What differs |
@@ -491,7 +491,7 @@ dependent type theory has them, under the same names or close ones.
 | `alpha_eq` | `src/kernel/expr_eq_fn.cpp` | Lean compares a pointer first, and caches the answer |
 | `LocalContext` | `src/kernel/local_ctx.cpp` | the same idea: open a binder into a free variable |
 | `whnf` | `whnf` and `whnf_core`, in `src/kernel/type_checker.cpp` | Lean separates the cheap core from the part that unfolds a definition |
-| `is_def_eq` | `is_def_eq_core`, in the same file | Lean asks a cheap question first, and chapter 20 is us learning that |
+| `is_def_eq` | `is_def_eq_core`, in the same file | Lean asks a cheap question first, and chapter 21 is us learning that |
 | `infer_type` | `infer_type_core`, in the same file | Lean takes a flag, so it can skip a check it has already done |
 
 Four notes for a reader who knows another language.
@@ -503,21 +503,21 @@ Four notes for a reader who knows another language.
   it. The name for that is bidirectional typing.
 - **Agda and Idris do not substitute.** They build a closure, which is a term
   plus an environment, and they reduce that. A later chapter,
-  [what the others do](22-what-the-others-do.md), meets the same idea again, as
+  [what the others do](23-what-the-others-do.md), meets the same idea again, as
   normalisation by evaluation, in the fastest Lean checker in the arena.
 - **Rust needs none of this.** A Rust type cannot hold a value, so `rustc`
   never reduces a function call to decide whether two types are equal. The
   nearest thing it has is the normalisation of a type alias and of an
-  associated type. The conversion rule of Part I chapter 7, section 7.1 is what makes
+  associated type. The conversion rule of Part I chapter 8, section 8.1 is what makes
   a dependent checker a different animal.
 
-## 9.13 References
+## 10.13 References
 
 **Our code**
 
 - `crates/rean_kernel/src/typeck.rs`, `expr.rs`, `local.rs`
 - `crates/rean_kernel/tests/typeck.rs`, every claim of this chapter
-- `tools/cite.py`, the gate that section 9.11 describes
+- `tools/cite.py`, the gate that section 10.11 describes
 
 **Lean's own source**
 
@@ -528,7 +528,7 @@ Four notes for a reader who knows another language.
 **Read more**
 
 - Coquand, *An algorithm for type-checking dependent types*, 1996. The shape of
-  section 9.6. DOI [10.1016/0167-6423(95)00021-6](https://doi.org/10.1016/0167-6423%2895%2900021-6)
+  section 10.6. DOI [10.1016/0167-6423(95)00021-6](https://doi.org/10.1016/0167-6423%2895%2900021-6)
 - Abel, Öhman and Vezzosi, *Decidability of conversion for type theory in type
   theory*, 2018, for why the comparison ends.
   DOI [10.1145/3158111](https://doi.org/10.1145/3158111)
@@ -536,8 +536,8 @@ Four notes for a reader who knows another language.
   chapter does not use yet.
   DOI [10.1145/3450952](https://doi.org/10.1145/3450952)
 - Carneiro, *The Type Theory of Lean*, for the rule behind each arm of
-  section 9.7. <https://github.com/digama0/lean-type-theory>
+  section 10.7. <https://github.com/digama0/lean-type-theory>
 
 ---
 
-**Next:** [The environment and the five equations](10-the-environment.md)
+**Next:** [The environment and the five equations](11-the-environment.md)

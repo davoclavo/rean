@@ -1,9 +1,9 @@
-# Chapter 27 — A program that runs
+# Chapter 28 — A program that runs
 
-> **Where you are.** Chapter 27 of 28, Part VII of [the guide](README.md).
+> **Where you are.** Chapter 28 of 28, Part VII of [the guide](README.md).
 >
-> **Before this.** [The environment](10-the-environment.md), for the
-> reduction rules, and [the front door](24-the-front-door.md), which hands this
+> **Before this.** [The environment](11-the-environment.md), for the
+> reduction rules, and [the front door](25-the-front-door.md), which hands this
 > chapter its terms.
 >
 > **After it you can** say how a checker and a runtime differ, and why this one
@@ -40,11 +40,11 @@ of the 1,750 declarations the program rests on, and our evaluator runs it.
 
 ---
 
-## 27.1 Why this was reachable without a parser
+## 28.1 Why this was reachable without a parser
 
 The table expects stage 5 after stages 2 and 3, because that is the order a
 compiler runs in. But stage 5 does not need our parser or our elaborator. It
-needs an `Expr`, and chapter 24 built a front door that hands us the `Expr` of
+needs an `Expr`, and chapter 25 built a front door that hands us the `Expr` of
 any Lean program there is.
 
 So the order of the **work** is not the order of the pipeline:
@@ -59,7 +59,7 @@ So the order of the **work** is not the order of the pipeline:
 
 Two of the four stages are ours, and they are the two that this project is
 about: the one that decides whether a proof is correct, and the one that
-decides what a program does. The two in the middle are Lean's, and chapter 24
+decides what a program does. The two in the middle are Lean's, and chapter 25
 says so every time it prints a line.
 
 **The check is not optional.** `rean run` checks first and only the declarations
@@ -69,7 +69,7 @@ did.
 
 ---
 
-## 27.2 A different job from the kernel
+## 28.2 A different job from the kernel
 
 The kernel and the evaluator both reduce terms, and they are not the same
 program.
@@ -84,15 +84,15 @@ program.
 | numbers | a literal, with rules to keep it one | a machine integer, always |
 | budget | fuel, by nodes built | a step count, so a loop ends |
 
-The universe row is the one to sit with. Chapter 26 measured
-`instantiate_levels` at 7% of a profile, and chapter 24 found it rebuilding
+The universe row is the one to sit with. Chapter 27 measured
+`instantiate_levels` at 7% of a profile, and chapter 25 found it rebuilding
 every node of every value the δ rule unfolds. **The evaluator drops every
 universe argument on the floor**, because nothing it will ever do compares a
 `Sort`. A stage that asks a smaller question can afford a smaller machine.
 
 ---
 
-## 27.3 It is lazy, and that is not a taste
+## 28.3 It is lazy, and that is not a taste
 
 An argument becomes a thunk, and a thunk is forced at most once.
 
@@ -116,14 +116,14 @@ def fib : Nat → Nat
 Read naively, `fib 25` is 242,785 calls. It took **2,571 steps**.
 
 Lean compiles that recursion to `Nat.brecOn`, whose course-of-values table
-holds an answer for every smaller number, and chapter 25 showed what the table
+holds an answer for every smaller number, and chapter 26 showed what the table
 costs the **kernel**: `Nat.sub._f` unfolding a million times to build one. A
 lazy table computes only the entries somebody projects, so the exponential
 reading of `fib` becomes linear for free, and nobody wrote a memo table.
 
 ---
 
-## 27.4 Three bugs, and all three are the same bug
+## 28.4 Three bugs, and all three are the same bug
 
 The evaluator took a day and three of its failures were worth more than the
 code.
@@ -172,7 +172,7 @@ representation twice.
 
 ---
 
-## 27.5 What a primitive is, and why the list is short
+## 28.5 What a primitive is, and why the list is short
 
 Lean marks a handful of functions `@[extern]` and its compiler emits a call
 into C. A runtime has to do the same work somewhere, and ours does it here.
@@ -199,7 +199,7 @@ handing it that state, and nothing looks inside the token.
 
 ---
 
-## 27.6 What it runs
+## 28.6 What it runs
 
 Measured, on one program per row, each one compared with Lean's `#eval`.
 
@@ -220,7 +220,7 @@ The limits, named rather than implied:
 - A `String` built as a byte array needs `String.toList`, and the runtime asks
   for that **only if the program did**. Asking the exporter for it took one
   program from 4.6 MB to 16.9 MB and brought in the UTF-8 decoding family that
-  chapters 24 and 25 are about: ten declarations our kernel cannot check at the
+  chapters 25 and 26 are about: ten declarations our kernel cannot check at the
   default budget. The honest trade is to leave it out.
 - A number past a `u128` is reported and not wrapped, exactly as the kernel
   reports it. A Lean `Nat` has no upper bound and this does.
@@ -229,7 +229,7 @@ The limits, named rather than implied:
 
 ---
 
-## 27.7 What this is not
+## 28.7 What this is not
 
 It is a tree walking evaluator. Lean's stage 5 lowers to LCNF and then to C,
 and this is the step the roadmap put before that: "the kernel term becomes
@@ -242,7 +242,7 @@ runs it, and the output matches the output of the compiler that elaborated it.
 
 ---
 
-## 27.8 How other systems do it
+## 28.8 How other systems do it
 
 Stage 5 is the stage where Lean stops being a proof assistant and becomes a
 compiler, so this is the chapter with the most company.
@@ -267,20 +267,20 @@ Four notes.
 - **Laziness is older than this chapter.** Launchbury wrote the semantics in
   1993 and the Spineless Tagless G-machine is how a real lazy runtime is built.
   Haskell is lazy by default for the whole language. OCaml and Rust are strict
-  and offer a thunk when you ask. Lean is strict, and section 27.3 explains why
+  and offer a thunk when you ask. Lean is strict, and section 28.3 explains why
   **our** evaluator cannot be.
-- **The free memo table is worth one more look.** Section 19.3 gets `fib 25` in
+- **The free memo table is worth one more look.** Section 20.3 gets `fib 25` in
   2,571 steps rather than 242,785, because Lean compiled the recursion to
   `Nat.brecOn` and a lazy evaluator fills only the entries somebody reads. The
-  same table costs the **kernel** a million steps, chapter 25, section 25.4.
+  same table costs the **kernel** a million steps, chapter 26, section 26.4.
   One table, two stages, opposite results.
 
-## 27.9 References
+## 28.9 References
 
 **Our code**
 
 - `crates/rean_eval/src/lib.rs`, the evaluator
-- `crates/rean_eval/src/prim.rs`, the primitives of section 27.5
+- `crates/rean_eval/src/prim.rs`, the primitives of section 28.5
 - `crates/rean_eval/tests/run.rs` and `crates/rean/tests/programs.rs`, which
   check our output against Lean's own answers
 
@@ -319,4 +319,4 @@ lies it caught us accepting.
 
 ---
 
-**Next:** [The arena](28-the-arena.md)
+**Next:** [The arena](29-the-arena.md)

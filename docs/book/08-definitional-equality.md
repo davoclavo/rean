@@ -1,32 +1,31 @@
-# 7. Definitional equality
+# 8. Definitional equality
 
-> **Where you are.** Chapter 7 of 8 in Part I.
+> **Where you are.** Chapter 8 of 9 in Part I.
 >
-> **Before this.** Chapter [5](05-the-calculus-of-constructions.md) for the
-> conversion rule, and chapter [6](06-inductive-types.md) for ι.
+> **Before this.** Chapter [6](06-the-calculus-of-constructions.md) for the
+> conversion rule, and chapter [7](07-inductive-types.md) for ι.
 >
 > **This chapter adds** the relation `≡` that the conversion rule needs. It is
 > the hardest idea in the book and the one that makes a kernel large.
 >
-> **The four beats.** The idea is section 7.1. The notation is section 7.2.
-> Lean arrives at the end of section 7.2 and again in section 7.4, which is the
-> section to remember.
+> **The four beats.** The idea is section 8.1. The rule is section 8.2. The
+> code is section 8.8. Section 8.4 is the one to remember.
 >
-> **Do not skip ahead.** Chapter 8 is about trust, and the thing you end up
+> **Do not skip ahead.** Chapter 9 is about trust, and the thing you end up
 > trusting most is the relation defined here.
 
 ---
 
-## 7.1 The idea
+## 8.1 The idea
 
-Chapter 3 put values inside types. This chapter pays the bill.
+Chapter 4 put values inside types. This chapter pays the bill.
 
 **The idea in one line.** Two descriptions may name one thing, and a checker
 has to decide when they do.
 
 A picture. "Three" and "two plus one" are two descriptions. They name one
 number. A person settles that in a moment, by doing the arithmetic. **A type
-checker has to do the arithmetic too**, because chapter 3 let a type hold a
+checker has to do the arithmetic too**, because chapter 4 let a type hold a
 number.
 
 So here is the question of the chapter. A rule asks for a `Vector α 3`. You
@@ -36,9 +35,9 @@ They must be, else nothing works. So a checker needs a notion of "the same by
 computation", and that notion has a name,
 [definitional equality](../GLOSSARY.md#definitional-equality), written `≡`.
 
-**In your language.** You have already watched a compiler do this and run out
+**The data.** You have already watched a compiler do this and run out
 of patience. `tsc` reduces a conditional type, and `tsc` gives up at a budget.
-Section 7.4 is that budget inside a kernel, and the TypeScript section at the
+Section 8.4 is that budget inside a kernel, and the TypeScript section at the
 end shows the error with the real message.
 
 Now the thing to see clearly. There are **two** notions of sameness in this
@@ -50,7 +49,7 @@ book, and they are not the same notion.
 | written | `≡` | `=` |
 | costs | time | a proof |
 
-Section 7.3 is that table in full. Section 7.4 is the place where the two come
+Section 8.3 is that table in full. Section 8.4 is the place where the two come
 apart, and it is the one page of Part I that pays for itself a hundred times.
 
 The consequence for the design. **A proof checker holds an evaluator.** No
@@ -59,9 +58,9 @@ evaluator obeys, and the order in which it tries them.
 
 ---
 
-## 7.2 The notation, and the seven ways two terms can be the same
+## 8.2 The rule, and the seven ways two terms can be the same
 
-The conversion rule from section 5.3 is where `≡` is used:
+The conversion rule from section 6.3 is where `≡` is used:
 
 ```
    Γ ⊢ e : A      A ≡ B      Γ ⊢ B : Sort u
@@ -90,17 +89,15 @@ And Lean adds two more that are not reductions at all.
 | **[proof irrelevance](../GLOSSARY.md#proof-irrelevance)** | if `P : Prop` and `h₁ : P` and `h₂ : P`, then `h₁ ≡ h₂` |
 | **a projection** | `S.mk a b` has first field `a`, so reading it is one step |
 
-**In Lean.** Watch two of them run. Both lines below are accepted, and neither
-needs a tactic:
-
-```lean
-example (f : Nat → Nat) : (fun x => f x) = f := rfl      -- η
-example (p : Prop) (h1 h2 : p) : h1 = h2 := rfl          -- proof irrelevance
-```
+**Two of them, with nothing to prove.** Ask a real system whether
+`fun x => f x` is the same as `f`, and the answer is yes, by η alone. Ask it
+whether two proofs of one proposition are the same, and the answer is yes, by
+proof irrelevance alone. Neither question needs a step of reasoning from you.
+The kernel decides both while it checks the types.
 
 ---
 
-## 7.3 Two equalities, and this is the confusing part
+## 8.3 Two equalities, and this is the confusing part
 
 This table is the one to keep.
 
@@ -117,26 +114,21 @@ compute.
 
 ---
 
-## 7.4 Computation has a direction
+## 8.4 Computation has a direction
 
-Here is the example that teaches this chapter better than any rule. Both lines
-look alike. One is accepted and one is refused.
+Here is the example that teaches this chapter better than any rule. Two claims
+that look alike. Ask a real system to accept each one **by computation alone**,
+which is to say with no reasoning offered, and one of them is accepted and the
+other is refused.
 
-```lean
-example (n : Nat) : n + 0 = n := rfl      -- accepted
-example (n : Nat) : 0 + n = n := rfl      -- REFUSED
+```
+n + 0 = n        accepted
+0 + n = n        REFUSED
 ```
 
-The error is real, and this is what Lean prints:
-
-```text
-error: Type mismatch
-  rfl
-has type
-  ?m.9 = ?m.9
-but is expected to have type
-  0 + n = n
-```
+The refusal is not a near miss. The system reports a type mismatch: it was
+handed a proof that something equals **itself**, and the claim in front of it
+has a different term on each side.
 
 Why the difference? `Nat.add` recurses on its **second** argument. So:
 
@@ -146,14 +138,16 @@ Why the difference? `Nat.add` recurses on its **second** argument. So:
   **[stuck](../GLOSSARY.md#stuck)**, and `0 + n` and `n` are different terms.
 
 Both statements are true. Only one is true **by computation**. The other needs
-a proof, and the proof is induction, which chapter 6 told you is a recursion:
+a proof, and the proof is induction, which chapter 7 told you is a recursion.
+Two cases, and each one is a minor premise of the recursor:
 
-```lean
-example (n : Nat) : 0 + n = n := by
-  induction n with
-  | zero => rfl
-  | succ k ih => rw [Nat.add_succ, ih]
-```
+- for `zero`, the claim becomes `0 + 0 = 0`, and ι fires on both sides, so
+  computation finishes it;
+- for `succ k`, assume the claim for `k`, rewrite with the rule that moves a
+  successor out of the second slot, and the assumption closes it.
+
+That is the recursor of section 7.3 with a motive that **is** the claim. The
+word "induction" and the word "recursion" name one thing.
 
 If you remember one thing from Part I, remember this pair of lines. Half of the
 surprises in Lean are this pair wearing a different hat.
@@ -171,7 +165,7 @@ argument.** That sentence is true of both compilers.
 
 ---
 
-## 7.5 Weak head normal form
+## 8.5 Weak head normal form
 
 A checker almost never needs a full normal form. It needs to know **what shape
 the term has at the top**, so it can pick a rule. The tool for that is
@@ -188,7 +182,7 @@ The two words in the name are the two limits.
 - **Head** means it only reduces the outermost application, and leaves the
   arguments alone.
 
-An example. Our checker reduces this and stops:
+An example. A kernel reduces this and stops:
 
 ```
 (fun x => (fun y => y) x)   ⟶   itself
@@ -200,7 +194,7 @@ work.
 
 ---
 
-## 7.6 Three ways to see `≡`
+## 8.6 Three ways to see `≡`
 
 **As an evaluator with a stopwatch.** Run both sides a bit, and compare. The
 only question is how much work to do before you give up, and
@@ -217,7 +211,7 @@ checker is also an interpreter.
 
 ---
 
-## 7.7 Why the order of the questions matters
+## 8.7 Why the order of the questions matters
 
 The seven rules are not tried in any order. A real kernel asks the cheap
 questions first, and the order is close to this.
@@ -231,8 +225,8 @@ questions first, and the order is close to this.
 
 Each step is cheaper than the next. Lean's kernel uses this order, and our
 checker had to learn it. Two chapters of the implementation part,
-[compare before you unfold](../19-compare-before-you-unfold.md) and
-[ask the cheapest question first](../20-ask-the-cheapest-question.md), are that
+[compare before you unfold](../20-compare-before-you-unfold.md) and
+[ask the cheapest question first](../21-ask-the-cheapest-question.md), are that
 lesson with the measurements attached.
 
 ---
@@ -257,14 +251,15 @@ error TS2589: Type instantiation is excessively deep and possibly infinite.
 ```
 
 Read `Add` once more. That is **addition, in the type system**, written with
-recursion and pattern matching. It is section 7.2 with different names, and
+recursion and pattern matching. It is section 8.2 with different names, and
 `TS2589` is a work budget, hit.
 
 The difference is what happens when the budget runs out. `tsc` gives up on a
-**type** and the rest of your file still compiles. Our checker gives up on a
-**declaration** and says so, and later chapters measure that in seconds.
+**type** and the rest of your file still compiles. A proof checker gives up on
+a whole **declaration** and says so, and later chapters measure that in
+seconds.
 
-**You have met "stuck" too.** Section 7.4 already showed it: `IsString<T>`
+**You have met "stuck" too.** Section 8.4 already showed it: `IsString<T>`
 waits while `T` is open, and `0 + n` waits while `n` is a variable. Same
 behaviour, two compilers.
 
@@ -276,28 +271,60 @@ decision may involve running your program.
 | | reduces types | gives up at a limit | compares by |
 |---|---|---|---|
 | TypeScript | conditional, mapped and template literal types | `TS2589` | structure, after reduction |
-| Lean | β δ ι ζ η, and the two extra rules | `REAN_FUEL` here, and a recursion guard in Lean | [alpha equivalence](../GLOSSARY.md#alpha-equivalence), after reduction |
+| Lean | β δ ι ζ η, and the two extra rules | a recursion guard, and in some kernels a work budget | [alpha equivalence](../GLOSSARY.md#alpha-equivalence), after reduction |
 
 One honest difference, in Lean's favour and against it at once. `tsc` reduces a
 small type language with no values in it. Lean reduces **your program**, and a
-program can do anything. That is why chapter 7 is the hardest chapter and why
+program can do anything. That is why chapter 8 is the hardest chapter and why
 ten chapters of this book are about what it costs.
 
 ---
 
-## 7.8 Try it
+## 8.8 Try it
 
-The committed fixture holds the theorem `2 + 3 = 5`, exported from real Lean.
-Our kernel checks it, which means our kernel added two and three.
+Section 8.4 in a playground. Numbers as data, addition by recursion on the
+second argument, and a comparison that is **structural**, so it can only see
+what computation has already settled.
 
-```sh
-devbox run -- cargo run -p rean -- check fixtures/lean4export/shapes.ndjson
-devbox run -- cargo test -p rean_kernel --test typeck
+```ts
+type Nat = { k: "zero" } | { k: "succ"; of: Nat } | { k: "var"; name: string }
+
+const zero: Nat = { k: "zero" }
+const succ = (of: Nat): Nat => ({ k: "succ", of })
+const v = (name: string): Nat => ({ k: "var", name })
+
+// add recurses on its SECOND argument. This is the whole of section 8.4.
+function add(a: Nat, b: Nat): Nat {
+  switch (b.k) {
+    case "zero": return a                     // ι fires
+    case "succ": return succ(add(a, b.of))    // ι fires
+    case "var": return { k: "var", name: `add ${show(a)} ${b.name}` } // stuck
+  }
+}
+
+const show = (t: Nat): string =>
+  t.k === "zero" ? "0" : t.k === "succ" ? `succ(${show(t.of)})` : t.name
+
+const same = (a: Nat, b: Nat) => JSON.stringify(a) === JSON.stringify(b)
+
+const n = v("n")
+console.log(same(add(n, zero), n))  // true.  n + 0 reduced to n.
+console.log(same(add(zero, n), n))  // false. 0 + n is stuck.
 ```
+
+Two lines of output, and they are the pair from section 8.4. Nothing about the
+second one is a defect. `add` looks at its second argument, that argument is a
+variable, no rule applies, and the term stops. The two sides are then different
+data, so a structural comparison says no, correctly.
+
+Then swap the two cases of `add` so that it recurses on its **first** argument,
+and watch the two answers trade places. Which of the two claims holds by
+computation is a fact about how somebody wrote the addition, and not a fact
+about arithmetic. That sentence is the chapter.
 
 ---
 
-## 7.9 Check yourself
+## 8.9 Check yourself
 
 1. Why does a proof checker need an evaluator inside it?
 2. `rfl` proves `n + 0 = n` and not `0 + n = n`. Why?
@@ -314,12 +341,12 @@ devbox run -- cargo test -p rean_kernel --test typeck
 
 ---
 
-## 7.10 References
+## 8.10 References
 
 - Coquand, *An algorithm for type-checking dependent types*, 1996. The shape of
-  section 7.7. DOI [10.1016/0167-6423(95)00021-6](https://doi.org/10.1016/0167-6423%2895%2900021-6)
+  section 8.7. DOI [10.1016/0167-6423(95)00021-6](https://doi.org/10.1016/0167-6423%2895%2900021-6)
 - Abel, Öhman and Vezzosi, *Decidability of conversion for type theory in type
-  theory*, 2018, for why the search in section 7.6 ends.
+  theory*, 2018, for why the search in section 8.6 ends.
   DOI [10.1145/3158111](https://doi.org/10.1145/3158111)
 - Gilbert, Cockx, Sozeau and Tabareau, *Definitional proof-irrelevance without
   K*, 2019, for the price of the sixth rule.
@@ -332,10 +359,8 @@ devbox run -- cargo test -p rean_kernel --test typeck
 - Rocq, the conversion rules, for the same Greek letters in another kernel.
   <https://rocq-prover.org/doc/master/refman/language/core/conversion.html>
 - Lean's own source. `src/kernel/type_checker.cpp` holds `whnf` and
-  `is_def_eq_core`, and the order of section 7.7 is the order of that function.
-- Our code. `crates/rean_kernel/src/typeck.rs`, and
-  [the environment chapter](../10-the-environment.md) walks every rule.
+  `is_def_eq_core`, and the order of section 8.7 is the order of that function.
 
 ---
 
-**Next:** [8. What you must trust](08-what-you-must-trust.md)
+**Next:** [9. What you must trust](09-what-you-must-trust.md)

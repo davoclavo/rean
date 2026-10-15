@@ -1,6 +1,6 @@
-# Chapter 11 — The ground truth
+# Chapter 12 — The ground truth
 
-> **Where you are.** Chapter 11 of 28, in Part III of [the guide](README.md).
+> **Where you are.** Chapter 12 of 28, in Part III of [the guide](README.md).
 >
 > **Before this.** Part II, both chapters. You need an environment to read a
 > file into.
@@ -44,7 +44,7 @@ from a file that the real Lean wrote. That is the level 1 checkpoint of
 
 ---
 
-## 11.1 What `lean4export` is for
+## 12.1 What `lean4export` is for
 
 Chapter 0, section 0.16 described the De Bruijn criterion. The elaborator, the
 macro system, and every tactic are **untrusted**, because the kernel re-checks
@@ -59,7 +59,7 @@ same bug is small.
 
 ---
 
-## 11.2 The format
+## 12.2 The format
 
 NDJSON. One JSON object per line. The first line is a `meta` object with three
 version numbers. Every later line defines one object at an index, and refers to
@@ -84,7 +84,7 @@ term. A line with none of those three is a declaration.
 
 ---
 
-## 11.3 Four facts that came from the file, not the document
+## 12.3 Four facts that came from the file, not the document
 
 The format document answers none of these. A real file answers all four in a
 minute.
@@ -105,7 +105,7 @@ levels.insert(0, Level::Zero);
 
 The test is `index_zero_is_implicit_for_names_and_levels`.
 
-## 11.4 Two places where the document is wrong for this file
+## 12.4 Two places where the document is wrong for this file
 
 | Thing | The document says | The file says |
 |---|---|---|
@@ -127,7 +127,7 @@ JSON key order also varies from line to line, so the reader never depends on it.
 
 ---
 
-## 11.5 Our `Expr` already matched
+## 12.5 Our `Expr` already matched
 
 The term layer needed no translation. Every former lines up:
 
@@ -157,7 +157,7 @@ section 0.14 predicted that. A finished declaration holds neither.
 
 ---
 
-## 11.6 The harness
+## 12.6 The harness
 
 ```rust
 let mut known = Environment::new();
@@ -182,7 +182,7 @@ the whole point. It turns every later chapter into a measurable step.
 
 ---
 
-## 11.7 What the fixture found that hand-written tests did not
+## 12.7 What the fixture found that hand-written tests did not
 
 The fixture is the transitive closure of one theorem: 32 declarations, 103
 names, 15 levels, 434 terms. It covers an inductive declaration, a recursor
@@ -242,7 +242,7 @@ what it guards.
 
 ---
 
-## 11.8 What is still missing
+## 12.8 What is still missing
 
 The fixture passes, and the checker is still not one you should trust.
 
@@ -263,7 +263,7 @@ will break a test and that is the reminder.
 
 ---
 
-## 11.9 How to get a bigger fixture
+## 12.9 How to get a bigger fixture
 
 `fixtures/lean4export/PROVENANCE.md` has the details. The short version:
 `lean4` 4.30.0 is in devbox, and `lean4export` master pins v4.35.0-rc4, so it
@@ -278,7 +278,7 @@ pass rate will drop a long way, and that is the point.
 
 ---
 
-## 11.10 Exercises
+## 12.10 Exercises
 
 1. The reader rejects an unknown format version. Argue for and against accepting
    it with a warning instead.
@@ -311,7 +311,7 @@ pass rate will drop a long way, and that is the point.
 
 ---
 
-## 11.11 How other systems do it
+## 12.11 How other systems do it
 
 Every system that wants a second opinion needs a file that a second program can
 read. The designs differ in one choice: text that anybody can parse, or an image
@@ -330,15 +330,15 @@ Two notes.
 - **The format is boring on purpose.** One object per line, and a reference is
   an index into what came before. There is no name resolution, no notation and
   no implicit argument left to work out. That is what makes a second checker
-  possible in a weekend, and it is why chapter 19 can cut a file in half with
+  possible in a weekend, and it is why chapter 20 can cut a file in half with
   `tools/slice.py` and still have a valid module. The later chapters call that
   cut a **slice**, and it is how one failing declaration gets looked at alone.
-- **A version check is not a formality.** Section 3.4 shows the format
+- **A version check is not a formality.** Section 4.4 shows the format
   document describing a newer format than the file. The reader refuses a
   version it does not know, because a silent guess about a format is how a
   checker says yes to something it never read.
 
-## 11.12 References
+## 12.12 References
 
 **Our code**
 
@@ -353,7 +353,7 @@ Two notes.
 - `lean4checker`, Lean re-checking its own library from outside the compiler.
   <https://github.com/leanprover/lean4checker>
 - `src/LeanExport.lean` and `src/LeanChecker.lean` in the Lean source. Recent
-  toolchains ship both as binaries, which is why chapter 25 can time Lean's own
+  toolchains ship both as binaries, which is why chapter 26 can time Lean's own
   kernel on the same machine.
 
 **Read more**
@@ -371,4 +371,4 @@ Two notes.
 
 ---
 
-**Next:** [Making it work](12-making-it-work.md)
+**Next:** [Making it work](13-making-it-work.md)

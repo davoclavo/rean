@@ -1,6 +1,6 @@
-# Chapter 16 — The frontend
+# Chapter 17 — The frontend
 
-> **Where you are.** Chapter 16 of 28, Part V of [the guide](README.md). It
+> **Where you are.** Chapter 17 of 28, Part V of [the guide](README.md). It
 > stands alone.
 >
 > **Before this.** Part I chapter [1](book/01-a-proof-is-a-program.md), and
@@ -23,7 +23,7 @@ devbox run -- cargo test -p rean_lexer
 
 ---
 
-## 16.1 Why the frontend is a separate story
+## 17.1 Why the frontend is a separate story
 
 A C compiler owns its grammar. The keywords are in the lexer, the precedence is
 in the parser, and no program can change either.
@@ -42,7 +42,7 @@ That single fact shapes everything in this chapter.
 
 ---
 
-## 16.2 The shared vocabulary
+## 17.2 The shared vocabulary
 
 Three types that every later stage speaks. They live in `rean_core`.
 
@@ -61,7 +61,7 @@ Three reasons, and all three come up later:
   string. And the real Lean export is full of them: `Nat.add.match_1`,
   `Nat.brecOn.go`.
 - A `Syntax` node kind is **also** a `Name`. One type serves both jobs. See
-  section 16.6.
+  section 17.6.
 
 ### `Span`: a byte range
 
@@ -90,7 +90,7 @@ bag.push(Diagnostic::error(span, "unexpected character"));
 
 That one rule has a consequence that reaches all the way into the tree. If the
 parser must carry on after an error, it needs something to put in the hole. That
-is why `Syntax` has a `Missing` node. Section 8.6.
+is why `Syntax` has a `Missing` node. Section 9.6.
 
 The renderer prints the source line and a caret bar under the span:
 
@@ -108,12 +108,12 @@ line. A test holds that too.
 
 ---
 
-## 16.3 `TokenTable`: the lexer has no keyword list
+## 17.3 `TokenTable`: the lexer has no keyword list
 
 This is the idea worth the chapter.
 
 A C lexer holds its keywords in a `match`. A Lean lexer cannot, because of the
-`infixl` line in section 16.1. So the lexer holds **no** keyword list. It asks a
+`infixl` line in section 17.1. So the lexer holds **no** keyword list. It asks a
 table, and the table can grow:
 
 ```rust
@@ -194,7 +194,7 @@ adds the symbols and watches the count drop to zero.
 
 ---
 
-## 16.4 Which characters make a name
+## 17.4 Which characters make a name
 
 Lean lets you write `α`, `Γ₀`, and `𝒞` as ordinary identifiers, so the lexer
 needs explicit Unicode ranges:
@@ -226,7 +226,7 @@ tests.
 
 ---
 
-## 16.5 The lexer, and the rule that no error stops it
+## 17.5 The lexer, and the rule that no error stops it
 
 `rean_lexer` produces ten kinds of token:
 
@@ -257,7 +257,7 @@ So `p.1` lexes as three tokens, because `1` is not a name part and `p.1` is a
 projection. The test is `a_dot_before_a_digit_stays_separate`.
 
 **A number keeps its digits as text.** `Nat { radix, digits: Arc<str> }`, not a
-machine integer, because a Lean `Nat` has no upper bound. Chapter 12 found out
+machine integer, because a Lean `Nat` has no upper bound. Chapter 13 found out
 how much that choice matters, and the export format made the same one.
 
 **A doc comment is a token, and a block comment is not.** Both nest. The
@@ -284,7 +284,7 @@ not only the first.
 
 ---
 
-## 16.6 `Syntax`: one lossless tree
+## 17.6 `Syntax`: one lossless tree
 
 Most compilers give each construct its own struct. Lean has **one** tree type
 with four cases:
@@ -327,7 +327,7 @@ server can work from it. `rean demo` shows the shape:
 Note the `"("` and the `")"`. A tree that threw them away could not print the
 program back.
 
-**`Missing` is the repair.** Section 8.2 said no stage stops at the first error.
+**`Missing` is the repair.** Section 9.2 said no stage stops at the first error.
 This is where that lands. The parser reports a diagnostic, puts `Missing` in the
 hole, and carries on. Then `has_missing` walks the tree:
 
@@ -350,7 +350,7 @@ stays open to extension, and the elaborator carries the cost.
 
 ---
 
-## 16.7 What is missing
+## 17.7 What is missing
 
 | Missing | Effect |
 |---|---|
@@ -361,7 +361,7 @@ stays open to extension, and the elaborator carries the cost.
 The first row is the one that matters. **The lexer and the kernel are two
 islands, and nothing crosses between them.** Nothing you write in a `.lean`
 file reaches `infer_type`. The kernel's input comes from a `lean4export` file,
-which chapter 11 explains, or from Rust written by hand.
+which chapter 12 explains, or from Rust written by hand.
 
 That is why `rean demo` labels its stage 2 output "hand built". It shows the
 shape a parser must produce. It is not a parser.
@@ -379,7 +379,7 @@ examples/universes.lean
 
 ---
 
-## 16.8 Exercises
+## 17.8 Exercises
 
 1. `is_id_first` and `is_id_rest` are two functions. Give a name that needs the
    difference, and say what breaks if there is only one function.
@@ -411,13 +411,13 @@ examples/universes.lean
 6. Because the table is the **starting** set, not the language. A `notation` or
    `syntax` command adds to it while the file is read, so the number is only
    what Lean's own prelude would have inserted before any user code runs. See
-   section 16.3.
+   section 17.3.
 
 ---
 
-## 16.9 How other systems do it
+## 17.9 How other systems do it
 
-The idea of section 16.3 is rare. Most languages fix the token set and the
+The idea of section 17.3 is rare. Most languages fix the token set and the
 grammar when the compiler is built. Here is the spread.
 
 | Language | Can a program add an operator? | Can it add a **token**? | Can it add a grammar rule? |
@@ -441,13 +441,13 @@ Four notes.
   expands into a binder must not capture a name from the call site. Lean
   carries a macro scope on each identifier for that, and the paper *Beyond
   Notations* is the reference.
-- **One tree type, not one struct per construct.** Section 8.6 explains why:
+- **One tree type, not one struct per construct.** Section 9.6 explains why:
   a `syntax` command declares a node kind at run time, so the kind has to be a
   `Name` and not a Rust enum variant. Lean declares the same four cases in
   `src/Init/Prelude.lean`, and every tool downstream, the pretty printer and
   the language server among them, depends on the tree keeping every atom.
 
-## 16.10 References
+## 17.10 References
 
 **Our code**
 
@@ -474,7 +474,7 @@ Four notes.
   hygiene costs. <https://arxiv.org/abs/2001.10490>
 - Ullrich, *An Extensible Theorem Proving Frontend*, 2023, for the long form,
   with the parser in full. <https://lean-lang.org/papers/thesis-sebastian.pdf>
-- Pratt, *Top down operator precedence*, 1973, for the parser that section 16.7
+- Pratt, *Top down operator precedence*, 1973, for the parser that section 17.7
   says is missing. DOI [10.1145/512927.512931](https://doi.org/10.1145/512927.512931)
 - Flatt, *Composable and compilable macros*, 2002, for the other language whose
   reader a program may replace.
@@ -486,4 +486,4 @@ Four notes.
 
 ---
 
-**Next:** [Structures, and what the kernel costs](17-structures-and-cost.md), which opens the lab notebook
+**Next:** [Structures, and what the kernel costs](18-structures-and-cost.md), which opens the lab notebook

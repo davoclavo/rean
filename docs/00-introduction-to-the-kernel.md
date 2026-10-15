@@ -1,10 +1,15 @@
 # Chapter 0 — The foundations, in one file
 
 > **This is the appendix, and not the first read.**
-> [Part I of the book](book/README.md) is this same material in eight short
+> [Part I of the book](book/README.md) is this same material in nine short
 > chapters, with more examples, a `Try it` section each, and three questions at
 > the end of each one. A first-time reader should start there and be kind to
 > themselves.
+>
+> **This file shows Lean syntax, and Part I does not.** Part I teaches every
+> idea in TypeScript, so that a reader meets no new language while they meet a
+> new idea. This file is the dense reference for somebody who already holds the
+> ideas, so it uses the syntax of the system it describes.
 >
 > **Read this file when** you want every rule in one place, or when a later
 > chapter points at a section of it.
@@ -162,7 +167,7 @@ One warning about our code. `Expr::Lam` still keeps a `binder_name` field, and
 Expr::lam("x", nat(), Expr::bvar(0)) != Expr::lam("y", nat(), Expr::bvar(0))
 ```
 
-The name exists only for the printer. A real `is_def_eq` must skip it. Chapter 9
+The name exists only for the printer. A real `is_def_eq` must skip it. Chapter 10
 adds `alpha_eq` for that job.
 
 ---
@@ -975,7 +980,7 @@ trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
   the compiler's own evaluation rather than the kernel's. `native_decide` uses
   them, and a proof that rests on one asks you to trust the compiler too.
 
-`#print axioms myTheorem` lists which ones a theorem uses. Chapter 14 adds the
+`#print axioms myTheorem` lists which ones a theorem uses. Chapter 15 adds the
 same report here, as `Environment::axioms_of`.
 
 ---
@@ -1048,7 +1053,7 @@ trust: no accepted declaration rests on an axiom
 
 Two fixtures, 95 declarations of real Lean, every one checked. See
 [the roadmap](ROADMAP.md) for what is still missing, and
-[chapter 15](15-mutual-and-nested.md) section 15.5 for the inventory.
+[chapter 16](16-mutual-and-nested.md) section 16.5 for the inventory.
 
 ### Where to read next
 
@@ -1056,9 +1061,9 @@ Two fixtures, 95 declarations of real Lean, every one checked. See
 |---|---|
 | this material slowly, with examples and exercises | [Part I of the book](book/README.md) |
 | the whole reading order, part by part | [the guide](README.md) |
-| the code that runs these rules | [the type checker](09-the-type-checker.md) |
-| every rule the environment adds | [the environment](10-the-environment.md) |
-| the first stage of the pipeline, which needs none of this | [the frontend](16-the-frontend.md) |
+| the code that runs these rules | [the type checker](10-the-type-checker.md) |
+| every rule the environment adds | [the environment](11-the-environment.md) |
+| the first stage of the pipeline, which needs none of this | [the frontend](17-the-frontend.md) |
 
 ---
 
@@ -1125,7 +1130,7 @@ Four differences are worth a sentence each.
   Section 0.9 is where that choice shows.
 - **Proof irrelevance.** Lean puts it in the kernel, for `Prop` itself. Rocq
   gives it to a second sort, `SProp`, because adding it to `Prop` breaks other
-  things that Rocq wants. Chapter 10, section 10.7 implements the rule and finds
+  things that Rocq wants. Chapter 11, section 11.7 implements the rule and finds
   the bug it exposes.
 - **A solver in place of a kernel.** A tool such as Dafny or F★ sends the hard
   part to an SMT solver. That is powerful, and it ends the De Bruijn criterion:
@@ -1137,7 +1142,7 @@ Four differences are worth a sentence each.
 
 One last likeness. TypeScript, Rust and Haskell erase every type before the
 program runs, because nothing computes with a type. Lean erases a proof for the
-same reason, and Lean can **prove** the reason. Chapter 27 is where that
+same reason, and Lean can **prove** the reason. Chapter 28 is where that
 matters.
 
 ## 0.20 References

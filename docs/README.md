@@ -3,8 +3,8 @@
 This is a book about one question: **how does a computer check a proof?**
 
 It answers the question by building the thing. Part I is the theory that Lean 4
-rests on. Parts II to VII build a working proof checker in Rust, point it at the
-real Lean library, and measure what it costs.
+rests on, and it is written in TypeScript. Parts II to VII build a working proof
+checker in Rust, point it at the real Lean library, and measure what it costs.
 
 Start at [Part I chapter 1](book/01-a-proof-is-a-program.md). It assumes
 nothing.
@@ -17,16 +17,23 @@ nothing.
 is not a suggestion, and the table in section 4 says exactly what you miss if
 you jump.
 
-**With the commands.** Every chapter has a `Try it` section. Run it. A rule you
-have watched run is a rule you keep.
+**In a language you already read.** Part I holds no Lean syntax and no code of
+ours. Every idea in it arrives as a TypeScript type and one short function, so
+you can read the whole theory before you meet a new language. Lean syntax
+arrives in chapter 12, where a file that the real Lean wrote arrives with it.
+
+**With the `Try it` section.** Every chapter has one. In Part I it is TypeScript
+you can paste into a playground, and it ends by telling you what to break. From
+chapter 10 on it is a command line. Run it either way. A rule you have watched
+run is a rule you keep.
 
 **Kindly.** Nothing here is obvious. Where a part is hard, it says so. Where a
 question catches everybody, it is answered rather than avoided.
 
-**One note on numbers.** The chapters run from 1 to 29 with no repeats.
-Part I holds 1 to 8 and lives in `docs/book/`. The chapters that build the
-checker hold 9 to 29. A reference into Part I is written in full, as
-"Part I chapter 4", because Part I sits in a folder of its own.
+**One note on numbers.** The chapters run from 1 to 30 with no repeats.
+Part I holds 1 to 9 and lives in `docs/book/`. The chapters that build the
+checker hold 10 to 30. A reference into Part I is written in full, as
+"Part I chapter 5", because Part I sits in a folder of its own.
 
 **If you write TypeScript.** You already use most of the ideas here under other
 names. The glossary opens with a table that maps them:
@@ -37,9 +44,9 @@ conditional type, the `tsc` error `TS2589`, or the three channels of
 `Effect<A, E, R>`.
 
 **How Part I is built.** Every section of Part I runs the same four beats:
-**the idea** in plain words, then **in your language**, then **the notation**,
-then **in Lean**. An abstract idea comes before a formula, and a formula comes
-before Lean syntax, with no exceptions.
+**the idea** in plain words, then **the data** as a type, then **the code** as
+one short function, then **the rule** as notation. An idea comes before a type,
+a type comes before code, and code comes before a formula, with no exceptions.
 [The contents of Part I](book/README.md) states the method and names the seven
 books it comes from.
 
@@ -81,53 +88,58 @@ That is why this book builds stage 4 first.
 
 ### Part I — The ideas. Read this first.
 
-Eight short chapters, and no code of ours. This is the Calculus of Inductive
-Constructions, which is the theory Lean's kernel implements.
+Nine short chapters. No Lean syntax, and no code of ours. This is the Calculus
+of Inductive Constructions, which is the theory Lean's kernel implements, and
+every type in it is a TypeScript type you can paste into a playground.
 
 | # | Chapter | Adds |
 |---|---|---|
 | 1 | [A proof is a program](book/01-a-proof-is-a-program.md) | propositions as types |
-| 2 | [Terms, binders, and names you do not need](book/02-terms-and-binders.md) | the language, substitution, de Bruijn indices |
-| 3 | [Types that depend on values](book/03-types-that-depend-on-values.md) | the Pi type |
-| 4 | [Prop, Type, and Sort](book/04-prop-type-and-sort.md) | the universes, and `imax` |
-| 5 | [The Calculus of Constructions](book/05-the-calculus-of-constructions.md) | the five rules, and the limit they hit |
-| 6 | [Inductive types, and the I in CoIC](book/06-inductive-types.md) | data, logic, recursors, ι, positivity |
-| 7 | [Definitional equality](book/07-definitional-equality.md) | the relation the kernel decides, and `whnf` |
-| 8 | [What you must trust](book/08-what-you-must-trust.md) | the kernel, the axioms, the second opinion |
+| 2 | [Every type the kernel has](book/02-every-type-the-kernel-has.md) | the five types the whole job is written in |
+| 3 | [Terms, binders, and names you do not need](book/03-terms-and-binders.md) | the language, substitution, de Bruijn indices |
+| 4 | [Types that depend on values](book/04-types-that-depend-on-values.md) | the Pi type |
+| 5 | [Prop, Type, and Sort](book/05-prop-type-and-sort.md) | the universes, and `imax` |
+| 6 | [The Calculus of Constructions](book/06-the-calculus-of-constructions.md) | the five rules, and the limit they hit |
+| 7 | [Inductive types, and the I in CoIC](book/07-inductive-types.md) | data, logic, recursors, ι, positivity |
+| 8 | [Definitional equality](book/08-definitional-equality.md) | the relation the kernel decides, and `whnf` |
+| 9 | [What you must trust](book/09-what-you-must-trust.md) | the kernel, the axioms, the second opinion |
 
 [The contents of Part I](book/README.md) hold the dependency chain in one
 picture.
 
 ### Part II — The kernel, built
 
-Now the code. These two chapters turn Part I into a program that checks a
-proof.
+Now the code, and it is Rust. These two chapters turn Part I into a program that
+checks a proof.
 
 | # | Chapter | Adds |
 |---|---|---|
-| 9 | [The type checker](09-the-type-checker.md) | `alpha_eq`, the local context, `whnf`, `is_def_eq`, `infer_type` |
-| 10 | [The environment and the five equations](10-the-environment.md) | a name with a value, δ, ι, η, proof irrelevance, projections |
+| 10 | [The type checker](10-the-type-checker.md) | `alpha_eq`, the local context, `whnf`, `is_def_eq`, `infer_type` |
+| 11 | [The environment and the five equations](11-the-environment.md) | a name with a value, δ, ι, η, proof irrelevance, projections |
 
 ### Part III — Meeting the real Lean
 
+Lean syntax starts here, because the input of chapter 12 is a file that the real
+Lean wrote.
+
 | # | Chapter | Adds |
 |---|---|---|
-| 11 | [The ground truth](11-the-ground-truth.md) | reading a file that the real Lean wrote |
-| 12 | [Making it work](12-making-it-work.md) | `Nat` literals, K-like ι, quotients, strict positivity in code |
+| 12 | [The ground truth](12-the-ground-truth.md) | reading a file that the real Lean wrote |
+| 13 | [Making it work](13-making-it-work.md) | `Nat` literals, K-like ι, quotients, strict positivity in code |
 
 ### Part IV — Making it trustworthy
 
 | # | Chapter | Adds |
 |---|---|---|
-| 13 | [What a checker must check](13-what-a-checker-must-check.md) | a crafted proof of `False`, and the check that stops it |
-| 14 | [What a theorem rests on](14-what-a-theorem-rests-on.md) | the axiom report, and unsafe isolation |
-| 15 | [Mutual and nested](15-mutual-and-nested.md) | a group of types that refer to each other |
+| 14 | [What a checker must check](14-what-a-checker-must-check.md) | a crafted proof of `False`, and the check that stops it |
+| 15 | [What a theorem rests on](15-what-a-theorem-rests-on.md) | the axiom report, and unsafe isolation |
+| 16 | [Mutual and nested](16-mutual-and-nested.md) | a group of types that refer to each other |
 
 ### Part V — The frontend
 
 | # | Chapter | Adds |
 |---|---|---|
-| 16 | [The frontend](16-the-frontend.md) | stage 1, and why a Lean lexer holds no keyword list |
+| 17 | [The frontend](17-the-frontend.md) | stage 1, and why a Lean lexer holds no keyword list |
 
 Part V needs only Part I chapter 1. Read it whenever you like.
 
@@ -139,29 +151,29 @@ measurement overrule the plan. Four plans die that way.
 
 | # | Chapter | The method it teaches |
 |---|---|---|
-| 17 | [Structures, and what the kernel costs](17-structures-and-cost.md) | what a term node must cache, and why |
-| 18 | [The cache](18-the-cache.md) | a hash **finds** an answer, equality **decides** whether to trust it |
-| 19 | [Compare before you unfold](19-compare-before-you-unfold.md) | take one failure out of 676 |
-| 20 | [Ask the cheapest question first](20-ask-the-cheapest-question.md) | rank the failures by what each one blocks |
-| 21 | [A hundred million](21-a-hundred-million.md) | when a profiler stops helping, count in the language of the problem |
-| 22 | [What the others do](22-what-the-others-do.md) | read the other kernels. One of them had already found our bug. |
-| 23 | [The last two hundred and forty-eight](23-the-last-two-hundred.md) | eleven hypotheses, and eight of them wrong |
-| 24 | [The front door](24-the-front-door.md) | `rean check Demo.lean`, on a file of your own |
-| 25 | [Twelve seconds](25-twelve-seconds.md) | measure against something that is not yourself |
-| 26 | [Thirty-four per cent](26-thirty-four-per-cent.md) | six changes, three kept and three reverted |
+| 18 | [Structures, and what the kernel costs](18-structures-and-cost.md) | what a term node must cache, and why |
+| 19 | [The cache](19-the-cache.md) | a hash **finds** an answer, equality **decides** whether to trust it |
+| 20 | [Compare before you unfold](20-compare-before-you-unfold.md) | take one failure out of 676 |
+| 21 | [Ask the cheapest question first](21-ask-the-cheapest-question.md) | rank the failures by what each one blocks |
+| 22 | [A hundred million](22-a-hundred-million.md) | when a profiler stops helping, count in the language of the problem |
+| 23 | [What the others do](23-what-the-others-do.md) | read the other kernels. One of them had already found our bug. |
+| 24 | [The last two hundred and forty-eight](24-the-last-two-hundred.md) | eleven hypotheses, and eight of them wrong |
+| 25 | [The front door](25-the-front-door.md) | `rean check Demo.lean`, on a file of your own |
+| 26 | [Twelve seconds](26-twelve-seconds.md) | measure against something that is not yourself |
+| 27 | [Thirty-four per cent](27-thirty-four-per-cent.md) | six changes, three kept and three reverted |
 
 ### Part VII — A program that runs
 
 | # | Chapter | Adds |
 |---|---|---|
-| 27 | [A program that runs](27-a-program-that-runs.md) | stage 5. Our evaluator runs a Lean program and matches Lean's output. |
+| 28 | [A program that runs](28-a-program-that-runs.md) | stage 5. Our evaluator runs a Lean program and matches Lean's output. |
 
 ### Part VIII — The outside test suite
 
 | # | Chapter | Adds |
 |---|---|---|
-| 28 | [The arena](28-the-arena.md) | what a suite written by other people found that our own tests did not |
-| 29 | [The eleven that were not wrong](29-the-eleven.md) | the exit code as an interface, and a tree walk over a graph |
+| 29 | [The arena](29-the-arena.md) | what a suite written by other people found that our own tests did not |
+| 30 | [The eleven that were not wrong](30-the-eleven.md) | the exit code as an interface, and a tree walk over a graph |
 
 Part VIII belongs with Part IV, because it is about what a checker must
 **refuse**. It reads last, because it measures everything the earlier parts
@@ -182,8 +194,8 @@ built.
 
 | You have | Read |
 |---|---|
-| 20 minutes | Part I chapter 1, and run `cargo run -p rean -- prove` |
-| one evening | Part I chapters 1 to 5 |
+| 20 minutes | Part I chapters 1 and 2. No toolchain needed. |
+| one evening | Part I chapters 1 to 6 |
 | two evenings | all of Part I. You then know what Lean's kernel implements. |
 | a week | Parts I to IV, and one chapter of Part VI |
 
@@ -195,25 +207,29 @@ Sequence matters here, and this table is why.
 
 | Skip | And you will not understand |
 |---|---|
-| Part I chapter 2 | why a bound variable is a number, so every term in the book looks wrong |
-| Part I chapter 3 | why a checker has to compute at all |
-| Part I chapter 4 | `imax`, `Prop`, erasure, and half of the kernel's rules |
-| Part I chapter 5 | which rule each arm of `infer_type` implements |
-| Part I chapter 6 | a recursor, a motive, a minor premise. Every later chapter uses those words. |
-| Part I chapter 7 | the conversion rule, so every cost chapter will read as noise |
+| Part I chapter 2 | the name of anything. Every later chapter points at a type this one gives. |
+| Part I chapter 3 | why a bound variable is a number, so every term in the book looks wrong |
+| Part I chapter 4 | why a checker has to compute at all |
+| Part I chapter 5 | `imax`, `Prop`, erasure, and half of the kernel's rules |
+| Part I chapter 6 | which rule each arm of `infer_type` implements |
+| Part I chapter 7 | a recursor, a motive, a minor premise. Every later chapter uses those words. |
+| Part I chapter 8 | the conversion rule, so every cost chapter will read as noise |
 | Part II | the five functions that the rest of the code is made of |
 | Part III | where the test data comes from, and why it is trustworthy |
 
 ---
 
-## 5. Run it while you read
+## 5. Run it, from chapter 10 on
+
+Part I needs nothing installed. From chapter 10 the book builds a program, and
+these are its commands.
 
 ```sh
 devbox shell
 devbox run build
-cargo run -p rean -- prove                                      # Part I, 1 and 5
-cargo run -p rean -- check fixtures/lean4export/shapes.ndjson   # Part I, 6 and 7
-cargo run -p rean -- lex examples/tokens.lean                   # Part V
+cargo run -p rean -- prove                                      # chapters 10 and 11
+cargo run -p rean -- check fixtures/lean4export/shapes.ndjson   # chapters 12 and 13
+cargo run -p rean -- lex examples/tokens.lean                   # chapter 17
 cargo run -p rean -- demo                                       # the four stages
 ```
 

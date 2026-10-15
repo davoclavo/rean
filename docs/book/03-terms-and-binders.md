@@ -1,6 +1,6 @@
-# 2. Terms, binders, and names you do not need
+# 3. Terms, binders, and names you do not need
 
-> **Where you are.** Chapter 2 of 8 in Part I.
+> **Where you are.** Chapter 3 of 9 in Part I.
 >
 > **Before this.** [Chapter 1](01-a-proof-is-a-program.md). You need one idea
 > from it: a proof is a term.
@@ -8,15 +8,15 @@
 > **This chapter adds** the language that terms are written in, and the one
 > operation on them.
 >
-> **The four beats.** The idea is section 2.1. Your language is section 2.2.
-> The notation is sections 2.3 and 2.4. The code arrives in section 2.6.
+> **The four beats.** The idea is section 3.1. The data is section 3.2. The
+> rule is sections 3.3 and 3.4. The code is sections 3.6 and 3.7.
 >
-> **Do not skip ahead.** Chapter 3 adds types to this language. If you skip the
+> **Do not skip ahead.** Chapter 4 adds types to this language. If you skip the
 > binder, nothing after it will make sense.
 
 ---
 
-## 2.1 The idea
+## 3.1 The idea
 
 Chapter 1 said a proof is a term. So what is a term?
 
@@ -51,12 +51,12 @@ So a term language needs exactly two decisions.
 1. How do you write a tree, a binder, and a call?
 2. How do you fill a hole without filling the wrong one?
 
-Section 2.3 answers the first. Section 2.4 answers the second, and the answer
+Section 3.3 answers the first. Section 3.4 answers the second, and the answer
 is to throw the names away.
 
 ---
 
-## 2.2 In your language
+## 3.2 The data, in your language
 
 Three things you have already relied on, and you may not have noticed any of
 them.
@@ -78,12 +78,12 @@ compiled program does the same thing with an offset from a stack pointer.
 a Babel plugin that wraps an expression in a temporary variable. Name the
 temporary `t` and you have a bug the first time a user already has a `t` in
 scope. The cure in Babel is `path.scope.generateUidIdentifier`, which invents a
-name nobody else owns. Lean solves the same bug with a macro scope. Section 2.3
+name nobody else owns. Lean solves the same bug with a macro scope. Section 3.3
 is the bug, with no plugin around it.
 
 ---
 
-## 2.3 The notation
+## 3.3 The rule
 
 **The whole language, in three lines.** A term is one of three things.
 
@@ -94,7 +94,7 @@ e ::= x            a variable
 ```
 
 That is the untyped lambda calculus, and it is all of the language for now.
-Chapters 3 and 4 add two more forms, and chapter 6 adds the last one. Nothing
+Chapters 4 and 5 add two more forms, and chapter 7 adds the last one. Nothing
 else ever arrives.
 
 Three examples:
@@ -129,7 +129,7 @@ fun y => y
 
 They are **[alpha equivalent](../GLOSSARY.md#alpha-equivalence)**, which means
 equal up to the names of bound variables. A checker must treat them as one
-term. That is section 2.1 as a definition. Hold on to the word. It is about to
+term. That is section 3.1 as a definition. Hold on to the word. It is about to
 do real work.
 
 **Substitution, and the trap in it.** Write
@@ -152,15 +152,16 @@ outside has nothing to do with the `y` that the binder owns. The careless
 answer turned a function that ignores its argument into the identity function.
 
 The name for the bug is **[capture](../GLOSSARY.md#capture)**, and it is the
-Babel bug of section 2.2 with no plugin around it. Two cures exist.
+Babel bug of section 3.2 with no plugin around it. Two cures exist.
 
 1. Rename the binder before you substitute. This works, and it is slow, and it
    is easy to get subtly wrong.
-2. **Delete the names.** Lean does this, and so does our checker.
+2. **Delete the names.** Lean does this, and so does every kernel in this
+   family.
 
 ---
 
-## 2.4 de Bruijn indices
+## 3.4 de Bruijn indices
 
 Replace the name of a bound variable with a number, and the name for that
 number is a [de Bruijn index](../GLOSSARY.md#de-bruijn-index). It is the count
@@ -185,7 +186,7 @@ Three things get better at once.
 
 ---
 
-## 2.5 Three ways to see an index
+## 3.5 Three ways to see an index
 
 **As street directions.** A name is "the house of the Hernández family". An
 index is "two blocks back". The second one does not care who lives there, and
@@ -201,16 +202,15 @@ name. Pick no name.
 
 ---
 
-## 2.6 The three operations, in code
+## 3.6 The three operations, in code
 
-A kernel needs exactly three operations on indices. Our code holds them in
-`crates/rean_kernel/src/expr.rs`.
+A kernel needs exactly three operations on indices, and no more.
 
 | Operation | What it does | When |
 |---|---|---|
-| `lift` | add to every loose index | a term moves under a new binder |
-| `instantiate` | replace index 0 with a term | one β step is one call |
-| `abstract_fvar` | the reverse. Turn a variable back into an index. | a binder closes again |
+| lift | add to every loose index | a term moves under a new binder |
+| instantiate | replace index 0 with a term | one β step is one call |
+| abstract | the reverse. Turn a variable back into an index. | a binder closes again |
 
 One more word, because the chapters use it. An index is
 **[loose](../GLOSSARY.md#loose-bound-variable)** when it points outside the
@@ -227,14 +227,14 @@ kernels, two languages, three functions.
 
 ### If you write TypeScript
 
-**Your toolchain already deletes the names.** Section 2.2 named three places,
+**Your toolchain already deletes the names.** Section 3.2 named three places,
 and here is what each one maps onto.
 
 | In your toolchain | Here |
 |---|---|
-| a minifier renames every local | [alpha equivalence](../GLOSSARY.md#alpha-equivalence), section 2.3 |
-| `path.scope.generateUidIdentifier` in a Babel plugin | the cure for [capture](../GLOSSARY.md#capture), section 2.3, cure 1 |
-| a closure that finds a variable by its slot | a [de Bruijn index](../GLOSSARY.md#de-bruijn-index), section 2.4 |
+| a minifier renames every local | [alpha equivalence](../GLOSSARY.md#alpha-equivalence), section 3.3 |
+| `path.scope.generateUidIdentifier` in a Babel plugin | the cure for [capture](../GLOSSARY.md#capture), section 3.3, cure 1 |
+| a closure that finds a variable by its slot | a [de Bruijn index](../GLOSSARY.md#de-bruijn-index), section 3.4 |
 | a source map, which puts the names back for a human | our pretty printer, which keeps a name in a field the comparison skips |
 
 **A generator in `Effect.gen` is a chain of binders.** Read this:
@@ -252,62 +252,74 @@ const program = Effect.gen(function* () {
 Each `yield*` becomes a function that takes the value and returns the rest of
 the program. So `const b = ...` is a binder, and the `return` line reaches back
 into two of them. `Effect` hides the lambda, and the lambda is still what runs.
-The three-line language of section 2.3 is what your generator compiles into.
+The three-line language of section 3.3 is what your generator compiles into.
 
 **One difference worth naming.** A minifier may rename a variable, because it
 only has to keep the program's meaning. A proof checker compares two terms
 thousands of times per declaration, so it does not rename. It removes the
 names, which turns the comparison into a comparison of numbers.
-[The type checker chapter](../09-the-type-checker.md) holds that comparison,
+[The type checker chapter](../10-the-type-checker.md) holds that comparison,
 and it is called `alpha_eq`.
 
 ---
 
-## 2.7 Try it
+## 3.7 Try it
 
-No command prints a de Bruijn index, because nobody reads one by choice. The
-code builds one, and a test holds it:
+Paste this into a TypeScript playground. It is sections 3.3 and 3.4, in thirty
+lines.
 
-```sh
-devbox run -- cargo test -p rean_kernel --test universes
-```
+```ts
+type E =
+  | { k: "bvar"; index: number }
+  | { k: "lam"; name: string; body: E }
+  | { k: "app"; fun: E; arg: E }
+  | { k: "const"; name: string }
 
-```rust
-let with_x = Expr::lam("x", nat(), Expr::bvar(0));
-let with_y = Expr::lam("y", nat(), Expr::bvar(0));
+// Two functions that differ only in the name of the binder.
+const withX: E = { k: "lam", name: "x", body: { k: "bvar", index: 0 } }
+const withY: E = { k: "lam", name: "y", body: { k: "bvar", index: 0 } }
+
 // The bodies are the same data. Only the printer keeps the name.
-let (Expr::Lam { body: a, .. }, Expr::Lam { body: b, .. }) = (&with_x, &with_y) else {
-    panic!("both terms are lambdas");
-};
-assert_eq!(a, b);
+console.log(JSON.stringify(withX.body) === JSON.stringify(withY.body)) // true
 ```
 
-That is the test `de_bruijn_erases_the_binder_name_from_the_body`, and it is
-section 2.3 as an assertion. Two terms, two names, one body.
+That is section 3.4 as one comparison. Two terms, two names, one body.
 
-Then watch a substitution run. The `demo` command does one β step and reports
-whether the result is closed:
+Now the operation. `instantiate` puts a term in for index 0, and every index
+above it drops by one, because one binder has gone away.
 
-```sh
-devbox run -- cargo run -p rean -- demo
+```ts
+function instantiate(e: E, value: E, depth = 0): E {
+  switch (e.k) {
+    case "bvar":
+      if (e.index === depth) return value
+      return { k: "bvar", index: e.index > depth ? e.index - 1 : e.index }
+    case "lam":
+      return { ...e, body: instantiate(e.body, value, depth + 1) }
+    case "app":
+      return {
+        k: "app",
+        fun: instantiate(e.fun, value, depth),
+        arg: instantiate(e.arg, value, depth),
+      }
+    default:
+      return e
+  }
+}
+
+// One β step: apply `fun x => x` to a constant.
+const succ: E = { k: "const", name: "succ" }
+console.log(instantiate(withX.body, succ)) // { k: "const", name: "succ" }
 ```
 
-```text
-== stage 3: kernel term ==
-pretty   : fun (f : Nat → Nat) => fun (x : Nat) => f (f x)
-type     : (Nat → Nat) → Nat → Nat
-closed   : true
+**Then break it.** Call it with a `value` that holds a loose index of its own,
+such as `{ k: "bvar", index: 0 }`, and go under one binder. The index travels
+inside unchanged, so it now counts from a different place and points at the
+wrong binder. The cure is the first of the three operations: lift the value by
+one for each binder you pass. This is the whole reason a kernel keeps three
+operations rather than one, and it is the bug that section 3.3 warns about.
 
-== stage 4: one beta step ==
-before   : (fun (f : Nat → Nat) => fun (x : Nat) => f (f x)) Nat.succ
-after    : fun (x : Nat) => Nat.succ (Nat.succ x)
-```
-
-The `after` line is one `instantiate` call. The printer puts the names back, so
-you can read it. Inside, the argument went to index 0 and every other index
-moved.
-
-## 2.8 Check yourself
+## 3.8 Check yourself
 
 1. Write `fun x => fun y => y x` with de Bruijn indices.
 2. Why can a checker use `==` on two terms once the names are gone?
@@ -318,14 +330,14 @@ moved.
 1. `λ λ #0 #1`. The body applies `y`, which is the nearest binder, to `x`,
    which is one further out.
 2. Because two terms that differ only in binder names are now the same data.
-   Our code still keeps a name for the printer, so it compares with `alpha_eq`
-   and skips that one field.
+   A kernel still keeps the name for its printer, so its comparison skips that
+   one field.
 3. The index is loose, so the term is not closed, and nothing can give it a
    type. A kernel treats that as a bug in its caller.
 
 ---
 
-## 2.9 References
+## 3.9 References
 
 - de Bruijn, *Lambda calculus notation with nameless dummies*, 1972. The paper
   that this chapter is named after.
@@ -337,11 +349,9 @@ moved.
   <https://babeljs.io/docs/babel-traverse>
 - Effect, the `Effect` type, for the generator of the TypeScript section.
   <https://effect.website/docs/getting-started/the-effect-type/>
-- Our code. `crates/rean_kernel/src/expr.rs` holds the three operations, and
-  `crates/rean_kernel/tests/substitution.rs` holds their tests.
 - Lean's own source. `src/kernel/instantiate.cpp` is the same three operations
   in C++.
 
 ---
 
-**Next:** [3. Types that depend on values](03-types-that-depend-on-values.md)
+**Next:** [4. Types that depend on values](04-types-that-depend-on-values.md)

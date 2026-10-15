@@ -1,17 +1,17 @@
-# Chapter 29 — The eleven that were not wrong
+# Chapter 30 — The eleven that were not wrong
 
 > **Where you are.** The last chapter, and it follows
-> [the arena](28-the-arena.md) directly.
+> [the arena](29-the-arena.md) directly.
 >
-> **Before this.** [The arena](28-the-arena.md), for the suite and the six
-> soundness rules, and [Thirty-four per cent](26-thirty-four-per-cent.md),
+> **Before this.** [The arena](29-the-arena.md), for the suite and the six
+> soundness rules, and [Thirty-four per cent](27-thirty-four-per-cent.md),
 > whose method this chapter uses and one of whose conclusions it overturns.
 >
 > **After it you can** say why a tree walk over a graph is the most expensive
 > bug in this repository, and why the same measurement can be right about one
 > input and wrong about every other.
 
-Chapter 28 closed every soundness hole the arena found and left eleven tests
+Chapter 29 closed every soundness hole the arena found and left eleven tests
 that we got wrong. All eleven were in the `perf/` set, all eleven were
 **valid** proofs, and we reported all eleven as invalid.
 
@@ -20,7 +20,7 @@ nothing wrongly rejected, two declined.**
 
 ---
 
-## 29.1 The interface is the exit code, and we had two of the three
+## 30.1 The interface is the exit code, and we had two of the three
 
 The arena runs a checker as `run: ./target/release/rean check "$IN"` and reads
 the exit code. The contract is four lines:
@@ -36,7 +36,7 @@ A declined test is **ignored** for both soundness and completeness. The arena
 explains why in its own README: a decline says "you are not claiming that the
 proof is not valid".
 
-This kernel has had that distinction since chapter 25. `OutOfFuel` and
+This kernel has had that distinction since chapter 26. `OutOfFuel` and
 `OutOfStack` mean "we did not check it", `TypeError::is_a_limit` names them,
 and `tools/arena.py` was written to count them apart. And then the driver
 exited **1** for both, which told the arena that eleven valid proofs were
@@ -53,11 +53,11 @@ is the test.
 
 ---
 
-## 29.2 One bug, three times: a walk of a graph
+## 30.2 One bug, three times: a walk of a graph
 
 A term is a **graph**. `Expr` shares its subterms through `Arc`, so a walk of
 one as a tree is a walk of the tree it stands for, and the two differ by an
-exponent. Chapter 17 found that in `collect_constants` and fixed it. The arena
+exponent. Chapter 18 found that in `collect_constants` and fixed it. The arena
 found three more, and each one was the whole running time of a test.
 
 | where | the test | what it was | what it is |
@@ -68,7 +68,7 @@ found three more, and each one was the whole running time of a test.
 
 ### The one that was already fixed and then reverted
 
-`collect_level_params` is the painful one. Chapter 26 gave it the visited set,
+`collect_level_params` is the painful one. Chapter 27 gave it the visited set,
 measured it on three real inputs, found nothing, and **took it out again**,
 leaving the table in a comment:
 
@@ -112,9 +112,9 @@ rewrite of all of its uses.
 
 ---
 
-## 29.3 A hash may refuse an answer. Only an address may confirm one
+## 30.3 A hash may refuse an answer. Only an address may confirm one
 
-Chapter 18 states the rule that every cache here obeys: a hash may **refuse**
+Chapter 19 states the rule that every cache here obeys: a hash may **refuse**
 an answer and may not **confirm** one, because two terms can share a hash. So
 each of the five caches found its bucket by hash and then confirmed the entry
 with `Expr::alpha_eq`.
@@ -127,7 +127,7 @@ time. The memo that fixes a single walk does not help, because the cost is not
 one walk: it is half a million of them, each on a term that is equal and
 distinct.
 
-`Expr::same_node` is the other half of chapter 18's rule. It compares the
+`Expr::same_node` is the other half of chapter 19's rule. It compares the
 **children by address**: two nodes whose children are the same objects are the
 same term, with no walk, because an address is an exact name. It can only say
 yes, and `cheap_eq` puts the two tests in the order of their cost:
@@ -155,9 +155,9 @@ costs budget, and a declaration near its budget declines.
 
 ---
 
-## 29.4 Two things built, measured, and taken out
+## 30.4 Two things built, measured, and taken out
 
-Chapter 26 recorded eight of these. Here are two more, and the method is the
+Chapter 27 recorded eight of these. Here are two more, and the method is the
 point.
 
 **A memo for `alpha_eq`**, keyed by pairs of addresses, so that an equal pair
@@ -175,7 +175,7 @@ The whole sweep, because a measurement is the settings and the number:
 
 | configuration | the prelude | its time | `app-lam` |
 |---|---|---|---|
-| chapter 28 | 55,835 | 141 s | never finishes |
+| chapter 29 | 55,835 | 141 s | never finishes |
 | the three walk fixes, bound 64 on the infer cache, both extra caches | 55,831 | 153.6 s | 3 s |
 | without the identity cache | 55,831 | 147.7 s | 3 s |
 | without the pair memo as well | 55,831 | 143.8 s | 4 s |
@@ -187,7 +187,7 @@ from "never" to three seconds.
 
 ---
 
-## 29.5 A budget for a question is not a budget for a batch
+## 30.5 A budget for a question is not a budget for a batch
 
 Seven of the eleven needed no new rule at all. They needed a **budget**, and
 they answer in one to fourteen seconds when they get one.
@@ -212,9 +212,9 @@ both, and every measurement in this book was taken with it.
 
 ---
 
-## 29.6 The score
+## 30.6 The score
 
-| | chapter 28 | now |
+| | chapter 29 | now |
 |---|---|---|
 | accepted of 126 good | 115 | **124** |
 | rejected of 72 bad | 72 | **72** |
@@ -234,7 +234,7 @@ Four more declarations in each of the two larger ones, and 506 tests pass.
 
 ---
 
-## 29.7 The two that are left, and what each one needs
+## 30.7 The two that are left, and what each one needs
 
 **`perf/let-fold` needs `let` without substitution.** The declaration is
 
@@ -246,7 +246,7 @@ where `bits #n 0` is a closed `Nat` that takes 2ⁿ steps to evaluate. The two
 sides of the equation differ only in how the addition is written, so unfolding
 `HAdd.hAdd` settles it in one step. We substitute the value of the `let` into
 the body first, which makes both sides **closed** arithmetic, and the literal
-rules of chapter 21 then try to evaluate `bits`.
+rules of chapter 22 then try to evaluate `bits`.
 
 Lean binds `d` in the local context as a definition and checks the body with
 `d` as a free variable, so it never evaluates it. That is the fix, and it is
@@ -272,7 +272,7 @@ timeout is what stands between us and a term built to spin.
 
 ---
 
-## 29.8 How other systems do it
+## 30.8 How other systems do it
 
 The arena is full of answers to exactly these questions, and two of them are
 about this chapter's bug.
@@ -297,13 +297,13 @@ Three notes.
   argue with each other in public is worth more than any one implementation in
   it.
 - **The ranking puts soundness first and speed last**, and that order is the
-  whole reason this chapter comes after chapter 28 rather than before it. A
+  whole reason this chapter comes after chapter 29 rather than before it. A
   checker that is fast and wrong has the numbers of a checker that does not
   work.
 
 ---
 
-## 29.9 References
+## 30.9 References
 
 **Our code**
 

@@ -1,16 +1,16 @@
-# Chapter 26 — Thirty-four per cent
+# Chapter 27 — Thirty-four per cent
 
-> **Where you are.** Chapter 26 of 28, and the last of Part VI in
+> **Where you are.** Chapter 27 of 28, and the last of Part VI in
 > [the guide](README.md). The lab notebook. Read it for the method.
 >
-> **Before this.** [Twelve seconds](25-twelve-seconds.md), for the oracle, and
-> [Structures, and what the kernel costs](17-structures-and-cost.md) for the
+> **Before this.** [Twelve seconds](26-twelve-seconds.md), for the oracle, and
+> [Structures, and what the kernel costs](18-structures-and-cost.md) for the
 > cached numbers.
 >
 > **After it you can** read a performance chapter in which half of the work was
 > reverted, and see why that is the normal result.
 
-Chapter 25 ended with an oracle: Lean's own kernel reads the prelude in twelve
+Chapter 26 ended with an oracle: Lean's own kernel reads the prelude in twelve
 seconds and ours took 199. This chapter is six attempts to close some of that,
 measured one at a time, of which **three were kept and three were reverted**.
 
@@ -18,7 +18,7 @@ The whole prelude, in CPU time, with the same verdict every time:
 
 | step | CPU time | cumulative |
 |---|---|---|
-| where chapter 25 left it | 213.96 s | — |
+| where chapter 26 left it | 213.96 s | — |
 | a faster allocator | 186.91 s | −13% |
 | a hash that may refuse, and a name that carries one | 142.58 s | **−33%** |
 | one hasher for keys that are already hashes | 141.42 s | −34% |
@@ -35,11 +35,11 @@ is the best of three to five runs.
 
 ---
 
-## 26.1 The allocator, which is one line
+## 27.1 The allocator, which is one line
 
 Nearly half of the profile was `malloc` and `free`. The kernel builds a term for
 every reduction step and drops it on the next one, so the allocator is not a
-detail of the work. For a while it **was** the work: chapter 23 found
+detail of the work. For a while it **was** the work: chapter 24 found
 `Arc<Expr>::drop_slow` at the top of the list with 121,445 samples.
 
 ```rust
@@ -62,7 +62,7 @@ anybody who uses `rean_kernel` as a library picks their own.
 The first A/B printed **six identical rows**. `zsh` refused to overwrite the file
 the timings were going to, so every row reported the first run.
 
-Chapter 21 wrote the rule after a budget sweep did the same thing: three equal
+Chapter 22 wrote the rule after a budget sweep did the same thing: three equal
 rows should have been the clue. It took a second reading to see it here, in a
 session that had already quoted that rule twice.
 
@@ -70,9 +70,9 @@ session that had already quoted that rule twice.
 
 ---
 
-## 26.2 A hash may refuse
+## 27.2 A hash may refuse
 
-Chapter 18 states the rule that keeps a cache in a proof checker honest: a hash
+Chapter 19 states the rule that keeps a cache in a proof checker honest: a hash
 **finds** an answer and `alpha_eq` **decides**, because two terms can share a
 hash. The other half of that rule is free, and `alpha_eq` never used it.
 
@@ -119,7 +119,7 @@ saved was shorter than the hash it needed.
 
 ---
 
-## 26.3 A name that carries its own hash
+## 27.3 A name that carries its own hash
 
 So give a [`Name`] its hash and its part count, computed once where the part is
 added.
@@ -145,7 +145,7 @@ larger number because the prelude asks 59,349 names of a map with 59,349 entries
 in it where the slice asks 4,144 of 4,144.
 
 Two changes, one measurement, because the first is worth nothing without the
-second. Chapter 20 set that rule when a pair of changes had to be measured
+second. Chapter 21 set that rule when a pair of changes had to be measured
 together, and this is the clearest case of it the project has had.
 
 The old `hash_name` also hashed only the **last** part and the length, so
@@ -161,7 +161,7 @@ boxed, which is what that enum's own comment already said to do.
 
 ---
 
-## 26.4 One hasher for keys that are already hashes
+## 27.4 One hasher for keys that are already hashes
 
 Every map in the kernel is keyed by a `u64` that the kernel computed, or by a
 name that now carries one. The standard hasher is SipHash, which is built to
@@ -186,9 +186,9 @@ number for a shape it did not expect would turn every map into a list.
 
 ---
 
-## 26.5 Two that measured to nothing
+## 27.5 Two that measured to nothing
 
-Chapter 23 kept a list of eight. Here are two more, with the reason each one
+Chapter 24 kept a list of eight. Here are two more, with the reason each one
 failed, because the reason is the part a reader can use.
 
 ### `Arc<[Level]>` for the levels of a constant
@@ -209,7 +209,7 @@ This one is the more interesting failure, because the identical change to its
 sibling was worth **120 times**.
 
 `collect_constants` walks the graph, with a visited set keyed by the address of
-the shared node, and chapter 25 measured that at two minutes against 1.06
+the shared node, and chapter 26 measured that at two minutes against 1.06
 seconds on one declaration of `Std`. `collect_level_params` has the same shape
 and the same hazard, so it got the same treatment:
 
@@ -237,11 +237,11 @@ it can save.
 
 ---
 
-## 26.6 One that was kept without a measurement
+## 27.6 One that was kept without a measurement
 
 `Expr::PRETTY_LIMIT` stops every printer in the kernel at a megabyte.
 
-It buys no time, and it is kept because of what chapter 25 found: the
+It buys no time, and it is kept because of what chapter 26 found: the
 `bv_decide` lemma of `Std` holds **2,617,556,290 nodes as a tree**, and asking
 for its text asked the allocator for 13 GB and took two minutes. `rean show`
 guards itself by reading the node count first. A **message** cannot:
@@ -255,7 +255,7 @@ the message says a megabyte rather than promising all of it.
 
 ---
 
-## 26.7 What a run costs now
+## 27.7 What a run costs now
 
 Every library the toolchain ships, with the final binary, in one sitting:
 
@@ -265,12 +265,12 @@ Every library the toolchain ships, with the final binary, in one sitting:
 | `Std` | 99,619 | 95,237 | 245 s | 268 s |
 | `Lean`, the compiler | 171,817 | 150,420 | 280 s | 299 s |
 
-Chapter 25 measured the same three at 231, 330 and 367 seconds on the clock. The
+Chapter 26 measured the same three at 231, 330 and 367 seconds on the clock. The
 counts are identical, which is the point: this chapter moved no verdict.
 
 ---
 
-## 26.8 The profile after, and what is left
+## 27.8 The profile after, and what is left
 
 Same declaration, same command, same fifteen seconds of sampling.
 
@@ -286,17 +286,17 @@ sets up whatever comes next: `mimalloc` made each allocation cheaper and the
 nodes and dropping them.
 
 Everything in this chapter made the same work cheaper. The next tier has to make
-the work smaller, and chapter 25 section 25.8 named two candidates. One of them
+the work smaller, and chapter 26 section 26.8 named two candidates. One of them
 is now **ruled out by measurement**, and that is the last section.
 
 ---
 
-## 26.9 Eighty-two per cent are duplicates, and sharing them is slower
+## 27.9 Eighty-two per cent are duplicates, and sharing them is slower
 
 The second candidate was to share the nodes the kernel builds, so that a term
 built twice is one object. It would turn `alpha_eq` into the pointer test that
-section 26.2 only reaches sometimes, and it would cut the **number** of
-allocations rather than their cost, which is exactly what section 26.8 says is
+section 27.2 only reaches sometimes, and it would cut the **number** of
+allocations rather than their cost, which is exactly what section 27.8 says is
 left.
 
 The hypothesis is correct and the number is larger than anyone guessed. On the
@@ -328,7 +328,7 @@ sees it, with a reference count bump for each of its children; then comes the
 probe, the structural confirmation, the clone of the node that was found, and
 the drop of the one just built, with a decrement for each child again.
 
-> **Section 18.1 made an allocation cheap. It is now cheaper than remembering
+> **Section 19.1 made an allocation cheap. It is now cheaper than remembering
 > that you did not need one.**
 
 That is a pleasing way for a chapter to eat its own tail, and it is a real rule
@@ -340,18 +340,18 @@ against the wrong world.
 The 82% is not refuted. It says, with a bigger number than before, that this
 kernel's remaining cost is the **count** of nodes it builds. What is refuted is
 collecting that saving **here**, after the node exists. It has to be collected
-where the duplicate is built, in the way chapter 17 taught
+where the duplicate is built, in the way chapter 18 taught
 `Expr::instantiate_at` to return "nothing changed" and keep the `Arc` it had.
 
-The largest of those sites is the one chapter 22 named: every reduction step
+The largest of those sites is the one chapter 23 named: every reduction step
 rebuilds the whole application spine, and the arguments of that spine did not
 change. Not materialising a spine at all is the explicit-stack evaluator, which
-the roadmap has called a different project since chapter 22, and which now has a
+the roadmap has called a different project since chapter 23, and which now has a
 measured reason rather than an argument from first principles.
 
 ---
 
-## 26.10 And the other candidate, priced
+## 27.10 And the other candidate, priced
 
 The remaining idea was a cache that outlives a declaration. Today the driver
 builds a fresh `TypeChecker` for every one of the 59,349, so every cache dies
@@ -407,8 +407,8 @@ one at the end of a check.
 So the candidate list ends this chapter one shorter than it started:
 
 - **ruled out**, here: sharing a node after it is built;
-- **ruled out**, chapter 23 section 23.7: a term as a pointer plus a shift;
-- **priced**, section 26.10: a cache that persists across declarations could
+- **ruled out**, chapter 24 section 24.7: a term as a pointer plus a shift;
+- **priced**, section 27.10: a cache that persists across declarations could
   answer 22% of all `whnf` questions where the present one answers 3.2%. The
   work is a borrow in the driver and a taint flag in the kernel;
 - **untested and now the strongest**: an evaluator that does not build the
@@ -418,18 +418,18 @@ The oracle is still twelve seconds.
 
 ---
 
-## 26.11 How other systems do it
+## 27.11 How other systems do it
 
 Each of the three changes that were kept has a counterpart in Lean itself,
 which is a useful check on whether a change is sound engineering or a trick.
 
 | Our change | Lean's version |
 |---|---|
-| a faster allocator, section 26.1 | Lean links mimalloc as well, in `src/runtime/mimalloc.cpp` |
-| a name that carries its own hash, section 26.3 | `src/util/name.h` caches a hash on a name, and its comparison uses the hash first |
-| one hasher for a key that is already a hash, section 26.4 | Lean's cached hash is 32 bits wide, and the comment in `src/Lean/Expr.lean` gives the layout |
+| a faster allocator, section 27.1 | Lean links mimalloc as well, in `src/runtime/mimalloc.cpp` |
+| a name that carries its own hash, section 27.3 | `src/util/name.h` caches a hash on a name, and its comparison uses the hash first |
+| one hasher for a key that is already a hash, section 27.4 | Lean's cached hash is 32 bits wide, and the comment in `src/Lean/Expr.lean` gives the layout |
 
-And the change that was **not** taken has a counterpart too. Section 18.9
+And the change that was **not** taken has a counterpart too. Section 19.9
 measures that 82% of the nodes this kernel builds are duplicates, and that
 sharing them is still slower. The technique with a name is hash-consing, and
 the 2006 paper by Filliâtre and Conchon is the standard description. Lean gets
@@ -443,7 +443,7 @@ row of the table at the top is CPU time, best of three to five runs, with the
 same verdict on all 59,349 declarations. A performance change that moves a
 verdict is not a performance change.
 
-## 26.12 References
+## 27.12 References
 
 **Our code**
 
@@ -462,11 +462,11 @@ verdict is not a performance change.
 **Read more**
 
 - Filliâtre and Conchon, *Type-safe modular hash-consing*, 2006, for the change
-  section 26.9 priced and did not take.
+  section 27.9 priced and did not take.
   <https://www.lri.fr/~filliatr/ftp/publis/hash-consing2.pdf>
 - Ullrich and de Moura, *Counting Immutable Beans*, 2019, for how Lean manages
   memory in the stage after this one. <https://arxiv.org/abs/1908.05647>
 
 ---
 
-**Next:** [A program that runs](27-a-program-that-runs.md)
+**Next:** [A program that runs](28-a-program-that-runs.md)

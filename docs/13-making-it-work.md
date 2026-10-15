@@ -1,9 +1,9 @@
-# Chapter 12 — Making it work
+# Chapter 13 — Making it work
 
-> **Where you are.** Chapter 12 of 28, in Part III of [the guide](README.md).
+> **Where you are.** Chapter 13 of 28, in Part III of [the guide](README.md).
 >
-> **Before this.** [The ground truth](11-the-ground-truth.md), and
-> Part I chapter [6](book/06-inductive-types.md), section 6.9, which names the
+> **Before this.** [The ground truth](12-the-ground-truth.md), and
+> Part I chapter [7](book/07-inductive-types.md), section 7.9, which names the
 > two extras this chapter builds.
 >
 > **After it you can** say what a kernel owes you when it stores `3` as digits,
@@ -23,12 +23,12 @@ devbox run coverage
 
 ---
 
-## 12.1 The honest answer was no
+## 13.1 The honest answer was no
 
 Six probes, all written in a scratch test, all shapes a person writes on the
 first day with Lean. Every one of them failed.
 
-| Probe | Before chapter 12 |
+| Probe | Before chapter 13 |
 |---|---|
 | `whnf(2 + 3)` | a wall of `Nat.brecOn`, stuck |
 | `is_def_eq(2 + 3, 5)` | **false** |
@@ -40,14 +40,14 @@ first day with Lean. Every one of them failed.
 The second row is the sharpest. `2 + 3 = 5` is the first theorem anybody
 writes, `rfl` proves it, and our kernel said no.
 
-So the lesson of chapter 11 cuts both ways. **Real data covers the paths that
+So the lesson of chapter 12 cuts both ways. **Real data covers the paths that
 real data uses, and says nothing about the rest.** One real module exercised
 δ, ι, projections and universe polymorphism. It never used a `Nat` literal, so
 nothing about literals worked.
 
 ---
 
-## 12.2 `Nat` literals: one choice, two obligations
+## 13.2 `Nat` literals: one choice, two obligations
 
 `Expr::Lit(Literal::Nat(..))` exists for speed. In the theory, `3` is
 `Nat.succ (Nat.succ (Nat.succ Nat.zero))`. Nobody wants a million nested
@@ -128,7 +128,7 @@ Three details that matter more than they look:
 
 ---
 
-## 12.3 K-like ι reduction
+## 13.3 K-like ι reduction
 
 `Eq.rec` is the example. `Eq` has one constructor, `Eq.refl`, and that
 constructor has **no field**. So a proof of `a = b` carries nothing beyond its
@@ -154,7 +154,7 @@ fn ctor_when_k(&mut self, rec: &RecursorVal, major: &Expr) -> TypeResult<Option<
 
 Note the shape of it. The rule reads the **type** of the major premise, not the
 premise itself. That is why `whnf` had to be able to call `infer_type`, and why
-chapter 10 put all three functions on one struct.
+chapter 11 put all three functions on one struct.
 
 Note also the last check. Without it, a recursor could reduce at the wrong
 index, and that is a soundness hole and not a missing feature.
@@ -167,10 +167,10 @@ Three guards keep it narrow, and each has a test:
 
 ---
 
-## 12.4 The quotient rules
+## 13.4 The quotient rules
 
 `Quot` is a kernel primitive. You cannot build it from an `inductive`
-declaration, so it needs its own rule. See Part I chapter 6, section 6.9.
+declaration, so it needs its own rule. See Part I chapter 7, section 7.9.
 
 ```text
 Quot.lift α r β f h (Quot.mk α r a)  ~>  f a
@@ -195,7 +195,7 @@ types.
 
 ---
 
-## 12.5 Strict positivity: the soundness check
+## 13.5 Strict positivity: the soundness check
 
 An `inductive` declaration is the one place where a user hands the kernel a new
 rule. Accept any shape and the user proves `False`:
@@ -233,7 +233,7 @@ So `Nat → I` is fine, and `I → Nat` is not.
 
 At the **constructor**, not at the inductive type. The export format lists the
 inductive type first, so when a constructor arrives its owner is already in the
-environment. That fits the incremental harness of chapter 11 exactly.
+environment. That fits the incremental harness of chapter 12 exactly.
 
 ### Two things a check must not do
 
@@ -251,7 +251,7 @@ it is not zero.
 
 ---
 
-## 12.6 Coverage as a tool
+## 13.6 Coverage as a tool
 
 This chapter also measured test coverage, and the measurement did real work.
 
@@ -277,7 +277,7 @@ printing one. `main.rs` now does the printing and nothing else.
 That split is worth more than the coverage number. A command that returns a
 value can be asserted on. A command that prints cannot.
 
-**2. One real module exercises only part of a reader.** The chapter 11 fixture
+**2. One real module exercises only part of a reader.** The chapter 12 fixture
 left the reader at 72%. It has no `letE`, no `mdata`, no literal, no `axiom`, no
 `opaque`, and no `quot`, because one module did not need them. So ground truth
 and unit tests are **complementary, not substitutes**: ground truth proves the
@@ -316,16 +316,16 @@ input can reach**, and that one is met.
 
 ---
 
-## 12.7 Where the checker stands
+## 13.7 Where the checker stands
 
 | Rule | Status |
 |---|---|
-| β, ζ | chapter 9 |
-| δ, ι, η, proof irrelevance, projections | chapter 10 |
-| `Nat` literal arithmetic and conversion | **chapter 12** |
-| K-like ι | **chapter 12** |
-| the two quotient rules | **chapter 12** |
-| the strict positivity check | **chapter 12** |
+| β, ζ | chapter 10 |
+| δ, ι, η, proof irrelevance, projections | chapter 11 |
+| `Nat` literal arithmetic and conversion | **chapter 13** |
+| K-like ι | **chapter 13** |
+| the two quotient rules | **chapter 13** |
+| the strict positivity check | **chapter 13** |
 
 | Checkpoint | Score |
 |---|---|
@@ -333,7 +333,7 @@ input can reach**, and that one is met.
 | level 2, our pipeline inhabits Lean's types | 0 of 32, needs a parser |
 | level 3, our term matches Lean's term | 0 of 32 |
 
-## 12.8 What is still missing
+## 13.8 What is still missing
 
 | Missing | Why it matters |
 |---|---|
@@ -350,7 +350,7 @@ that list makes the checker less useful. That one makes it less trustworthy.
 
 ---
 
-## 12.9 Exercises
+## 13.9 Exercises
 
 1. An early draft folded `Nat.succ 4` into `5` inside `whnf`. Say exactly what
    goes wrong, and why the ι rule is the right place for the conversion.
@@ -390,7 +390,7 @@ that list makes the checker less useful. That one makes it less trustworthy.
 
 ---
 
-## 12.10 How other systems do it
+## 13.10 How other systems do it
 
 Each of the four rules in this chapter is a place where a real system departs
 from the clean theory, and each one departs in the same direction.
@@ -398,24 +398,24 @@ from the clean theory, and each one departs in the same direction.
 | Rule | Lean 4 | Rocq | Agda |
 |---|---|---|---|
 | a number | a literal in the kernel, with a big number library, and rules for `add`, `sub`, `mul`, `div`, `mod`, `pow`, `gcd`, the bit operations and the comparisons | `Int63` and a float, as kernel primitives beside the inductive `nat` | a `BUILTIN NATURAL`, which the backend maps to a machine number |
-| K-like ι | in the kernel, for a type with one constructor and no field. Section 4.3. | the same effect, by the rules for a singleton `Prop` | **optional**. The flag `--without-K` turns it off. |
+| K-like ι | in the kernel, for a type with one constructor and no field. Section 5.3. | the same effect, by the rules for a singleton `Prop` | **optional**. The flag `--without-K` turns it off. |
 | a quotient | `Quot` is a kernel primitive, with the axiom `Quot.sound` | none. A user works with a setoid instead. | a higher inductive type, in cubical Agda |
 | strict positivity | in the kernel, and a failure is an error | in the kernel, as part of the guard condition | in the kernel, and a flag can switch it off |
 
 Three notes.
 
-- **A literal is a trade, and the price is two obligations.** Section 4.2 names
+- **A literal is a trade, and the price is two obligations.** Section 5.2 names
   them. Lean's kernel pays the same two, in `reduce_nat` and in the comparison
   beside it, and it adds a guard that refuses to build a number too large to
   hold. Our version refuses at the limit of a `u128`, for the same reason.
 - **Turning positivity off is not a small thing.** Agda has a flag for it, and
-  with that flag a user can prove `False`. Section 4.5 builds the type that
+  with that flag a user can prove `False`. Section 5.5 builds the type that
   does it, so the test suite holds a real proof of the danger.
 - **A quotient is where the three systems differ most.** Lean takes four
   constants and one axiom, and gets a quotient that computes. Rocq takes
   nothing and asks the user to carry an equivalence relation by hand.
 
-## 12.11 References
+## 13.11 References
 
 **Our code**
 
@@ -452,4 +452,4 @@ Three notes.
 
 ---
 
-**Next:** [What a checker must check](13-what-a-checker-must-check.md)
+**Next:** [What a checker must check](14-what-a-checker-must-check.md)

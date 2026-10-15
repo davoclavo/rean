@@ -1,14 +1,14 @@
-# Chapter 13 — What a checker must check
+# Chapter 14 — What a checker must check
 
-> **Where you are.** Chapter 13 of 28, in Part IV of [the guide](README.md).
+> **Where you are.** Chapter 14 of 28, in Part IV of [the guide](README.md).
 >
 > **Before this.** Part III, both chapters, and Part I chapter
-> [6](book/06-inductive-types.md) for the recursor.
+> [7](book/07-inductive-types.md) for the recursor.
 >
 > **After it you can** say why a recursor is not an axiom, and what a checker
 > must verify before it believes one.
 
-Chapter 12 asked whether the checker handles what a beginner writes. This
+Chapter 13 asked whether the checker handles what a beginner writes. This
 chapter asks a harder question.
 
 **Can a crafted input make our checker accept a lie?**
@@ -19,9 +19,9 @@ devbox run -- cargo test -p rean_kernel --test soundness
 
 ---
 
-## 13.1 The answer was yes
+## 14.1 The answer was yes
 
-Five probes against the checker of chapter 12:
+Five probes against the checker of chapter 13:
 
 ```
 bogus recursor accepted?              true
@@ -44,7 +44,7 @@ let liar = RecursorVal {
 };
 ```
 
-No real recursor could have that type. But chapter 12's `check_declaration` did
+No real recursor could have that type. But chapter 13's `check_declaration` did
 this to a recursor and no more:
 
 ```rust
@@ -63,7 +63,7 @@ recursor.
 
 ---
 
-## 13.2 Checking a recursor
+## 14.2 Checking a recursor
 
 Full re-derivation builds the recursor from the inductive declaration and
 compares. That is a lot of code and easy to get subtly wrong. There is a
@@ -86,7 +86,7 @@ So `check_recursor` has two halves.
 | the parameter and index counts agree with the inductive | else the argument positions do not line up |
 | enough binders in the declared type | the ι rule reads positions out of it |
 
-The liar of section 13.1 dies on the first row.
+The liar of section 14.1 dies on the first row.
 
 ### Half two: every rule is type correct
 
@@ -151,7 +151,7 @@ assumes the rules are correct, only that the type is the one on offer.
 
 ---
 
-## 13.3 Large elimination out of `Prop`
+## 14.3 Large elimination out of `Prop`
 
 A second hole, and a subtler one. A recursor can be perfectly type correct and
 still be unsound, if it eliminates a `Prop` into a larger universe.
@@ -181,7 +181,7 @@ check, and the fixture says it does not.
 
 ---
 
-## 13.4 Universe hygiene, and one name per declaration
+## 14.4 Universe hygiene, and one name per declaration
 
 Two small checks with no subtlety.
 
@@ -212,7 +212,7 @@ if self.env.contains(decl.name()) {
 
 ---
 
-## 13.5 Eta for a structure
+## 14.5 Eta for a structure
 
 Not a soundness hole. The opposite: without it the checker **refuses valid
 Lean**.
@@ -235,10 +235,10 @@ belong to that same structure, else a projection of it has no meaning.
 
 ---
 
-## 13.6 A failed declaration must not enter the environment
+## 14.6 A failed declaration must not enter the environment
 
 Closing the recursor hole in the kernel was only half the protection. The
-harness of chapter 11 did this:
+harness of chapter 12 did this:
 
 ```rust
 // Add it either way, so one failure does not cascade.
@@ -267,7 +267,7 @@ level 1: checked 31 of 32 declarations (1 failed, 0 blocked)
 
 ---
 
-## 13.7 A cautionary tale
+## 14.7 A cautionary tale
 
 Adding `pending` meant replacing `self.env.get(` with `self.lookup(` across the
 checker. A single search and replace did it, and it also rewrote the body of
@@ -296,7 +296,7 @@ over four lines and the pattern was written for one. The fixture reported
 
 ---
 
-## 13.8 So does it have full coverage as a checker?
+## 14.8 So does it have full coverage as a checker?
 
 **No.** Here is the whole inventory, honestly.
 
@@ -305,16 +305,16 @@ over four lines and the pattern was written for one. The fixture reported
 | Job | Where |
 |---|---|
 | the 11 term formers and the 5 level formers | chapter 0 |
-| the type rules and the conversion rule | chapter 9 |
-| β, ζ, δ, ι, η, proof irrelevance, projection | chapters 9 and 10 |
-| K-like ι, quotient rules, `Nat` literal arithmetic | chapter 12 |
-| strict positivity, for a plain inductive | chapter 12 |
-| recursor shape and ι rule type correctness | **chapter 13** |
-| no large elimination out of a non subsingleton `Prop` | **chapter 13** |
-| universe parameter hygiene | **chapter 13** |
-| one name per declaration | **chapter 13** |
-| eta for a structure | **chapter 13** |
-| a failed declaration stays out of the environment | **chapter 13** |
+| the type rules and the conversion rule | chapter 10 |
+| β, ζ, δ, ι, η, proof irrelevance, projection | chapters 10 and 11 |
+| K-like ι, quotient rules, `Nat` literal arithmetic | chapter 13 |
+| strict positivity, for a plain inductive | chapter 13 |
+| recursor shape and ι rule type correctness | **chapter 14** |
+| no large elimination out of a non subsingleton `Prop` | **chapter 14** |
+| universe parameter hygiene | **chapter 14** |
+| one name per declaration | **chapter 14** |
+| eta for a structure | **chapter 14** |
+| a failed declaration stays out of the environment | **chapter 14** |
 
 ### Still missing, and what each would take
 
@@ -335,7 +335,7 @@ over four lines and the pattern was written for one. The fixture reported
 | Gap | What it would take |
 |---|---|
 | big number arithmetic | a big integer type in place of `u128`. A literal past the limit stays stuck today, which is safe and incomplete. |
-| `String` literal operations | the same treatment `Nat` got in chapter 12 |
+| `String` literal operations | the same treatment `Nat` got in chapter 13 |
 | a full level normal form | sort and flatten nested `max`, and handle `imax` with an open right side |
 | `MData` | a twelfth `Expr` variant. The reader drops the annotation today, which is sound. |
 
@@ -356,7 +356,7 @@ The second number is the one to grow.
 
 ---
 
-## 13.9 Exercises
+## 14.9 Exercises
 
 1. A recursor is not an axiom. Say precisely what the difference is, in terms
    of what the kernel must verify.
@@ -394,29 +394,29 @@ The second number is the one to grow.
 
 ---
 
-## 13.10 How other systems do it
+## 14.10 How other systems do it
 
 This chapter exists because our environment comes from a **file**. The file
 hands us a recursor and claims it follows from an inductive declaration, and
-section 13.1 shows what happens when nobody checks the claim.
+section 14.1 shows what happens when nobody checks the claim.
 
 - **Lean's kernel never reads a recursor from anywhere.** It takes the
   inductive declaration and **derives** the recursor itself, in
   `src/kernel/inductive.cpp`. So the question of this chapter cannot come up
   there. Any checker that reads an export file has to answer it, and the
-  cheapest sound answer is the one in section 13.2: every ι rule must deliver
+  cheapest sound answer is the one in section 14.2: every ι rule must deliver
   the type that the recursor promises.
 - **Rocq has no recursor to check.** Its kernel checks a `match` and a `fix`,
   and a guard condition carries the weight that a recursor carries in Lean.
   Different rule, same job: make sure the recursion cannot run for ever.
-- **Large elimination has another name.** Section 5.3 refuses to eliminate a
+- **Large elimination has another name.** Section 6.3 refuses to eliminate a
   `Prop` into a larger sort unless the type is a subsingleton. Rocq calls the
   permitted case singleton elimination, and the rule is the same shape.
-- **A duplicate universe parameter is a real attack.** Section 5.4 is not a
+- **A duplicate universe parameter is a real attack.** Section 6.4 is not a
   tidy-up. A name that appears twice in a level list lets a term be read two
   ways, and a checker that accepts it has no fixed meaning for the term.
 
-## 13.11 References
+## 14.11 References
 
 **Our code**
 
@@ -444,4 +444,4 @@ section 13.1 shows what happens when nobody checks the claim.
 
 ---
 
-**Next:** [What a theorem rests on](14-what-a-theorem-rests-on.md)
+**Next:** [What a theorem rests on](15-what-a-theorem-rests-on.md)

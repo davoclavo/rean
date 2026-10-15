@@ -1,23 +1,23 @@
-# 8. What you must trust
+# 9. What you must trust
 
-> **Where you are.** Chapter 8 of 8 in Part I. The last one.
+> **Where you are.** Chapter 9 of 9 in Part I. The last one.
 >
 > **Before this.** Chapters [1](01-a-proof-is-a-program.md) to
-> [7](07-definitional-equality.md). This chapter puts them in a machine.
+> [8](08-definitional-equality.md). This chapter puts them in a machine.
 >
 > **This chapter adds** the shape of the whole system, and an honest answer to
 > "why should I believe any of this".
 >
-> **The four beats.** The idea is section 8.1. Your language is in the
-> TypeScript section, and this time it is the strongest mapping in Part I. The
-> machine is section 8.2, and the honest hole is section 8.4.
+> **The four beats.** The idea is section 9.1. The data is in the TypeScript
+> section, and this time it is the strongest mapping in Part I. The machine is
+> section 9.2, the honest hole is section 9.4, and the code is section 9.7.
 >
 > **After it** you are ready for Part II, which builds a checker in Rust, line
 > by line.
 
 ---
 
-## 8.1 The idea
+## 9.1 The idea
 
 Lean is a large program. It has a parser, a macro system, an elaborator, a
 unifier, hundreds of tactics, and a compiler. Hundreds of people have changed
@@ -31,7 +31,7 @@ with a part small enough to read.
 That is the best idea in the field, and it is worth saying slowly. **None of
 that large code is trusted.** Each part only produces a **candidate** term. One
 small program then re-checks that candidate from nothing, with the rules of
-chapters 5 to 7. A bug anywhere in the large part produces a term that the
+chapters 6 to 8. A bug anywhere in the large part produces a term that the
 small part refuses. It cannot produce a false theorem.
 
 A picture. A company may be enormous. The auditor is one person with a short
@@ -53,7 +53,7 @@ criterion](../GLOSSARY.md#de-bruijn-criterion)**, and two things make it work.
 
 ---
 
-## 8.2 The five stages, and the one that counts
+## 9.2 The five stages, and the one that counts
 
 ```
   text ──1──> tokens ──2──> Syntax ──3──> Expr ──4──> yes or no
@@ -79,32 +79,29 @@ small enough that several people have read all of it.
 
 ---
 
-## 8.3 What is in the trusted set
+## 9.3 What is in the trusted set
 
 Four things, and you have met all four.
 
 | The trusted part | The chapter |
 |---|---|
-| type inference, one arm per rule | [5](05-the-calculus-of-constructions.md) |
-| definitional equality, and `whnf` | [7](07-definitional-equality.md) |
-| the soundness checks on an inductive declaration | [6](06-inductive-types.md) |
-| the axioms, which the kernel does **not** check | section 8.4 |
+| type inference, one arm per rule | [6](06-the-calculus-of-constructions.md) |
+| definitional equality, and `whnf` | [8](08-definitional-equality.md) |
+| the soundness checks on an inductive declaration | [7](07-inductive-types.md) |
+| the axioms, which the kernel does **not** check | section 9.4 |
 
 Nothing else. Not `simp`, not `omega`, not `decide`, not the pretty printer.
 
 ---
 
-## 8.4 Axioms, and the one honest hole
+## 9.4 Axioms, and the one honest hole
 
 An [axiom](../GLOSSARY.md#axiom) is a name with a type and no proof. The kernel
 accepts it without a question, because that is what an axiom is.
 
-Lean's library rests on three, and you can ask any theorem which ones it uses:
-
-```lean
-#print axioms Classical.em
--- 'Classical.em' depends on axioms: [propext, Classical.choice, Quot.sound]
-```
+Lean's library rests on three, and a real system will tell you which ones any
+theorem uses. Ask it about the excluded middle and it answers with all three:
+`propext`, `Classical.choice`, and `Quot.sound`.
 
 | Axiom | What it adds |
 |---|---|
@@ -112,12 +109,12 @@ Lean's library rests on three, and you can ask any theorem which ones it uses:
 | `Quot.sound` | two equivalent values have the same quotient |
 | `Classical.choice` | you may pick an element from a non-empty type. This gives the excluded middle. |
 
-Four more names appear in a real run, and they are the interesting ones. Our
-checker reads the whole Lean prelude and reports every axiom it finds:
+Four more names appear once the whole prelude is read, and they are the
+interesting ones. The complete list is seven:
 
 ```text
-trust: 7 axiom(s): Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
-                   Lean.trustCompiler, Quot.sound, propext, sorryAx
+Classical.choice, Lean.ofReduceBool, Lean.ofReduceNat,
+Lean.trustCompiler, Quot.sound, propext, sorryAx
 ```
 
 - `sorryAx` is what [`sorry`](../GLOSSARY.md#sorry) becomes. A proof that
@@ -132,7 +129,7 @@ That is the whole hole, and it is visible. Nothing hides.
 
 ---
 
-## 8.5 Two accountants are better than one
+## 9.5 Two accountants are better than one
 
 Stage 4 re-checks stages 1 to 3. So who checks stage 4?
 
@@ -141,7 +138,7 @@ possible by writing its elaborated terms to a file that any program can read.
 The tool is `lean4export`, and the file is plain text.
 
 - `lean4checker` re-checks a compiled Lean library with a fresh kernel.
-- **This repository** is one of those second opinions. Part II builds it.
+- **Part II of this book** builds one of those second opinions, from nothing.
 - The Lean Kernel Arena runs every independent checker against the same files.
   It holds proofs that each one must **refuse**, and proofs that each one must
   accept. <https://arena.lean-lang.org/>
@@ -177,21 +174,17 @@ Lean takes the idea further in one way and further still in another.
 | the untrusted part | the generator | the parser, the elaborator, every tactic, every macro |
 | the checker | `tsc`, all of it | `src/kernel` only |
 | how large is the checker | hundreds of thousands of lines | about 6,000 |
-| can a second tool check the same output? | no. There is one `tsc`. | **yes**, from an export file. Section 8.5. |
+| can a second tool check the same output? | no. There is one `tsc`. | **yes**, from an export file. Section 9.5. |
 
 **The axiom report is the part with no counterpart in your toolchain.** You can
 write `as unknown as T`, or a bare `any`, or `@ts-expect-error`, and nothing
 downstream records that you did. A caller of your function sees a clean
-signature. Lean's `#print axioms` names every hole a theorem depends on, and
-`sorry` shows up there by name:
-
-```lean
-theorem hopeful : 2 + 2 = 4 := by sorry
-#print axioms hopeful     -- 'hopeful' depends on axioms: [sorryAx]
-```
+signature. A proof assistant does the opposite. Ask it which axioms a theorem
+depends on and it names every hole, however deep, and a theorem whose proof was
+left unfinished reports `sorryAx` by name.
 
 A proof with a hole is not a proof, and the tool says so without being asked.
-[What a theorem rests on](../14-what-a-theorem-rests-on.md) builds that report
+[What a theorem rests on](../15-what-a-theorem-rests-on.md) builds that report
 for our own checker.
 
 **And the export file is differential testing.** Two implementations, written
@@ -201,7 +194,7 @@ the agreement is the argument for believing it.
 
 ---
 
-## 8.6 Three ways to see trust
+## 9.6 Three ways to see trust
 
 **As an auditor.** A company may be large. The auditor is one person with a
 checklist, and the checklist is short enough to read.
@@ -215,7 +208,65 @@ all.
 
 ---
 
-## 8.7 Check yourself
+## 9.7 Try it
+
+The report of section 9.4 is a graph walk, and it is the last `Try it` of
+Part I. Paste it into a TypeScript playground.
+
+```ts
+type Decl =
+  | { k: "axiom"; name: string }
+  | { k: "proof"; name: string; uses: string[] }
+
+const env = new Map<string, Decl>(
+  (
+    [
+      { k: "axiom", name: "propext" },
+      { k: "axiom", name: "sorryAx" },
+      { k: "proof", name: "lemmaA", uses: ["propext"] },
+      { k: "proof", name: "lemmaB", uses: ["sorryAx"] },
+      { k: "proof", name: "theoremC", uses: ["lemmaA", "lemmaB"] },
+    ] as Decl[]
+  ).map((d) => [d.name, d]),
+)
+
+// Which axioms does a name rest on? Follow every edge to the bottom.
+function axiomsOf(name: string, seen = new Set<string>()): Set<string> {
+  const found = new Set<string>()
+  if (seen.has(name)) return found // a cycle, or a name met twice
+  seen.add(name)
+  const d = env.get(name)
+  if (!d) throw new Error(`${name} is not in the environment`)
+  if (d.k === "axiom") {
+    found.add(d.name)
+    return found
+  }
+  for (const used of d.uses) {
+    for (const a of axiomsOf(used, seen)) found.add(a)
+  }
+  return found
+}
+
+console.log([...axiomsOf("lemmaA")])   // ["propext"]
+console.log([...axiomsOf("theoremC")]) // ["propext", "sorryAx"]
+```
+
+Read the second line of output. Nobody wrote `sorryAx` into `theoremC`. It
+arrived through `lemmaB`, two edges away, and the walk found it anyway. **That
+is the whole value of the report**: a hole does not stay local, and a reader of
+`theoremC` would never see it by reading `theoremC`.
+
+Then make it lie. Delete the `seen` set and give two declarations that use each
+other. The walk no longer finishes. Keep the set but move `seen.add` after the
+loop and a diamond gets counted twice. A report that an auditor trusts has to be
+right about both, and
+[what a theorem rests on](../15-what-a-theorem-rests-on.md) is where this walk
+meets a real library, where the same function was quadratic and cost a quarter
+of every run.
+
+---
+
+## 9.8 Check yourself
 
 1. A tactic has a bug. What is the worst that can happen?
 2. Why is an axiom not a failure of the design?
@@ -233,17 +284,17 @@ all.
 
 ---
 
-## 8.8 Where to go next
+## 9.9 Where to go next
 
 Part I is done. You now know the theory that Lean's kernel implements.
 
 Part II builds that kernel in Rust, and it starts with the two functions of
-chapter 5 and chapter 7.
+chapter 6 and chapter 8.
 
 | Read next | It adds |
 |---|---|
-| [The type checker](../09-the-type-checker.md) | `infer_type`, `is_def_eq`, `whnf`, and the first real proof |
-| [The environment](../10-the-environment.md) | a name with a value, and every reduction rule |
+| [The type checker](../10-the-type-checker.md) | `infer_type`, `is_def_eq`, `whnf`, and the first real proof |
+| [The environment](../11-the-environment.md) | a name with a value, and every reduction rule |
 | [The guide](../README.md) | the full order, part by part |
 
 One more thing, and it is the most useful habit in this book. **Run the
@@ -252,7 +303,7 @@ see what breaks. A rule you have watched fail is a rule you keep.
 
 ---
 
-## 8.9 References
+## 9.10 References
 
 - Barendregt and Barendsen, *Autarkic computations in formal proofs*, 2002, for
   the De Bruijn criterion.
@@ -273,4 +324,4 @@ see what breaks. A rule you have watched fail is a rule you keep.
 
 ---
 
-**Next:** [Part II — the kernel, built](../09-the-type-checker.md)
+**Next:** [Part II — the kernel, built](../10-the-type-checker.md)

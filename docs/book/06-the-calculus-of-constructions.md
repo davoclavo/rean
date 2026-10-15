@@ -1,25 +1,25 @@
-# 5. The Calculus of Constructions
+# 6. The Calculus of Constructions
 
-> **Where you are.** Chapter 5 of 8 in Part I. This is the middle of the book
+> **Where you are.** Chapter 6 of 9 in Part I. This is the middle of the book
 > and the centre of the theory.
 >
 > **Before this.** Chapters [1](01-a-proof-is-a-program.md) to
-> [4](04-prop-type-and-sort.md). You need the term forms, substitution, the Pi
+> [5](05-prop-type-and-sort.md). You need the term forms, substitution, the Pi
 > type, and `Sort`.
 >
 > **This chapter adds** nothing new. It **assembles** the four chapters before
 > it into a system with a name, and it shows you the whole system on one page.
 >
-> **The four beats.** The idea is section 5.1. The notation is section 5.2,
-> and this time the notation is the thing to learn. Section 5.3 is the five
-> rules. Section 5.4 runs them on the proof from chapter 1.
+> **The four beats.** The idea is section 6.1. The rule is sections 6.2 and
+> 6.3, and this time the notation is the thing to learn. The code is section
+> 6.7. Section 6.4 runs the rules by hand on the proof from chapter 1.
 >
-> **Do not skip ahead.** Chapter 6 extends this system. You cannot see what the
+> **Do not skip ahead.** Chapter 7 extends this system. You cannot see what the
 > extension buys until you have seen what the system lacks.
 
 ---
 
-## 5.1 The idea
+## 6.1 The idea
 
 Four chapters have each added one piece. This chapter asks what the pieces add
 up to, and the answer is a **specification**.
@@ -39,20 +39,20 @@ card, and you are about to read it.
 
 | From | You have |
 |---|---|
-| chapter 2 | a variable, a function, an application, and substitution |
-| chapter 3 | the Pi type, `(x : A) → B` |
-| chapter 4 | `Sort u`, and the `imax` rule |
+| chapter 3 | a variable, a function, an application, and substitution |
+| chapter 4 | the Pi type, `(x : A) → B` |
+| chapter 5 | `Sort u`, and the `imax` rule |
 
 That is four node shapes and one operation. Four shapes need four answers, and
 one more answer ties the system to computation. Five rules.
 
 Put a name on that collection. It is the **Calculus of Constructions**, CoC for
 short. Coquand and Huet published it in 1988. Lean's kernel is this system plus
-one extension, and chapter 6 is the extension.
+one extension, and chapter 7 is the extension.
 
 ---
 
-## 5.2 The notation
+## 6.2 The rule, as notation
 
 This section teaches the notation and writes no rule. The next section writes
 five.
@@ -116,7 +116,7 @@ rule ever is.
 
 ---
 
-## 5.3 The five rules, on one page
+## 6.3 The five rules, on one page
 
 This is the whole calculus. Read each one aloud once.
 
@@ -162,11 +162,11 @@ This is the whole calculus. Read each one aloud once.
 Five rules. That is the system that Lean's kernel is built on, and four of them
 are one line of code each in a real checker.
 
-Notice what each rule came from. Rule 1 is the context of section 5.2. Rule 2
-is the tower of chapter 4, section 4.2. Rule 3 is `imax`, from chapter 4,
-section 4.4. Rules 4 and 5 are the Pi type of chapter 3. Nothing is new.
+Notice what each rule came from. Rule 1 is the context of section 6.2. Rule 2
+is the tower of chapter 5, section 5.2. Rule 3 is `imax`, from chapter 5,
+section 5.4. Rules 4 and 5 are the Pi type of chapter 4. Nothing is new.
 
-### And one more, which chapter 7 earns
+### And one more, which chapter 8 earns
 
 ```
    Γ ⊢ e : A      A ≡ B      Γ ⊢ B : Sort u
@@ -176,7 +176,7 @@ section 4.4. Rules 4 and 5 are the Pi type of chapter 3. Nothing is new.
 
 Read it: "a term keeps its type under computation". This is the
 [conversion rule](../GLOSSARY.md#conversion-rule). The symbol `≡` means
-[definitional equality](../GLOSSARY.md#definitional-equality), and chapter 7 is
+[definitional equality](../GLOSSARY.md#definitional-equality), and chapter 8 is
 entirely about it. Note the rule now, and do not worry about `≡` yet.
 
 This sixth rule is the hinge of the whole design. It is the reason a proof
@@ -184,7 +184,7 @@ checker must hold an **evaluator** inside it.
 
 ---
 
-## 5.4 A derivation, step by step
+## 6.4 A derivation, step by step
 
 Take the proof from chapter 1 and check it with the five rules. The target:
 
@@ -209,18 +209,18 @@ happened.
 
 Read step 4 once more, because it is the quiet one. `α` is a **variable**, and
 it is used as a **type**. That is legal here and nowhere in TypeScript. It is
-legal because chapter 4 put `Prop` in a universe, so a variable may hold a type
+legal because chapter 5 put `Prop` in a universe, so a variable may hold a type
 the way a variable holds a number.
 
 ---
 
-## 5.5 Three ways to see the calculus
+## 6.5 Three ways to see the calculus
 
 **As a card.** Five rules fit on an index card. Carry the card, and you can
 check any term of the core language by hand.
 
 **As a tree.** Every accepted term has a
-[derivation](../GLOSSARY.md#derivation) tree, like the table in section 5.4.
+[derivation](../GLOSSARY.md#derivation) tree, like the table in section 6.4.
 The checker builds that tree and throws it away. A proof of a proof, which
 nobody needs to store.
 
@@ -230,9 +230,9 @@ applies, the term is refused.
 
 ---
 
-## 5.6 What CoC cannot do
+## 6.6 What CoC cannot do
 
-Here is the honest limit, and it is the reason chapter 6 exists.
+Here is the honest limit, and it is the reason chapter 7 exists.
 
 The five rules give you `→` and `∀`. **That is all.** There is no `Nat`, no
 `List`, no `Bool`, no `∧`, no `∨`, and no `=`.
@@ -276,7 +276,7 @@ That split has a consequence you can feel:
 
 | The job | In TypeScript | In Lean |
 |---|---|---|
-| decide that two types are equal | `tsc`, and you trust it | the kernel, with the rules of chapter 7 |
+| decide that two types are equal | `tsc`, and you trust it | the kernel, with the rules of chapter 8 |
 | infer an argument you did not write | `tsc`, and you trust it | the elaborator. The kernel re-checks the term it chose. |
 | fill in a dependency, such as an Effect `Layer` | `tsc`, and you trust it | the elaborator. Same answer. |
 | check generated code | `tsc` reads the generated file like any other | the same, and the kernel checks it again |
@@ -287,38 +287,92 @@ GraphQL document. The generator may be wrong. You do not audit the generator.
 You let `tsc` read its output, and a bad generator produces a file that fails
 to compile. Lean takes that one step to the end of the road. Tactics, instance
 search, implicit arguments, notation and macros are all allowed to be wrong.
-The part that checks is small enough to read. Chapter 8 names that idea.
+The part that checks is small enough to read. Chapter 9 names that idea.
 
 **A derivation is a trace you have seen.** `tsc` reports a deep type error and
 prints the chain of positions that led to it. That chain is part of the tree of
-section 5.4. Here the tree has five kinds of node, and nothing else.
+section 6.4. Here the tree has five kinds of node, and nothing else.
 
 ---
 
-## 5.7 Try it
+## 6.7 Try it
 
-Run the proof of section 5.4 and read the output against the rules.
+The five rules are a function from a term to a type. Here are four of the five,
+short enough to read in one sitting. Paste it into a TypeScript playground.
 
-```sh
-devbox run -- cargo run -p rean -- prove
-devbox run -- cargo test -p rean_kernel --test typeck
+```ts
+type E =
+  | { k: "sort"; n: number }
+  | { k: "fvar"; id: number }
+  | { k: "app"; fun: E; arg: E }
+  | { k: "lam"; id: number; ty: E; body: E }
+  | { k: "forall"; id: number; ty: E; body: E }
+
+type Ctx = Map<number, E>
+
+const same = (a: E, b: E) => JSON.stringify(a) === JSON.stringify(b)
+
+function infer(ctx: Ctx, e: E): E {
+  switch (e.k) {
+    // Rule one: a universe is a guest on the floor above.
+    case "sort":
+      return { k: "sort", n: e.n + 1 }
+    // Rule two: a variable has the type the context gave it.
+    case "fvar": {
+      const ty = ctx.get(e.id)
+      if (!ty) throw new Error(`variable ${e.id} is not in scope`)
+      return ty
+    }
+    // Rule three: a function type is as high as its two halves.
+    case "forall": {
+      const u = infer(ctx, e.ty)
+      const v = infer(new Map(ctx).set(e.id, e.ty), e.body)
+      if (u.k !== "sort" || v.k !== "sort") throw new Error("not a type")
+      // The `imax` of chapter 5 goes here. `max` is the predicative half.
+      return { k: "sort", n: v.n === 0 ? 0 : Math.max(u.n, v.n) }
+    }
+    // Rule four: a function has a function type.
+    case "lam": {
+      const body = infer(new Map(ctx).set(e.id, e.ty), e.body)
+      return { k: "forall", id: e.id, ty: e.ty, body }
+    }
+    // Rule five: an application needs the argument to fit.
+    case "app": {
+      const fn = infer(ctx, e.fun)
+      if (fn.k !== "forall") throw new Error("this is not a function")
+      const arg = infer(ctx, e.arg)
+      if (!same(fn.ty, arg)) throw new Error("the argument does not fit")
+      return fn.body
+    }
+  }
+}
 ```
 
-Then try a wrong proof. The checker refuses it and prints both types:
+Now run section 6.4 through it. The proof of "A implies A" is a lambda whose
+body is its own argument:
 
-```text
-rejected:
-  type mismatch for `fun (α : Prop) => fun (β : Prop) => fun (h : α) => h`
-    expected: (α : Prop) → (β : Prop) → α → β
-    got     : (α : Prop) → Prop → α → α
+```ts
+const prop: E = { k: "sort", n: 0 }
+const a: E = { k: "fvar", id: 1 }
+const proof: E = { k: "lam", id: 1, ty: prop, body: { k: "lam", id: 2, ty: a, body: { k: "fvar", id: 2 } } }
+console.log(JSON.stringify(infer(new Map(), proof)))
 ```
 
-The term proves `α → α`. The claim asked for `α → β`. Rule five had nothing to
-match, so the answer is no.
+Then break it. Change the inner body to `{ k: "fvar", id: 1 }` and the type
+changes with it, so the claim and the proof no longer agree. Change `app` to
+pass the wrong argument and rule five throws: "the argument does not fit". Rule
+five is where every wrong proof dies.
+
+**What this version leaves out, and it matters.** `same` compares two types as
+data. The real rule five does not. It asks whether the two types are equal **by
+computation**, which may mean running a program, and that is
+[chapter 8](08-definitional-equality.md). Substitution is missing too, because
+this version keeps a variable as an identifier rather than as an index. Those
+two gaps are the difference between fifty lines and a kernel.
 
 ---
 
-## 5.8 Check yourself
+## 6.8 Check yourself
 
 1. Name the five rules, from memory, by what each one is **about**.
 2. Which rule needs substitution, and why?
@@ -329,14 +383,14 @@ match, so the answer is no.
 
 1. A variable, a universe, a function type, a function, and an application.
 2. The application rule. The type of the result mentions the argument, so the
-   argument value has to go into the type. Chapter 3, section 3.3.
+   argument value has to go into the type. Chapter 4, section 4.3.
 3. Because the five rules build only functions and function types. Induction is
-   an extra principle, and nothing in the five rules proves it. Chapter 6 adds
+   an extra principle, and nothing in the five rules proves it. Chapter 7 adds
    it as a declaration that the kernel understands.
 
 ---
 
-## 5.9 References
+## 6.9 References
 
 - Coquand and Huet, *The Calculus of Constructions*, 1988. The system of this
   chapter. DOI [10.1016/0890-5401(88)90005-3](https://doi.org/10.1016/0890-5401%2888%2990005-3)
@@ -357,10 +411,7 @@ match, so the answer is no.
   <https://github.com/microsoft/TypeScript/issues/21477>
 - Carneiro, *The Type Theory of Lean*, for these rules as Lean states them.
   <https://github.com/digama0/lean-type-theory>
-- Our code. `crates/rean_kernel/src/typeck.rs` holds one arm per rule, and
-  [the type checker chapter](../09-the-type-checker.md) walks through it line
-  by line.
 
 ---
 
-**Next:** [6. Inductive types, and the I in CoIC](06-inductive-types.md)
+**Next:** [7. Inductive types, and the I in CoIC](07-inductive-types.md)

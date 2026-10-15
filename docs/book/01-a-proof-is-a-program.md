@@ -1,13 +1,14 @@
 # 1. A proof is a program
 
-> **Where you are.** Chapter 1 of 8 in Part I. This is the first one, so it
+> **Where you are.** Chapter 1 of 9 in Part I. This is the first one, so it
 > assumes nothing.
 >
 > **This chapter adds** one idea: a proposition is a type, and a proof is a
 > term of that type.
 >
-> **The four beats.** The idea is section 1.1. Your language is section 1.2.
-> The notation is section 1.4. Lean arrives in section 1.5 and not before.
+> **The four beats.** The idea is section 1.1. The data is section 1.2, in
+> TypeScript. The code is section 1.7. The rule is section 1.4, and section 1.5
+> writes one claim out as a tree.
 >
 > **Do not skip ahead.** Every later chapter uses this idea. If a word here is
 > new, that is normal. [The glossary](../GLOSSARY.md) holds every word.
@@ -54,7 +55,7 @@ a program that compares shapes every day.** It is called a type checker.
 
 ---
 
-## 1.2 In your language
+## 1.2 The data, in your language
 
 Read this signature. The body is missing on purpose.
 
@@ -84,7 +85,7 @@ since the first day you wrote a type.
 One honest note, because it matters later. A TypeScript function may loop for
 ever or throw, so a TypeScript type is a weaker promise than it looks. Every
 Lean function is [total](../GLOSSARY.md#total), and
-[chapter 6](06-inductive-types.md) is where that rule gets its teeth. Section
+[chapter 7](07-inductive-types.md) is where that rule gets its teeth. Section
 1.7 shows the exact hole.
 
 ---
@@ -107,7 +108,7 @@ checking stays the same job.
 
 ---
 
-## 1.4 The notation, which is a dictionary
+## 1.4 The rule, which is a dictionary
 
 The idea has a name, the [Curry-Howard](../GLOSSARY.md#curry-howard)
 correspondence, and it gives you one piece of notation and one table.
@@ -134,7 +135,7 @@ type theory. The right column is your editor.
 | `True` | a [unit type](../GLOSSARY.md#unit-type), with one element | `undefined`, which has exactly one value |
 | `False` | an [empty type](../GLOSSARY.md#empty-type), with **no** element | `never` |
 | `¬ A` | `A → False` | `(a: A) => never` |
-| `∀ x : A, P x` | a function that takes `x` and returns a proof of `P x` | a generic, and more. [Chapter 3](03-types-that-depend-on-values.md). |
+| `∀ x : A, P x` | a function that takes `x` and returns a proof of `P x` | a generic, and more. [Chapter 4](04-types-that-depend-on-values.md). |
 
 Read the `False` row twice. A false proposition is not an error and not a
 crash. It is a type that nothing inhabits. To prove `¬ A`, write a function
@@ -144,36 +145,42 @@ means.
 
 ---
 
-## 1.5 In Lean
+## 1.5 The claim, as data
 
-Now the real syntax. Here is section 1.2, in Lean:
+Section 1.4 gave the dictionary. Here is one entry of it as a tree, written in
+the types of [chapter 2](02-every-type-the-kernel-has.md).
 
-```lean
-theorem id_thm (A : Prop) (h : A) : A := h
+The claim "for every proposition `A`, `A` implies `A`":
+
+```
+forall(A, sort(zero),
+  forall(h, bvar 0,
+    bvar 1))
 ```
 
-Four parts, and you have met all four.
+The proof of that claim:
+
+```
+lam(A, sort(zero),
+  lam(h, bvar 0,
+    bvar 0))
+```
+
+Read the two side by side. They are the same shape. The proof has `lam` where
+the claim has `forall`, and a binder of the proof stands where a binder of the
+claim stands. That is this whole chapter, written as data: **the claim is the
+type of the proof.**
 
 | The part | What it is |
 |---|---|
-| `id_thm` | a name |
-| `(A : Prop) (h : A)` | what goes in. `h` is a proof of `A`. |
-| `: A` | the claim. The shape cut into the door. |
-| `:= h` | the reason. The key. |
+| `sort(zero)` | the collection of claims. Chapter 5 says what it is. |
+| the outer `forall` | "for every proposition `A`". Row 8 of the dictionary. |
+| the inner `forall` | "`A` implies `A`". Row 2. |
+| `bvar 1` | the `A` that the outer binder made. Chapter 3 says why it is a number. |
 
-Same shape as the TypeScript. The type is the claim, the term is the proof, and
-`Prop` is the word for "the collection of claims". Chapter 4 says what `Prop`
-is.
-
-Ask Lean to read a type back to you with `#check`. This is the one command you
-will use in every chapter from here on:
-
-```lean
-#check @id_thm      -- ∀ (A : Prop), A → A
-```
-
-Read the output. `∀ (A : Prop), A → A`. That is row 8 and then row 2 of the
-dictionary in section 1.4, in Lean's own notation.
+Nothing in those two trees belongs to any language's syntax. A front end turns
+text into a tree like this, and a kernel reads the tree. The text is a
+convenience for the person. The tree is the thing that gets checked.
 
 ---
 
@@ -182,13 +189,13 @@ dictionary in section 1.4, in Lean's own notation.
 Three consequences, and all three shape the rest of the book.
 
 1. **A proof checker is a type checker.** One program, one algorithm.
-   [Chapter 5](05-the-calculus-of-constructions.md) writes down its rules.
+   [Chapter 6](06-the-calculus-of-constructions.md) writes down its rules.
 2. **A proof is data.** You can print it, store it, send it to another program,
-   and check it again. [Chapter 8](08-what-you-must-trust.md) is about why that
+   and check it again. [Chapter 9](09-what-you-must-trust.md) is about why that
    matters so much.
 3. **The checker must sometimes run your program.** A type can hold a value, so
    to compare two types the checker may have to compute.
-   [Chapter 7](07-definitional-equality.md) is that story, and it is the reason
+   [Chapter 8](08-definitional-equality.md) is that story, and it is the reason
    a proof checker is not a weekend project.
 
 ---
@@ -235,45 +242,49 @@ type may be read as a statement of logic.
 | TypeScript | the bottom type | **no**. `loop` above inhabits it. | a promise, if the program stops |
 | Lean | `False`, an inductive type with no constructor | **yes** | a promise, with no condition |
 
-Hold on to that table. Chapter 6, section 6.7 is the rule that keeps the Lean
+Hold on to that table. Chapter 7, section 7.7 is the rule that keeps the Lean
 column honest.
 
 ---
 
 ## 1.7 Try it
 
-The checker in this repository can already do the proof of section 1.2.
+Paste this into a TypeScript playground. It is section 1.2 again, with four
+propositions as four types.
 
-```sh
-devbox run -- cargo run -p rean -- prove
+```ts
+// "A implies A". Take a proof of A, give back a proof of A.
+const id = <A>(a: A): A => a
+
+// "A implies (B implies A)". Take two proofs, keep the first.
+const first = <A, B>(a: A) => (_b: B): A => a
+
+// A false proposition is a type with no values at all.
+type False = never
+
+// "False implies A". There is nothing to handle, so there is nothing to write.
+const absurd = <A>(h: False): A => h
 ```
 
-```text
-== the proof ==
-fun (α : Prop) => fun (h : α) => h
+All four are accepted, and the last one is the interesting one. `absurd` is
+accepted because `never` goes into every type, which is the type level form of
+"from a false claim, anything follows".
 
-== the proposition ==
-(α : Prop) → α → α
+Now break one on purpose. Add this line:
 
-== infer_type ==
-the proof has type : (α : Prop) → α → α
-
-== check ==
-accepted. The proposition holds.
-the proposition lives in : Prop
+```ts
+const bad = <A, B>(a: A): B => a
 ```
 
-Read the third block. Nobody wrote that type in the test. The checker
-**computed** it from the term, and then compared it with the claim. That is the
-comparison of two shapes from section 1.1, done by a program you can read.
-
-The last line is chapter 4. Leave it for now.
+The compiler refuses it: `Type 'A' is not assignable to type 'B'`. In the
+reading of this chapter, that message says "a proof of `A` is not a proof of
+`B`". The compiler is the proof checker, and it has just refused a false claim.
 
 ---
 
 ## 1.8 Check yourself
 
-You are ready for chapter 2 when you can answer these three without scrolling
+You are ready for chapter 3 when you can answer these three without scrolling
 up.
 
 1. What does it mean for a proposition to be false, in terms of types?
@@ -303,10 +314,8 @@ up.
   <https://www.typescriptlang.org/docs/handbook/2/everyday-types.html>
 - Effect, the `Effect` type, for the three channels.
   <https://effect.website/docs/getting-started/the-effect-type/>
-- Our code. `crates/rean_kernel/src/typeck.rs` holds the checker, and
-  `crates/rean_kernel/tests/typeck.rs` holds the proof of section 1.2.
 - Every source for Part I is in [the references](../REFERENCES.md).
 
 ---
 
-**Next:** [2. Terms, binders, and names you do not need](02-terms-and-binders.md)
+**Next:** [2. Every type the kernel has](02-every-type-the-kernel-has.md)

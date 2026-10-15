@@ -1,26 +1,25 @@
-# 6. Inductive types, and the I in CoIC
+# 7. Inductive types, and the I in CoIC
 
-> **Where you are.** Chapter 6 of 8 in Part I.
+> **Where you are.** Chapter 7 of 9 in Part I.
 >
-> **Before this.** Chapter [5](05-the-calculus-of-constructions.md), and the
-> limit it ends on. If you have not read section 5.6, read it now, because this
+> **Before this.** Chapter [6](06-the-calculus-of-constructions.md), and the
+> limit it ends on. If you have not read section 6.6, read it now, because this
 > chapter answers it.
 >
 > **This chapter adds** the one extension that turns CoC into CoIC. It is where
 > numbers, lists, and every logical connective come from.
 >
-> **The four beats.** The idea is section 6.1. Your language is section 6.2.
-> The notation is section 6.3. Lean is in section 6.3 and in every section
-> after it.
+> **The four beats.** The idea is section 7.1. The data is section 7.2. The
+> rule is sections 7.3 and 7.4. The code is section 7.11.
 >
-> **Do not skip ahead.** Chapter 7 computes with the rule this chapter
+> **Do not skip ahead.** Chapter 8 computes with the rule this chapter
 > introduces.
 
 ---
 
-## 6.1 The idea
+## 7.1 The idea
 
-Chapter 5 ended with a system that has functions and nothing else. No numbers,
+Chapter 6 ended with a system that has functions and nothing else. No numbers,
 no lists, no `and`, no `or`, no `=`. It needs one more kind of declaration, and
 the idea behind that declaration is a trade.
 
@@ -52,12 +51,12 @@ A picture. A declaration is a grammar, and a value is a sentence in it.
 
 One more thing, and it is the reason this chapter is the longest in Part I. The
 promise can be abused. Write a constructor that takes a function **from** the
-type you are declaring, and you can prove anything at all. Section 6.7 is the
+type you are declaring, and you can prove anything at all. Section 7.7 is the
 gate that stops it, and it is two words long.
 
 ---
 
-## 6.2 In your language
+## 7.2 The data, in your language
 
 You write the first half of the trade every day.
 
@@ -66,7 +65,7 @@ type Nat = { tag: "zero" } | { tag: "succ"; n: Nat }
 ```
 
 A discriminated union. Two ways to build a value, and nothing else is a `Nat`.
-That is your half of section 6.1, in TypeScript, and `tsc` enforces the promise
+That is your half of section 7.1, in TypeScript, and `tsc` enforces the promise
 for you. Miss a case and the value that reaches the default arm is not `never`,
 so the assignment fails:
 
@@ -120,15 +119,15 @@ const area = $match({
 ```
 
 One arm per constructor, and the compiler refuses an arm you forgot. **That is
-the recursor of section 6.1.** Lean's version differs in exactly one way, and
+the recursor of section 7.1.** Lean's version differs in exactly one way, and
 that one way is the whole chapter. In Lean the result of `$match` may be a
 **proof**. Then the same function is induction.
 
 ---
 
-## 6.3 The notation, and the three things a declaration gives back
+## 7.3 The rule, and the three things a declaration gives back
 
-**The notation.** A declaration lists the constructors, and each constructor
+**The rule.** A declaration lists the constructors, and each constructor
 carries its type.
 
 ```
@@ -138,7 +137,7 @@ inductive Nat where
 ```
 
 Two ways to build a number. The second one takes a number, so the type is
-recursive. That is section 6.2 with Lean's syntax on it.
+recursive. That is section 7.2 with Lean's syntax on it.
 
 For one declaration the kernel adds three kinds of thing to the environment.
 
@@ -148,24 +147,22 @@ For one declaration the kernel adds three kinds of thing to the environment.
 | the constructors | `Nat.zero`, `Nat.succ` | to **build** a value |
 | the **[recursor](../GLOSSARY.md#recursor)** | `Nat.rec` | to **use** a value |
 
-**In Lean.** The third row is the one with no counterpart in your toolchain.
-Ask Lean to print it:
+**The third row** is the one with no counterpart in your toolchain. Here is its
+type, in the notation of chapter 4. It takes four arguments, in this order:
 
-```lean
-#check Nat.rec
 ```
+motive : Nat → Sort u                            what you want to get
+zero   : motive Nat.zero                         what to do for zero
+succ   : (n : Nat) → motive n → motive (Nat.succ n)   what to do for a successor
+t      : Nat                                     the value to take apart
 
-```text
-Nat.rec.{u} {motive : Nat → Sort u}
-  (zero : motive Nat.zero)
-  (succ : (n : Nat) → motive n → motive n.succ)
-  (t : Nat) : motive t
+and it gives back:   motive t
 ```
 
 Read it slowly, because three words from the chapters live in that signature.
 
 - **[motive](../GLOSSARY.md#motive)**. What you want to get, as a function of
-  the value. One per type. In section 6.2 the motive was the type parameter `A`
+  the value. One per type. In section 7.2 the motive was the type parameter `A`
   of `natRec`, and it could not depend on the value. Here it can.
 - **[minor premise](../GLOSSARY.md#minor-premise)**. What to do for one
   constructor. One per constructor, so `zero` and `succ` above. Those are the
@@ -180,7 +177,7 @@ It falls out of the shape of the constructor.
 
 ---
 
-## 6.4 ι, the rule that computes
+## 7.4 ι, the rule that computes
 
 A recursor is useless until it runs. One rule makes it run, and it is called
 **[ι, iota](../GLOSSARY.md#iota)**.
@@ -192,7 +189,7 @@ Nat.rec z s (Nat.succ n)   ≡   s n (Nat.rec z s n)
 In words: when the value you take apart is **built by a constructor**, replace
 the recursor call with the minor premise for that constructor.
 
-That is one line of `natRec` from section 6.2, written as an equation rather
+That is one line of `natRec` from section 7.2, written as an equation rather
 than as code. The `t.tag === "zero"` test is the same test. The difference is
 that the kernel is allowed to run this rule **while it checks a type**.
 
@@ -201,15 +198,15 @@ Two notes, and both matter later.
 - The rule fires only on a constructor. If the major premise is a variable, the
   term is **[stuck](../GLOSSARY.md#stuck)**, and stuck is the correct answer.
 - The right hand side calls `Nat.rec` again, on the smaller number. So one ι
-  step can make the term **bigger**. Hold on to that. It is why chapter 7 is
+  step can make the term **bigger**. Hold on to that. It is why chapter 8 is
   hard, and it is why [Part VI of the guide](../README.md) exists.
 
 ---
 
-## 6.5 One term, two readings, and where logic comes from
+## 7.5 One term, two readings, and where logic comes from
 
-**The idea.** Look at `motive` in section 6.3. It returns `Sort u`, so `u` may
-be any level, and chapter 4 told you what the levels are. Point the motive at
+**The idea.** Look at `motive` in section 7.3. It returns `Sort u`, so `u` may
+be any level, and chapter 5 told you what the levels are. Point the motive at
 `Type` and you get a program. Point it at `Prop` and you get a proof.
 
 | Choose the motive in | And `Nat.rec` is | You call it |
@@ -219,7 +216,7 @@ be any level, and chapter 4 told you what the levels are. Point the motive at
 
 **Induction and recursion are the same term.** Proof by induction on `n` is a
 recursive program whose output is a proof. That is chapter 1's dictionary, used
-in earnest, and it is the reason section 6.2 ends where it does. Your `$match`
+in earnest, and it is the reason section 7.2 ends where it does. Your `$match`
 cannot land in `Prop`, because TypeScript has no `Prop`.
 
 **Now the payoff.** Every connective from chapter 1's dictionary is an
@@ -235,23 +232,24 @@ inductive type. None of them is built into the kernel.
 | `a = b` | inductive | one, named `rfl` |
 | `¬ A` | not a declaration | it is `A → False` |
 
-**In Lean.** Lean will show you:
+**The four types, as types.** Each one is an ordinary declaration, and nothing
+in the list is a special form:
 
-```lean
-#check @Eq            -- {α : Sort u_1} → α → α → Prop
-#check @Eq.refl       -- ∀ {α : Sort u_1} (a : α), a = a
-#check @And.intro     -- ∀ {a b : Prop}, a → b → a ∧ b
-#check @False.rec     -- (motive : False → Sort u_1) → (t : False) → motive t
+```
+Eq        : {α : Sort u} → α → α → Prop
+Eq.refl   : {α : Sort u} → (a : α) → Eq a a
+And.intro : {a b : Prop} → a → b → And a b
+False.rec : (motive : False → Sort u) → (t : False) → motive t
 ```
 
-Read `False.rec`. It takes a `False` and gives you **anything you asked for**.
+Read the last one. It takes a `False` and gives you **anything you asked for**.
 That is safe for one reason only: no constructor builds a `False`, so nobody
 can ever call it. "From a contradiction, anything follows" is not an axiom here.
 It is a recursor with zero minor premises.
 
 ---
 
-## 6.6 Parameter or index
+## 7.6 Parameter or index
 
 One distinction, because the chapters on the kernel need it to be exact. Look
 at `Eq` again.
@@ -268,12 +266,12 @@ Eq : {α : Sort u} → α → α → Prop
 
 A parameter comes first and a constructor shares it. An index is what makes a
 family of types rather than one type. That family is the shelf of boxes from
-chapter 3, section 3.1. [The environment chapter](../10-the-environment.md)
+chapter 4, section 4.1. [The environment chapter](../11-the-environment.md)
 counts both, and one wrong count breaks every recursor.
 
 ---
 
-## 6.7 The one rule that keeps it safe
+## 7.7 The one rule that keeps it safe
 
 Here is the scariest-looking rule in the book, and it is two words long:
 **[strict positivity](../GLOSSARY.md#strict-positivity)**.
@@ -285,24 +283,17 @@ in a logic proves everything.
 **The notation, in one line.** In a constructor argument, the type being
 declared may appear to the **right** of an arrow, and never to the **left**.
 
-```lean
-| succ : Nat → Nat                 -- fine. Nat is to the right.
-| node : List Tree → Tree          -- fine. Nested, and still to the right.
-| mk   : (Bad → False) → Bad       -- refused. Bad is to the left.
+```
+succ : Nat → Nat                 fine. Nat is to the right.
+node : List Tree → Tree          fine. Nested, and still to the right.
+mk   : (Bad → False) → Bad       refused. Bad is to the left.
 ```
 
-**In Lean.** Try to declare the third one:
-
-```lean
-inductive Bad where
-  | mk : (Bad → False) → Bad
-```
-
-Lean refuses it, and the message comes from the kernel itself:
-
-```text
-error: (kernel) arg #1 of 'Bad.mk' has a non positive occurrence
-       of the datatypes being declared
+Try to declare that third one in any system built on this theory and the
+**kernel** refuses it, not the front end. The real Lean says that argument one
+of the constructor "has a non positive occurrence of the datatypes being
+declared", and the word in that message is the word in this section: the
+occurrence is negative, so the declaration is refused.
 ```
 
 Why refuse? Because that type proves `False`. The constructor holds a function
@@ -317,40 +308,35 @@ correct there and fatal here.
 
 ---
 
-## 6.8 Three more shapes you will meet
+## 7.8 Three more shapes you will meet
 
 **A [structure](../GLOSSARY.md#structure)** is an inductive type with **one**
 constructor and no index. The word names a shape, not a feature. Because there
 is one constructor, the kernel adds a shortcut for reading a field. It is
-called a projection, and [the environment chapter](../10-the-environment.md)
-is where our code reads one.
+called a projection, and [the environment chapter](../11-the-environment.md)
+is where one gets built.
 
 **A [mutual group](../GLOSSARY.md#mutual-group)** is two types declared
 together, each one mentioning the other. Each recursor then takes one motive
 per type.
 
 **A [nested inductive](../GLOSSARY.md#nested-inductive)** holds itself inside
-another type, as in `node : List Tree → Tree`. Ask for its recursor and you can
-see how Lean handles it:
+another type, as in `node : List Tree → Tree`. Declare a tree with two
+constructors, `leaf` and that `node`, and then look at the recursor the system
+builds for it:
 
-```lean
-inductive Tree where
-  | leaf
-  | node : List Tree → Tree
-
-#check @Tree.rec
+```
+Tree.rec : {motive_1 : Tree → Sort u}
+         → {motive_2 : List Tree → Sort u}
+         → ...
 ```
 
-```text
-@Tree.rec : {motive_1 : Tree → Sort u} → {motive_2 : List Tree → Sort u} → ...
-```
-
-**Two** motives, for one declared type. Lean turned the nest into a mutual
+**Two** motives, for one declared type. The system turned the nest into a mutual
 group behind your back, with `List Tree` as the second member.
 
 ---
 
-## 6.9 Two things the kernel adds on top
+## 7.9 Two things the kernel adds on top
 
 CoIC is now complete, and a real kernel still holds two extras. Both are
 honest and both are worth knowing early.
@@ -359,7 +345,7 @@ honest and both are worth knowing early.
   `Nat.succ (Nat.succ (Nat.succ Nat.zero))`. No kernel wants a million nested
   constructors, so Lean stores the digits and computes with a big number
   library. That choice buys speed and owes two obligations, and
-  [making it work](../12-making-it-work.md) pays them.
+  [making it work](../13-making-it-work.md) pays them.
 - **[Quotients](../GLOSSARY.md#quotient) are primitive.** No inductive
   declaration can give you "these two values are now the same". Lean adds four
   constants, `Quot`, `Quot.mk`, `Quot.lift` and `Quot.ind`, and one computation
@@ -367,19 +353,19 @@ honest and both are worth knowing early.
 
 ---
 
-## 6.10 Three ways to see an inductive type
+## 7.10 Three ways to see an inductive type
 
 **As a grammar.** The constructors are the production rules. A value is a
 sentence in that grammar, and the recursor is a reader for it.
 
 **As a fold.** `Nat.rec` with a motive in `Type` is exactly `fold` over a list
 of `succ` steps. You give the base case and the step, and it walks the value.
-Section 6.2 wrote that fold in TypeScript.
+Section 7.2 wrote that fold in TypeScript.
 
 **As a match, written as a function.** `Nat.rec` is the `switch` a compiler
 would generate, handed to you as an ordinary function. The kernel needs it as a
 function, because a function is a term, and a term is the only thing the five
-rules of chapter 5 understand.
+rules of chapter 6 understand.
 
 ---
 
@@ -389,15 +375,15 @@ Two of the three pieces are the same. The third is the one worth your time, and
 there is one rule you do not have.
 
 **The constructors match.** A discriminated union, a Rust `enum`, and a Lean
-`inductive` are all "a type described by the ways to build it". Section 6.2 put
+`inductive` are all "a type described by the ways to build it". Section 7.2 put
 the two declarations side by side.
 
 **The recursor is your `$match`, or your `fold`.** `Nat.rec` with a motive in
-`Type` is `natRec` from section 6.2. The arms are the minor premises. The
+`Type` is `natRec` from section 7.2. The arms are the minor premises. The
 exhaustiveness check that `tsc` runs is the reason both are total.
 
 **An index is the real meeting point, and TypeScript nearly has it.** A tag
-that narrows a type parameter is an index in the sense of section 6.6:
+that narrows a type parameter is an index in the sense of section 7.6:
 
 ```ts
 type Expr<A> =
@@ -413,7 +399,7 @@ Lean's version takes any **value** as an index, not only a type, so
 `Vector α 3` and `Vector α 4` are different types in the same family.
 
 **And one rule your language does not have, for a good reason.** Write the
-forbidden type of section 6.7 in TypeScript:
+forbidden type of section 7.7 in TypeScript:
 
 ```ts
 type Bad = { f: (b: Bad) => never }   // TypeScript accepts this
@@ -434,34 +420,57 @@ together, that one type proves everything.
 
 ---
 
-## 6.11 Try it
+## 7.11 Try it
 
-Our kernel checks a real inductive type, its constructors and its recursor, out
-of a file that the real Lean wrote. Chapter 8, section 8.5 says what that file
-is and why it exists. For now it is enough that Lean made it and that a second
-program reads it.
+A recursor and its ι rule, in forty lines. Paste this into a TypeScript
+playground.
 
-```sh
-devbox run -- cargo run -p rean -- check fixtures/lean4export/shapes.ndjson
+```ts
+type Nat = { k: "zero" } | { k: "succ"; of: Nat }
+
+const zero: Nat = { k: "zero" }
+const succ = (of: Nat): Nat => ({ k: "succ", of })
+const two = succ(succ(zero))
+
+// The recursor. One argument per constructor, then the value to take apart.
+// `onSucc` receives the smaller number AND the answer for it. That second
+// argument is the induction hypothesis, and nobody added it by hand: it comes
+// from the shape of `succ`.
+function natRec<M>(onZero: M, onSucc: (n: Nat, ih: M) => M, t: Nat): M {
+  switch (t.k) {
+    case "zero":
+      return onZero                                   // ι rule one
+    case "succ":
+      return onSucc(t.of, natRec(onZero, onSucc, t.of)) // ι rule two
+  }
+}
+
+// Every function over a number is this one function with different arguments.
+const toNumber = (t: Nat) => natRec(0, (_n, ih) => ih + 1, t)
+const add = (a: Nat, b: Nat) => natRec(b, (_n, ih) => succ(ih), a)
+
+console.log(toNumber(add(two, two))) // 4
 ```
 
-```text
-level 1: checked 63 of 63 declarations
-trust: no accepted declaration rests on an axiom
-```
+The two `case` arms are the ι rule of section 7.4. Each one says "the recursor
+applied to this constructor becomes this term", and the `switch` is the whole
+reduction.
 
-That fixture holds a mutual group, a nested type, all four `Quot` constants, a
-structure, and the theorem `2 + 3 = 5`. Chapter 7 is about the last one.
+**Where TypeScript stops, and it is the point of the chapter.** `M` is a type.
+It cannot be a function of `t`, so it cannot be a **motive**. So `natRec` can
+compute a value, and it can never prove a statement **about** `t`. Make `M`
+depend on the value and you have induction. That one change is the whole
+distance from this playground to a proof assistant, and
+[chapter 4](04-types-that-depend-on-values.md) is the chapter that bought it.
 
-Then watch the gate of section 6.7 do its job:
-
-```sh
-devbox run -- cargo test -p rean_kernel --test soundness
-```
+Then break the positivity rule of section 7.7 by hand. Write a type whose
+constructor takes a function **into** itself, and try to write a value of it.
+Nothing you write will ever terminate, and that is what the kernel refuses to
+accept on your behalf.
 
 ---
 
-## 6.12 Check yourself
+## 7.12 Check yourself
 
 1. What three things does one `inductive` declaration add to the environment?
 2. `False.rec` returns any type you ask for. Why is that safe?
@@ -478,7 +487,7 @@ devbox run -- cargo test -p rean_kernel --test soundness
 
 ---
 
-## 6.13 References
+## 7.13 References
 
 - Pfenning and Paulin-Mohring, *Inductively defined types in the Calculus of
   Constructions*, 1990. The extension this chapter is about.
@@ -488,18 +497,15 @@ devbox run -- cargo test -p rean_kernel --test soundness
   DOI [10.1007/BFb0037116](https://doi.org/10.1007/BFb0037116)
 - Dybjer, *Inductive families*, 1994, for a parameter against an index.
   DOI [10.1007/BF01211308](https://doi.org/10.1007/BF01211308)
-- Effect, `Data.TaggedEnum`, for the declaration and `$match` of section 6.2.
+- Effect, `Data.TaggedEnum`, for the declaration and `$match` of section 7.2.
   <https://effect.website/docs/data-types/data/>
 - TypeScript, narrowing, for the exhaustiveness check that makes a `switch`
   total. <https://www.typescriptlang.org/docs/handbook/2/narrowing.html>
 - Agda, termination and positivity, for the same gate in another system.
   <https://agda.readthedocs.io/en/latest/language/termination-checking.html>
 - Lean's own source. `src/kernel/inductive.cpp` builds the recursor, and
-  `check_positivity` in that file is section 6.7.
-- Our code. `crates/rean_kernel/src/positivity.rs` is section 6.7, and
-  `crates/rean_kernel/tests/soundness.rs` holds a real proof of `False` that
-  the rule refuses.
+  `check_positivity` in that file is section 7.7.
 
 ---
 
-**Next:** [7. Definitional equality](07-definitional-equality.md)
+**Next:** [8. Definitional equality](08-definitional-equality.md)

@@ -1,15 +1,15 @@
-# Chapter 18 — The cache, and the rule that keeps it honest
+# Chapter 19 — The cache, and the rule that keeps it honest
 
-> **Where you are.** Chapter 18 of 28, in Part VI of [the guide](README.md). The
+> **Where you are.** Chapter 19 of 28, in Part VI of [the guide](README.md). The
 > lab notebook. Read it for the method.
 >
-> **Before this.** [Structures, and what the kernel costs](17-structures-and-cost.md),
+> **Before this.** [Structures, and what the kernel costs](18-structures-and-cost.md),
 > for the cached numbers and the work budget.
 >
 > **After it you can** state the one rule that keeps a cache in a proof checker
 > honest.
 
-Chapter 17 ended with one number and one frame. The number was **642
+Chapter 18 ended with one number and one frame. The number was **642
 declarations out of budget**, all of them well-founded recursion. The frame was
 
 ```text
@@ -29,7 +29,7 @@ devbox run -- cargo test -p rean_kernel --test cache
 
 ---
 
-## 18.1 Why the same work happens twice
+## 19.1 Why the same work happens twice
 
 `whnf` takes a term and reduces it until the head cannot move. The checker calls
 it everywhere: `is_def_eq` calls it on both sides, `infer_type` calls it on
@@ -48,13 +48,13 @@ So remember the answer.
 
 ---
 
-## 18.2 The third number in every node
+## 19.2 The third number in every node
 
 A cache needs a key, and the key has to be cheap. Walking a term to make a key
 costs the same walk the cache is meant to avoid.
 
 So every node now caches a **hash**, computed in constant time from the hashes
-of its children. It is the same pattern as `loose` and `size` of chapter 17, for
+of its children. It is the same pattern as `loose` and `size` of chapter 18, for
 the third time:
 
 ```rust
@@ -97,7 +97,7 @@ still filters.
 
 ---
 
-## 18.3 The rule: a hash finds, `alpha_eq` decides
+## 19.3 The rule: a hash finds, `alpha_eq` decides
 
 Two different terms **can** share a 64-bit hash. It is unlikely. It is not
 impossible.
@@ -126,7 +126,7 @@ Test: `the_answer_is_the_same_whether_it_is_cached_or_not`.
 
 ---
 
-## 18.4 When an answer stops being true
+## 19.4 When an answer stops being true
 
 A cached answer is true as long as the question means the same thing. Two things
 can change that, and both clear the cache.
@@ -150,7 +150,7 @@ answers that no later declaration asks for are only memory.
 
 ---
 
-## 18.5 Do not cache what is cheap to recompute
+## 19.5 Do not cache what is cheap to recompute
 
 The first version cached every call, and it was slower than it had to be.
 
@@ -193,7 +193,7 @@ attempting less.** Read it with the checked count or do not read it.
 
 ---
 
-## 18.6 The same cache on `is_def_eq`
+## 19.6 The same cache on `is_def_eq`
 
 `whnf` is not the only place the checker answers the same question twice.
 `is_def_eq` is called on the same pair of terms again and again while one
@@ -228,23 +228,23 @@ Tests: `a_negative_answer_is_remembered_too`,
 
 ---
 
-## 18.7 What the caches bought
+## 19.7 What the caches bought
 
 | | checked | failed | blocked | time |
 |---|---|---|---|---|
-| chapter 17 ended at | 33,862 | 650 | 23,000 | 163 s |
+| chapter 18 ended at | 33,862 | 650 | 23,000 | 163 s |
 | a cache on `whnf` | 34,419 | 683 | 22,410 | 172 s |
 | a cache on `is_def_eq` too | **35,115** | 684 | 21,713 | **190 s** |
 
 1,287 declarations moved out of **blocked**, and 1,253 of them passed. The cost
 is 27 seconds, which is the hash in every node plus the lookups.
 
-The failure count rose by 34, and §18.5 is why that is not a regression. Those
+The failure count rose by 34, and §19.5 is why that is not a regression. Those
 34 were blocked before. The checker had never asked them a question, so they
 could not fail. Now it asks, and they run out of budget like their 642
 relatives.
 
-Every failure is still one of the two kinds chapter 17 named:
+Every failure is still one of the two kinds chapter 18 named:
 
 | kind | count |
 |---|---|
@@ -255,7 +255,7 @@ So the checker still refuses no correct Lean on this input for want of a rule.
 
 ---
 
-## 18.8 A faster kernel exposed a limit that lied
+## 19.8 A faster kernel exposed a limit that lied
 
 A larger budget after the caches brought a failure the prelude had never shown:
 
@@ -340,7 +340,7 @@ budget of 1,000 and asks for that number back.
 
 ---
 
-## 18.9 The honest summary of three chapters of speed
+## 19.9 The honest summary of three chapters of speed
 
 Four changes, each measured, each with a different lesson:
 
@@ -361,7 +361,7 @@ making for a different reason. Say which reason.
 
 ---
 
-## 18.10 What is left
+## 19.10 What is left
 
 **676 declarations out of budget.** Still well-founded recursion, and still the
 whole gap.
@@ -378,7 +378,7 @@ Five times the budget buys 1,094 declarations and cuts the failures by 175. So
 the budget is still a real part of the gap, and 509 declarations are beyond even
 that.
 
-Do not compare this table with the one in chapter 17 §17.12. That measurement ran
+Do not compare this table with the one in chapter 18 §18.12. That measurement ran
 on an earlier binary, and a comparison across two binaries measures both
 changes at once.
 
@@ -386,16 +386,16 @@ Both caches are in, so what remains looked like the deeper change: our `whnf`
 is **eager**, and it rebuilds a whole term for each step. Lean's is lazy, and
 that is why `drop_slow` sat at the top of our profile and not of theirs.
 
-That plan was wrong, and [chapter 19](19-compare-before-you-unfold.md) is the
+That plan was wrong, and [chapter 20](20-compare-before-you-unfold.md) is the
 one measurement that said so. The fix was three lines, and it took 455 of these
-676 failures away. Read chapter 19 before trusting any plan in this one.
+676 failures away. Read chapter 20 before trusting any plan in this one.
 
 Neither is a soundness gap. The checker has every rule it needs for this input.
 What is left is the engineering, and the roadmap says so.
 
 ---
 
-## 18.11 How other systems do it
+## 19.11 How other systems do it
 
 Lean's kernel caches the same two questions, and it keeps the same discipline.
 
@@ -409,17 +409,17 @@ Three notes.
 
 - **A negative cache is the half we do not have.** Lean remembers a pair that
   was **not** equal, because asking twice costs as much as asking once.
-  Section 10.6 is the positive half only.
+  Section 11.6 is the positive half only.
 - **Pointer equality comes before everything.** Lean's first test in a
   comparison is whether the two terms are the same object. That test is free,
-  and it works because Lean's elaborator shares subterms. Chapter 26, section
-  18.9 asks what sharing would be worth to us, and the answer surprised us.
+  and it works because Lean's elaborator shares subterms. Chapter 27, section
+  27.9 asks what sharing would be worth to us, and the answer surprised us.
 - **The honest rule is not special to proofs.** A hash table does the same
-  thing: hash to find a bucket, then compare the key. Section 10.3 only says
+  thing: hash to find a bucket, then compare the key. Section 11.3 only says
   that a proof checker may not skip the second half to go faster, because
   "probably equal" is not a verdict a kernel is allowed to give.
 
-## 18.12 References
+## 19.12 References
 
 **Our code**
 
@@ -445,4 +445,4 @@ Three notes.
 
 ---
 
-**Next:** [Compare before you unfold](19-compare-before-you-unfold.md)
+**Next:** [Compare before you unfold](20-compare-before-you-unfold.md)

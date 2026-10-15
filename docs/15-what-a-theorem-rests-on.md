@@ -1,15 +1,15 @@
-# Chapter 14 — What a theorem rests on
+# Chapter 15 — What a theorem rests on
 
-> **Where you are.** Chapter 14 of 28, in Part IV of [the guide](README.md).
+> **Where you are.** Chapter 15 of 28, in Part IV of [the guide](README.md).
 >
-> **Before this.** [What a checker must check](13-what-a-checker-must-check.md),
-> and Part I chapter [8](book/08-what-you-must-trust.md), section 8.4, for the
+> **Before this.** [What a checker must check](14-what-a-checker-must-check.md),
+> and Part I chapter [9](book/09-what-you-must-trust.md), section 9.4, for the
 > axioms.
 >
 > **After it you can** read the `trust:` line of `rean check`, and say what it
 > means for a theorem to rest on an axiom.
 
-Chapter 13 closed the hole that let a recursor smuggle in an axiom. It left two
+Chapter 14 closed the hole that let a recursor smuggle in an axiom. It left two
 things on the table, and this chapter takes both.
 
 ```sh
@@ -19,9 +19,9 @@ devbox run -- cargo run -p rean -- check fixtures/lean4export/Nat.add_succ.ndjso
 
 ---
 
-## 14.1 Type correct is not the same as correct
+## 15.1 Type correct is not the same as correct
 
-Chapter 13 checks that every ι rule delivers the type the recursor promises.
+Chapter 14 checks that every ι rule delivers the type the recursor promises.
 That is the property that makes ι sound, and it is not enough.
 
 A recursor could offer minor premises of **some other shape**, keep its rules
@@ -39,7 +39,7 @@ type correct:
 fun motive minor => minor U.u        delivers motive U.u, exactly as promised
 ```
 
-Every check of chapter 13 passes. What is left is not induction.
+Every check of chapter 14 passes. What is left is not induction.
 
 The sharper case drops an induction hypothesis. For `N.s : N → N`, induction
 needs
@@ -57,7 +57,7 @@ Offer this instead:
 and the rule `fun motive mz ms k => ms k` delivers `motive (N.s k)`, which is
 what the type promises. Type correct, and no induction at all.
 
-## 14.2 So derive the premises
+## 15.2 So derive the premises
 
 The cure is to stop accepting and start deriving. For a constructor
 
@@ -97,9 +97,9 @@ would be worse than none, because it would refuse correct code.
 
 ---
 
-## 14.3 The trust report
+## 15.3 The trust report
 
-The De Bruijn criterion of Part I chapter 8, section 8.1, says the kernel re-checks
+The De Bruijn criterion of Part I chapter 9, section 9.1, says the kernel re-checks
 everything, so no tactic and no elaborator can lie. There is one exception, and
 it is deliberate: an **axiom** asks to be trusted.
 
@@ -134,7 +134,7 @@ would say so, by name, on that line.
 
 ---
 
-## 14.4 Unsafe may not reach into safe code
+## 15.4 Unsafe may not reach into safe code
 
 An `unsafe` or `partial` declaration may not terminate. The kernel evaluates a
 term while it checks it, so a proof that rests on one could make the checker
@@ -156,20 +156,20 @@ all**, so a safe declaration may not touch it.
 
 ---
 
-## 14.5 Where the checker stands
+## 15.5 Where the checker stands
 
 | Job | Status |
 |---|---|
-| the reduction rules, all of them | chapters 9, 10, 12 |
-| strict positivity, plain inductive | chapter 12 |
-| recursor shape and ι rule types | chapter 13 |
-| no large elimination out of a non subsingleton `Prop` | chapter 13 |
-| universe hygiene, one name per declaration | chapter 13 |
-| eta for a structure | chapter 13 |
-| a failed declaration stays out of the environment | chapter 13 |
-| **derived minor premises** | **chapter 14** |
-| **the axiom trust report** | **chapter 14** |
-| **unsafe isolation** | **chapter 14** |
+| the reduction rules, all of them | chapters 10, 11, 13 |
+| strict positivity, plain inductive | chapter 13 |
+| recursor shape and ι rule types | chapter 14 |
+| no large elimination out of a non subsingleton `Prop` | chapter 14 |
+| universe hygiene, one name per declaration | chapter 14 |
+| eta for a structure | chapter 14 |
+| a failed declaration stays out of the environment | chapter 14 |
+| **derived minor premises** | **chapter 15** |
+| **the axiom trust report** | **chapter 15** |
+| **unsafe isolation** | **chapter 15** |
 
 ### Still missing
 
@@ -196,10 +196,10 @@ trust     every axiom reported, by name
 
 ---
 
-## 14.6 Exercises
+## 15.6 Exercises
 
 1. Give a recursor whose rules are type correct and which is still not an
-   induction principle. Then say which check of chapter 14 refuses it.
+   induction principle. Then say which check of chapter 15 refuses it.
 2. Why does the dependency walk need a seen set?
 3. The driver asks the trusted environment for axioms, not the full module.
    Give the wrong report that the other choice would produce.
@@ -213,7 +213,7 @@ trust     every axiom reported, by name
 
 ### Answers
 
-1. The one in section 14.1: ask for `(x : U) → motive U.u` where induction needs
+1. The one in section 15.1: ask for `(x : U) → motive U.u` where induction needs
    `motive U.u`. `check_minor_premises` refuses it, because the derived premise
    and the declared one are not definitionally equal.
 2. A recursor's ι rules call the recursor, so the graph has a cycle and the
@@ -235,7 +235,7 @@ trust     every axiom reported, by name
 
 ---
 
-## 14.7 How other systems do it
+## 15.7 How other systems do it
 
 Every proof assistant has this report, because every one of them has a way to
 assume a thing without proving it.
@@ -257,12 +257,12 @@ Three notes.
   compiles a proposition and runs it, and it records a fresh axiom for that
   run, so the trust report tells you. This is the honest design: the tactic
   does not hide what it added.
-- **`unsafe` is a different kind of trust.** Section 6.4 keeps an `unsafe`
+- **`unsafe` is a different kind of trust.** Section 7.4 keeps an `unsafe`
   declaration out of safe code. The reason is not logic but termination: an
   `unsafe` function may never return, and a value that never returns can
   inhabit any type.
 
-## 14.8 References
+## 15.8 References
 
 **Our code**
 
@@ -289,4 +289,4 @@ Three notes.
 
 ---
 
-**Next:** [Mutual and nested](15-mutual-and-nested.md)
+**Next:** [Mutual and nested](16-mutual-and-nested.md)
